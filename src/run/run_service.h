@@ -82,6 +82,14 @@ namespace RunService
     // Same, for the optional name a rider gives a run (see RunInfo::title).
     bool setTitle(const String& name, const String& title);
 
+    // Corrects one field of the setup a finished run was recorded with: a
+    // click count, "volume_tokens", "pressure_psi", or "lockout" (see
+    // RunSetup). The snapshot is whatever Settings held when the run ended,
+    // which is not always what was on the bike. The caller checks the field
+    // name and the value's range. Returns false if the run's .JSON doesn't
+    // exist, can't be parsed, or has no setup for that end.
+    bool setSetupField(const String& name, bool rear, const char* field, float value);
+
     String currentName();
     uint32_t elapsedSeconds();
 

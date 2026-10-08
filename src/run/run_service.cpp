@@ -1044,6 +1044,25 @@ static void writeRunMeta(float durationSeconds) {
     storageClose(f);
 }
 
+static void loadRunSetup(JsonObjectConst src, RunSetup& setup) {
+    if (!src["lsc"].is<int>())
+        return;
+
+    setup.recorded = true;
+    setup.lsc = src["lsc"] | 0;
+    setup.hsc = src["hsc"] | 0;
+    setup.lsr = src["lsr"] | 0;
+    setup.hsr = src["hsr"] | 0;
+    setup.volumeTokens = src["volume_tokens"] | 0;
+    setup.pressurePsi = src["pressure_psi"] | 0.0f;
+    setup.sagPct = src["sag_pct"] | 0.0f;
+    setup.lockout = src["lockout"] | false;
+    setup.hasLSC = src["has_lsc"] | true;
+    setup.hasHSC = src["has_hsc"] | true;
+    setup.hasLSR = src["has_lsr"] | true;
+    setup.hasHSR = src["has_hsr"] | true;
+}
+
 static bool loadRunMeta(const String& runName, RunInfo& run) {
     File f = storageGet(jsonPath(runName).c_str());
 
@@ -1062,6 +1081,8 @@ static bool loadRunMeta(const String& runName, RunInfo& run) {
     run.frontTravelMM = doc["bike"]["front_travel"] | 0.0f;
     run.rearTravelMM = doc["bike"]["rear_travel"] | 0.0f;
     run.fullSuspension = doc["bike"]["full_suspension"] | true;
+    loadRunSetup(doc["bike"]["front_suspension"], run.frontSetup);
+    loadRunSetup(doc["bike"]["rear_suspension"], run.rearSetup);
     run.duration_s = doc["duration_s"] | 0.0f;
     run.startUtc = doc["start_utc"] | 0U;
     run.recovered = doc["recovered"] | false;
@@ -1115,6 +1136,47 @@ bool RunService::setNotes(const String& name, const String& notes) {
 
 bool RunService::setTitle(const String& name, const String& title) {
     return setRunMetaString(name, "title", title);
+}
+
+bool RunService::setSetupField(const String& name, bool rear, const char* field, float value) {
+    File f = storageGet(jsonPath(name).c_str());
+    if (!f)
+        return false;
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, f);
+    f.close();
+
+    if (err)
+        return false;
+
+    // Only a setup that was recorded can be corrected — a run without one
+    // doesn't get a block made of this one field.
+    JsonObject setup = doc["bike"][rear ? "rear_suspension" : "front_suspension"];
+    if (setup.isNull())
+        return false;
+
+    // Each in the form writeRunMeta() gives it. "lockout" is only ever there
+    // when it is true.
+    if (strcmp(field, "lockout") == 0) {
+        if (value != 0)
+            setup[field] = true;
+        else
+            setup.remove(field);
+    } else if (strcmp(field, "pressure_psi") == 0) {
+        setup[field] = serialized(String(value, 0));
+    } else {
+        setup[field] = (uint8_t)value;
+    }
+
+    File out = storageOpen(jsonPath(name).c_str());
+    if (!out)
+        return false;
+
+    serializeJson(doc, out);
+    storageClose(out);
+
+    return true;
 }
 
 // Reads the timestamp_ms of the first data row (skipping the header).

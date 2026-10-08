@@ -531,8 +531,34 @@ void handleApiSystem() {
     server.send(200, "application/json", json);
 }
 
+// One end's setup under the same keys the run's own .JSON uses, so the
+// dashboard reads it the same way from either place.
+static void addRunSetup(JsonObject run, const char* key, const RunSetup& setup) {
+    if (!setup.recorded)
+        return;
+
+    JsonObject obj = run[key].to<JsonObject>();
+
+    obj["lsc"] = setup.lsc;
+    obj["hsc"] = setup.hsc;
+    obj["lsr"] = setup.lsr;
+    obj["hsr"] = setup.hsr;
+    obj["volume_tokens"] = setup.volumeTokens;
+    obj["pressure_psi"] = serialized(String(setup.pressurePsi, 0));
+    obj["sag_pct"] = serialized(String(setup.sagPct, 1));
+    if (setup.lockout) obj["lockout"] = true;
+    obj["has_lsc"] = setup.hasLSC;
+    obj["has_hsc"] = setup.hasHSC;
+    obj["has_lsr"] = setup.hasLSR;
+    obj["has_hsr"] = setup.hasHSR;
+}
+
 void handleApiRuns() {
     auto runs = RunService::list();
+
+    // Each run's setup more than doubles the reply, and only the pages that
+    // show the setup history want it (?setup=1).
+    bool withSetup = server.hasArg("setup");
 
     JsonDocument doc;
     JsonArray arr = doc.to<JsonArray>();
@@ -563,6 +589,11 @@ void handleApiRuns() {
             obj["max_speed_kmh"] = serialized(String(run.maxSpeedKmh, 1));
             obj["max_front_mm"] = serialized(String(run.maxFrontMM, 1));
             obj["max_rear_mm"] = serialized(String(run.maxRearMM, 1));
+        }
+
+        if (withSetup) {
+            addRunSetup(obj, "front_suspension", run.frontSetup);
+            addRunSetup(obj, "rear_suspension", run.rearSetup);
         }
     }
 
@@ -759,6 +790,66 @@ void handleApiRunNotes() {
 
     if (!ok) {
         server.send(404, "text/plain", "Run not found");
+        return;
+    }
+
+    server.send(200, "text/plain", "OK");
+}
+
+// Corrects one field of the setup a run was recorded with, in that run's
+// .JSON only — Settings and the bike's profile are not touched.
+// Body: { name, end: "front"|"rear", field, value }.
+void handleApiRunSetup() {
+    if (!server.hasArg("plain")) {
+        server.send(400, "text/plain", "Missing body");
+        return;
+    }
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, server.arg("plain"));
+
+    if (err || !doc["name"].is<const char*>()) {
+        server.send(400, "text/plain", "Invalid JSON");
+        return;
+    }
+
+    String end = doc["end"] | "";
+    String field = doc["field"] | "";
+
+    if (end != "front" && end != "rear") {
+        server.send(400, "text/plain", "Unknown end");
+        return;
+    }
+
+    bool isLockout = field == "lockout";
+    bool isPressure = field == "pressure_psi";
+    bool isCount = field == "lsc" || field == "hsc" || field == "lsr" || field == "hsr" || field == "volume_tokens";
+
+    if (!isLockout && !isPressure && !isCount) {
+        server.send(400, "text/plain", "Unknown field");
+        return;
+    }
+
+    float value;
+
+    if (isLockout) {
+        if (!doc["value"].is<bool>()) {
+            server.send(400, "text/plain", "Invalid value");
+            return;
+        }
+
+        value = doc["value"].as<bool>() ? 1 : 0;
+    } else {
+        value = doc["value"] | -1.0f;
+
+        if (value < 0 || value > (isPressure ? 1000 : 255)) {
+            server.send(400, "text/plain", "Invalid value");
+            return;
+        }
+    }
+
+    if (!RunService::setSetupField(doc["name"].as<String>(), end == "rear", field.c_str(), value)) {
+        server.send(404, "text/plain", "Run or its setup not found");
         return;
     }
 
@@ -1130,6 +1221,7 @@ bool serverInit() {
     server.on("/api/runs", HTTP_GET, handleApiRuns);
     server.on("/api/runs", HTTP_DELETE, handleApiRunDelete);
     server.on("/api/runs/notes", HTTP_POST, handleApiRunNotes);
+    server.on("/api/runs/setup", HTTP_POST, handleApiRunSetup);
     server.on("/api/runs/clear", HTTP_POST, handleApiRunsClear);
     server.on("/api/runs/download", handleApiRunDownload);
     server.on("/api/runs/telemetry", handleApiRunTelemetry);

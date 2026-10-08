@@ -116,7 +116,7 @@ A 60s run: 29,939 rows, 29,936 of them exactly 2ms after the previous one, none 
 - **The rear is calibrated directly in shock-stroke mm (55mm)**, not wheel travel — no leverage-curve conversion. `rearWheelTravelMM` is informational only.
 - Logged travel is the unsmoothed instantaneous reading; the EMA-filtered value is only for the live display.
 - The rear sensor was bench-verified linear (~44mV/mm, 6-point ruler sweep). Its first bracket made the rod under-track the shock (22% sag shown against a real 30%); a redesigned bracket fixed it. **Verify bracket geometry against a known physical mark before trusting a calibration**, especially on the short rear stroke.
-- **Static sag**: the "Sag" step in Settings → Sensors captures both ends from the live sensors (`/api/suspension/sag/capture`). It goes stale when pressure or tokens change; nothing detects that automatically.
+- **Static sag**: the "Sag" step in Settings → Sensors captures both ends from the live sensors (`/api/suspension/sag/capture`). It goes stale when pressure or tokens change; the setup history flags that (see "Setup-change history").
 - **Calibration UI**: Settings → Sensors walks through it as Zero → Max per end, then Sag, with a live reading per end, a ✓ on each finished step and the outcome of every capture shown next to its button. A Zero and Max less than 300mV apart are flagged as probably not compressed (`CAL_MIN_SPAN_MV`; the real calibrations span ~2300-2900mV). Capture Max is disabled until that end's declared travel is set in the Bike tab.
 
 ## Setup history
@@ -294,7 +294,7 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 - **Runs** (`runs.html`): from 1024px a sortable table (date, bike, duration, distance, max speed, peak front/rear, notes); ticking two rows turns the topbar's Compare into "Compare selected", older run as A. A peak ≥95% of travel is shown in amber — the list knows each run's peak, **not** a bottom-out count. Cards below 1024px. "Delete all" lives in Settings → System → Device.
 - **Settings**: Bike / Sensors / WiFi / System. Calibration and IMU zero are under **Sensors** (they belong to the device, not the bike). Five cards **save themselves** (0.8s after typing stops, at once for selects and checkboxes, sent with `keepalive` so leaving the page does not lose the edit); the two WiFi cards keep an explicit Save and flag unsaved edits. A dial's field doubles as its `has_*` flag: **blank = no such adjuster, any number including 0 = present** (− from 0 clears it, + from blank starts it at 0). Long explanations are collapsed behind `<details class="help">`.
 - **Compare**: Run A is the neutral baseline, Run B the highlight; the map and the time-gained chart sit side by side from 1024px.
-- **Trends**: every run is labelled on the x axis when it fits.
+- **Trends**: every run is labelled on the x axis when it fits. A Setup History card sits above the charts (see "Setup-change history"), capped in height so a long history scrolls instead of pushing the charts down.
 
 **Charts are drawn in a 300-unit-wide viewBox and stretched to fit**, so anything sized in units grows with the chart. Trends and Compare size their line weights and axis text from the rendered width and redraw on resize (`rememberChart()`); a chart must be drawn **after** its card is shown, because a hidden card measures 0 wide.
 
@@ -355,7 +355,31 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 - **Notable Events reused as evidence**: `maxImpactG`/`hardImpactCount` corroborate — never invent — a bottoming-out diagnosis's severity.
 - **Front/rear imbalance** (`detectConsistentImbalance()`/`renderImbalanceSuggestion()`): its own block, based on the ride's *median* gap so one deliberate nose-heavy moment isn't read as a real mismatch.
 
-**Deferred**: don't repeat the same suggestion run after run without context ("you just changed this"). It needs a setup-change history that doesn't exist yet — the same history the "might need a service" signal would need, so build it once for both.
+**A fourth phase adds context from the setup history** (`addSetupContext()`, 2026-10-08): a line under each suggestion saying what the setup history knows about the part of the setup it is about — "First run since pressure 225 → 235 psi", "Last changed 2 runs before this one, at RUN0047: …", or "No change to pressure or tokens in the 4 runs on record". See "Setup-change history" below for what it can and cannot say.
+
+## Setup-change history (2026-10-08 — on the device, checked against RUN0042–46; no run with changed clicks or pressure yet)
+
+**There is no log of setup changes.** Every run's `.JSON` already carries the setup it was ridden with, so the history is whatever differs between one run of a bike and the next. Chosen over an explicit log written from `BikeProfiles::syncActive()`: the device has no RTC, run numbers start again after "Delete all" (`nextRunNumber()` is the highest on the card plus one), the runs already recorded would not be in it, and a log and the run files would be two sources that can disagree.
+
+- **Firmware**: `GET /api/runs?setup=1` adds each run's `front_suspension` / `rear_suspension` under the same keys as the run's `.JSON` (`RunSetup` in `run_types.h`). Opt-in because it doubles the reply (1252 → 2584 bytes for 4 runs); without the parameter the reply is byte-identical to before.
+- **Shared logic** (`telemetry.js`, "Setup history"): `setupHistory(runs, bikeName)` gives the runs of one bike oldest first, each with what changed from the one before; `setupEpochs()` groups them into stretches ridden on one setup; `lastSetupChange()` finds when a field last changed; `setupChangeText()` words a change. It builds on `setupFields()`, so "which fields a setup has" still has one definition.
+- **Run page**: a line under the setup in the stats card — "Changed since RUN0046: rear pressure 225 → 235 psi", or "Same setup for 4 runs, since RUN0042".
+- **Trends**: a Setup History card, newest first, one row per stretch (runs, dates when known, what was changed to start it, the setup itself). Above them, **"Not ridden yet"**: what has been changed in Settings since the last run, when the bike shown is the one Settings hold. The charts' dashed markers now come from the same history — they used to compare the *front* setup only, so a rear-only change was never marked — and a marked run's tooltip says what changed.
+- **Stale static sag is now detected** (it was "nothing detects that automatically"): pressure or tokens changed at one end while its static sag stayed the same → flagged on Trends, and as a "Static sag" item in that end's Tuning list.
+
+**What it leaves out, on purpose**: static sag is never a change (recapturing it measures the setup); runs ridden locked out are skipped (see "Corrections to a run's recorded setup"); recovered runs are skipped (their `.JSON` was rebuilt at the next boot from whatever Settings held by then); so are runs with no setup recorded, or one from before compression and rebound were split.
+
+**What it cannot know**:
+- It goes when the runs do, and it only sees what Settings held when each run ended — a run ridden before Settings were updated is recorded with the old setup.
+- **It never says whether a change went the way a suggestion asked.** A click count is only a number here — counted from open on one dial, from closed on another — so "up" is not a direction it can read. It states what changed and when.
+- It does not know what the previous run's suggestions were; that would take loading that run's telemetry too.
+
+**Corrections to a run's recorded setup** (2026-10-08). The snapshot is whatever Settings held when the run ended, which is not always what was on the bike. `POST /api/runs/setup` with `{ name, end, field, value }` rewrites one field of one run's `.JSON` — a click count, `volume_tokens`, `pressure_psi` or `lockout` — and touches neither Settings nor the bike's profile (`RunService::setSetupField()`; unknown fields, out-of-range values and runs with no setup for that end are refused).
+- **Rear lockout** is the one correction with a control: a "Rear shock was locked out" checkbox under the setup on the run page. It is **not a Settings field**, the rider's call: a lever left on Threshold is only noticed after the run, so there is nothing to set beforehand. It is stored as `rear_suspension.lockout: true` (absent otherwise), `setupFields()` reports it, so the run page, the Tuning tab and Compare show "locked out", and that run's rear suggestions open with a note that the figures are the locked shock's. Saving reloads the page — nearly everything on it was computed from the setup as loaded.
+- **The other fields have no control yet**; they were used once, through the API, to fix RUN0042/44/45/46: their rear `volume_tokens` said 0 while the shock had its one factory token all along (an error in what was entered, since corrected in Settings), and would have shown up as a change that never happened. RUN0045 was marked locked out at the same time, as its own note says. The four files changed in those fields only (compared against copies taken first).
+- **A locked-out run is set aside by the history, not counted as a change** (`runLockedOut()` in `telemetry.js`). It was first built as a change like any other, which cut RUN0042–46 — one setup — into three stretches (…44, 45 "lockout on", 46 "lockout off"). The rider's point settled it: the lever was closed for the climb and not opened again, which says nothing about the setup. Now RUN0042–46 is one stretch of 3 runs with "Not counted, ridden locked out: RUN0045" under it, RUN0046 reads "Same setup for 3 runs, since RUN0042", RUN0045's own page says "Not counted in the setup history", and its point on the Trends charts stays, with "ridden locked out" in its tooltip.
+
+**Still to come from it**: the "possible need for service" signal. The stretches from `setupEpochs()` are the grouping it needs — a drift inside one stretch is not explained by a setup change.
 
 ## Pains we hit and how they were solved
 
@@ -417,7 +441,7 @@ Under git since 2026-10-08, branch `main`. On GitHub it is `FLAVQUR/dialed-suspe
 - **What is not in it**: `src/config/secrets.h` (the OTA password) and `platformio.local.ini` (the device's address and the same password, as `--auth`). Each has a committed `.example` next to it. `platformio.ini` pulls the local file in with `extra_configs`; a missing file is skipped without a word, and uploads then go over USB. The password was moved out before the first commit, so no commit contains it — which is what keeps making the repository public an option.
 - **Line endings**: 27 of the files were CRLF and the rest LF. `.gitattributes` (`* text=auto eol=lf`) makes the repository store LF everywhere; a CRLF file in the working folder becomes LF the next time git writes it.
 - Also ignored: `.pio/`, the VS Code files the PlatformIO extension regenerates, `.claude/settings.local.json`.
-- **The working folder is `D:\Dev\dialed-suspension-tuner`** since 2026-10-08. Until then it was inside OneDrive (`Documentos\PlatformIO\Projects\Bike Telemetry`), which syncs `.git` along with everything else. The move was a fresh clone plus the two untracked files, not a copy of the folder.
+- **The working folder is `D:\Dev\dialed-suspension-tuner`** since 2026-10-08. Until then it was inside OneDrive (`Documentos\PlatformIO\Projects\Bike Telemetry`), which syncs `.git` along with everything else. The move was a fresh clone plus the two untracked files, not a copy of the folder. The OneDrive folder was deleted the same day, once both untracked files were confirmed identical in the new one.
 - **Platform and libraries are pinned to exact versions** in `platformio.ini`. That fresh clone was the first build ever made without the old folder's `.pio/`, and it failed: `fastled/FastLED@^3.10.3` resolved to 3.10.6, which is 390KB bigger, and the firmware came to 115.6% of its partition instead of 85%. Nothing had warned of it, because an existing `.pio/libdeps` keeps whatever was installed first. With `espressif32@7.0.1`, FastLED 3.10.3, ArduinoJson 7.4.3, TinyGPSPlus 1.1.0 and the BNO08x library 1.0.6 pinned, a clean build gives the same binary as before. A library upgrade is now a deliberate change — and FastLED's needs its size looked at first.
 
 ## Versions
@@ -479,14 +503,15 @@ data/common.js           — every page: applyTheme/escapeHtml/formatDuration, B
                            connection + battery chips, offline banner, browser-time offer
 data/telemetry.js        — run/compare/trends: .CSVB decoding + IMU maths (RAD_TO_DEG, bikeBasis(),
                            bikeAngles(), verticalG()), suspension figures, setupFields(),
-                           SVG chart primitives
+                           the setup history (setupHistory(), setupEpochs()), SVG chart primitives
 data/index.html          — dashboard: Start Run + pre-ride checklist, live suspension
 data/runs.html           — runs table (wide) / cards (narrow), selection for Compare
 data/run.html            — single-run page: minMaxPoints(), the time-series stack (shared axis,
                            fitTimeCharts(), drawLineChart()), chart zoom, linked views,
-                           computeActivitySegments(), detectHarshEvents(), generateSuggestions()
+                           computeActivitySegments(), detectHarshEvents(), generateSuggestions(),
+                           addSetupContext()
 data/compare.html        — A/B of two runs: route + time gained, setup diff, histograms
-data/trends.html         — sag and bottom-outs per minute across one bike's runs
+data/trends.html         — one bike's setup history, and sag and bottom-outs per minute across its runs
 data/settings.html       — bike profiles + setup (autosave), guided calibration + IMU zero
                            (Sensors tab), wifi, system
 ```

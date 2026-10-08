@@ -8,6 +8,16 @@
 <style>
     .legend-row { display: flex; gap: 18px; margin-top: 4px; margin-bottom: 10px; font-size: 13px; color: var(--text-muted); }
     .legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    /* Capped so that a long history scrolls inside its card instead of
+       pushing the charts off the screen. */
+    .history-list { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+    .history-row { padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.45; }
+    .history-row:first-child { border-top: none; padding-top: 0; }
+    .history-row:last-child { padding-bottom: 0; }
+    .history-row a { color: var(--text); font-weight: 600; text-decoration: none; }
+    .history-row a:hover { text-decoration: underline; }
+    .history-row .stat-sub { margin: 0; }
+    .history-warn { color: var(--warn); }
 </style>
 </head><body class="is-loading">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="glass-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="2" result="soft"/><feDisplacementMap in="SourceGraphic" in2="soft" scale="70" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
@@ -39,13 +49,19 @@
         <p class="stat-sub" id="loadError" style="display:none; margin:6px 0 0;">Could not load run history.</p>
     </div>
 
+    <div class="card glass span-2" id="historyCard" style="display:none;">
+        <h3 style="margin-top:0;">Setup History</h3>
+        <p class="stat-sub" style="margin-top:-4px; margin-bottom:10px;">Newest first — worked out from the setup each run was recorded with, so it covers the runs still on the card</p>
+        <div class="history-list" id="historyList"></div>
+    </div>
+
     <div class="card glass span-2" id="sagCard" style="display:none;">
         <h3 style="margin-top:0;">Average Sag</h3>
         <div class="legend-row">
             <span><span class="legend-dot" id="legendFrontSag"></span>Front</span>
             <span id="legendRearSagWrap"><span class="legend-dot" id="legendRearSag"></span>Rear</span>
         </div>
-        <p class="stat-sub" style="margin-top:-4px;">Dashed lines mark where suspension setup (LSC/HSC/LSR/HSR/pressure) changed from the previous run</p>
+        <p class="stat-sub" style="margin-top:-4px;">Dashed lines mark the runs the setup was changed for — hover one to see what changed</p>
         <div class="chart-wrap">
             <svg class="chart-svg" id="sagChart" viewBox="0 0 300 140"></svg>
             <div class="chart-tooltip" id="sagTooltip"></div>
@@ -98,20 +114,6 @@ document.getElementById('legendRearSag').style.background = COLOR_REAR;
 document.getElementById('legendFrontBo').style.background = COLOR_FRONT;
 document.getElementById('legendRearBo').style.background = COLOR_REAR;
 
-// One compact string per run's setup ("4LSC,6LSR,1tok,69psi"), which this
-// page only ever compares with the previous run's to mark where the setup
-// changed. Which fields a run has is setupFields()'s call (telemetry.js).
-// Static sag is left out on purpose: recapturing it is not a setup change.
-function formatSetup(setup)
-{
-    const SHORT = { tokens: 'tok', comp: 'comp', rebound: 'rbd', psi: 'psi' };
-
-    return setupFields(setup)
-        .filter(f => f.key !== 'sag')
-        .map(f => (f.key === 'psi' ? f.value.toFixed(0) : f.value) + (SHORT[f.key] || f.key.toUpperCase()))
-        .join(',');
-}
-
 function analyzeRun(name, run)
 {
     const { rows, bike } = run;
@@ -133,9 +135,7 @@ function analyzeRun(name, run)
         frontAvgPct: frontMaxMM ? frontAvg / frontMaxMM * 100 : null,
         rearAvgPct: (isFullSusp && rearMaxMM) ? rearAvg / rearMaxMM * 100 : null,
         frontBOPerMin: frontMaxMM ? frontBOCount / totalMinutes : null,
-        rearBOPerMin: (isFullSusp && rearMaxMM) ? rearBOCount / totalMinutes : null,
-        frontSetup: formatSetup(bike && bike.front_suspension),
-        rearSetup: formatSetup(bike && bike.rear_suspension)
+        rearBOPerMin: (isFullSusp && rearMaxMM) ? rearBOCount / totalMinutes : null
     };
 }
 
@@ -143,8 +143,9 @@ function analyzeRun(name, run)
 // time — every run is a real, individually-hoverable point (unlike the
 // per-run charts elsewhere, where only the shape over time matters, here
 // each dot IS a specific ride worth identifying). Dashed verticals mark
-// where a series' setup string changed from the previous run, so a step
-// change in the trend can be matched up with what was actually adjusted.
+// the runs the setup was changed for (opts.markerIndices), and the tooltip
+// of such a run says what changed (opts.xNotes), so a step in the trend can
+// be matched up with what was actually adjusted.
 function drawTrendChart(svg, tooltip, series, opts)
 {
     rememberChart(svg.id, fresh => drawTrendChart(fresh, tooltip, series, opts));
@@ -254,6 +255,9 @@ function drawTrendChart(svg, tooltip, series, opts)
             html += `<div class="row"><span class="key" style="background:${s.color}"></span>`
                 + `<span class="value">${opts.yFormat(p.y)}</span> <span class="label">${s.name}</span></div>`;
         });
+        (opts.xNotes ? opts.xNotes(idx) : []).forEach(note => {
+            html += `<div class="label">${note}</div>`;
+        });
         tooltip.innerHTML = html;
         tooltip.classList.add('visible');
 
@@ -274,13 +278,120 @@ function drawTrendChart(svg, tooltip, series, opts)
     svg.addEventListener('pointerleave', clearHover);
 }
 
-function setupChangeIndices(results, key)
+// What the setup history (setupHistory() in telemetry.js) has for the run
+// behind each point of a chart: the changes made for it, none for most.
+function setupChangesOf(results)
 {
-    const idx = [];
-    for (let i = 1; i < results.length; i++) {
-        if (results[i][key] && results[i][key] !== results[i - 1][key]) idx.push(i);
+    const byRun = new Map(historyEntries.map(e => [e.run.name, e.changes]));
+
+    return results.map(r => byRun.get(r.name) || []);
+}
+
+// The live Settings under the keys of a run's setup snapshot, so the two can
+// be compared like any two runs.
+function setupFromConfig(cfg, end)
+{
+    return {
+        lsc: cfg[end + 'LSC'], hsc: cfg[end + 'HSC'], lsr: cfg[end + 'LSR'], hsr: cfg[end + 'HSR'],
+        volume_tokens: cfg[end + 'VolumeTokens'], pressure_psi: cfg[end + 'PressurePsi'], sag_pct: cfg[end + 'SagPct'],
+        has_lsc: cfg[end + 'HasLSC'], has_hsc: cfg[end + 'HasHSC'], has_lsr: cfg[end + 'HasLSR'], has_hsr: cfg[end + 'HasHSR']
+    };
+}
+
+// What has been changed in Settings since the last run and not ridden yet:
+//   { changes, staleSag }    staleSag: the ends whose pressure or tokens
+//                            changed while the static sag stayed as it was
+function pendingSetupChanges(lastRun, cfg)
+{
+    const pending = { changes: [], staleSag: [] };
+
+    SETUP_ENDS.forEach(({ end, field }) => {
+        if (!lastRun[field]) return;
+        if (end === 'rear' && (lastRun.full_suspension === false || cfg.fullSuspension === false)) return;
+
+        const now = setupFromConfig(cfg, end);
+        const changes = setupChanges(lastRun[field], now);
+        changes.forEach(c => pending.changes.push({ end, key: c.key, from: c.from, to: c.to }));
+
+        const springChanged = changes.some(c => c.key === 'psi' || c.key === 'tokens');
+        if (springChanged && now.sag_pct > 0 && now.sag_pct === lastRun[field].sag_pct) pending.staleSag.push(end);
+    });
+
+    return pending;
+}
+
+// Every stretch ridden on one setup, newest first, each with what was
+// changed to start it — and, above them, what has been changed in Settings
+// since the last run, when the bike shown is the one Settings hold.
+function renderSetupHistory(bikeName)
+{
+    const card = document.getElementById('historyCard');
+    const epochs = setupEpochs(historyEntries);
+
+    if (epochs.length === 0) {
+        card.style.display = 'none';
+        return;
     }
-    return idx;
+
+    const changesText = changes => changes.map(c => setupChangeText(c)).join(' · ');
+    const runLink = name => `<a href="/run?name=${encodeURIComponent(name)}">${name}</a>`;
+    const setupText = (label, setup) => {
+        const parts = setupFields(setup).filter(f => f.key !== 'sag').map(setupFieldText);
+        return parts.length ? `${label}: ${parts.join(' · ')}` : '';
+    };
+
+    let html = '';
+
+    const lastEntry = historyEntries[historyEntries.length - 1];
+
+    if (liveConfig && bikeName === liveConfig.bikeName) {
+        const pending = pendingSetupChanges(lastEntry.run, liveConfig);
+
+        if (pending.changes.length > 0) {
+            html += `<div class="history-row"><strong>Not ridden yet</strong>`
+                + `<div>Changed in Settings since ${runLink(lastEntry.run.name)}: ${changesText(pending.changes)}</div>`
+                + pending.staleSag.map(end => `<div class="history-warn">The ${end} static sag is still the one captured before this change — recapture it in Settings → Sensors.</div>`).join('')
+                + `</div>`;
+        }
+    }
+
+    // A locked-out run is no part of the history, but it was ridden during
+    // one of these stretches, and that row says so: the last stretch to
+    // have started before it (the first, for a run older than all of them).
+    const stretchOf = run => epochs.slice().reverse().find(e => e.entries[0].run.name < run.name) || epochs[0];
+
+    epochs.slice().reverse().forEach((epoch, i) => {
+        const runs = epoch.entries.map(e => e.run);
+        const first = runs[0], last = runs[runs.length - 1];
+        const setAside = lockedOutRuns.filter(r => stretchOf(r) === epoch);
+
+        const dates = runs.filter(r => r.start_utc > 0).map(r => formatRunDate(r.start_utc).split(' ')[0]);
+        const dateText = dates.length === 0 ? '' : dates[0] === dates[dates.length - 1] ? dates[0] : `${dates[0]} – ${dates[dates.length - 1]}`;
+
+        const head = runs.length === 1 ? runLink(first.name) : `${runLink(first.name)} – ${runLink(last.name)}`;
+        const meta = [`${runs.length} run${runs.length === 1 ? '' : 's'}`, dateText].filter(Boolean).join(' · ');
+
+        const fullSusp = last.full_suspension !== false;
+        const setup = [setupText('Front', last.front_suspension), fullSusp ? setupText('Rear', last.rear_suspension) : ''].filter(Boolean).join(' — ');
+
+        html += `<div class="history-row">${head} <span class="stat-sub">${meta}</span>`
+            + `<div>${epoch.changes.length ? 'Changed: ' + changesText(epoch.changes) : 'Earliest setup on record'}</div>`
+            + (setup ? `<div class="stat-sub">${setup}</div>` : '')
+            + (setAside.length ? `<div class="stat-sub">Not counted, ridden locked out: ${setAside.map(r => runLink(r.name)).join(', ')}</div>` : '');
+
+        // Only worth saying about the setup still being ridden.
+        if (i === 0) {
+            SETUP_ENDS.forEach(({ end }) => {
+                const since = lastEntry.sagStale[end];
+                if (since) html += `<div class="history-warn">The ${end} static sag did not change when pressure or tokens did, at ${since} — most likely captured on the previous spring setup.</div>`;
+            });
+        }
+
+        html += `</div>`;
+    });
+
+    document.getElementById('historyList').innerHTML = html;
+    card.style.display = '';
 }
 
 function seriesPoints(results, key)
@@ -300,6 +411,12 @@ function renderTrends(results)
     const n = results.length;
     const xFormat = i => results[i] ? results[i].name : '';
 
+    const changes = setupChangesOf(results);
+    const markerIndices = changes.map((c, i) => c.length > 0 ? i : -1).filter(i => i > 0);
+    const lockedOut = new Set(lockedOutRuns.map(r => r.name));
+    const xNotes = i => (changes[i] || []).map(c => setupChangeText(c))
+        .concat(results[i] && lockedOut.has(results[i].name) ? ['ridden locked out'] : []);
+
     // Shown before drawing, not after: a chart sizes its marks from the
     // width it's rendered at, and a hidden card has none.
     document.getElementById('sagCard').style.display = '';
@@ -311,7 +428,7 @@ function renderTrends(results)
             { name: 'Front', color: COLOR_FRONT, points: seriesPoints(results, 'frontAvgPct') },
             ...(anyHardtail ? [] : [{ name: 'Rear', color: COLOR_REAR, points: seriesPoints(results, 'rearAvgPct') }])
         ],
-        { count: n, xFormat, yFormat: v => v.toFixed(0) + '%', markerIndices: setupChangeIndices(results, 'frontSetup') }
+        { count: n, xFormat, xNotes, yFormat: v => v.toFixed(0) + '%', markerIndices }
     );
 
     drawTrendChart(
@@ -320,12 +437,21 @@ function renderTrends(results)
             { name: 'Front', color: COLOR_FRONT, points: seriesPoints(results, 'frontBOPerMin') },
             ...(anyHardtail ? [] : [{ name: 'Rear', color: COLOR_REAR, points: seriesPoints(results, 'rearBOPerMin') }])
         ],
-        { count: n, xFormat, yFormat: v => v.toFixed(1) + '/min', markerIndices: setupChangeIndices(results, 'frontSetup') }
+        { count: n, xFormat, xNotes, yFormat: v => v.toFixed(1) + '/min', markerIndices }
     );
 }
 
 let allRuns = [];
 let trendsRunCount = 20;
+
+// The live Settings, and the selected bike's setup history — every run of
+// it on the card, not only the ones the charts load.
+let liveConfig = null;
+let historyEntries = [];
+
+// The selected bike's runs that the history sets aside for having been
+// ridden locked out (runLockedOut() in telemetry.js), oldest first.
+let lockedOutRuns = [];
 
 // The dropdown is seeded from the garage (BikeProfiles) rather than just
 // "whatever's active right now" — the whole point is being able to look
@@ -339,11 +465,12 @@ async function loadBikeOptions()
 {
     const [bikesData, runsData, cfg] = await Promise.all([
         fetch('/api/bikes').then(r => r.json()),
-        fetch('/api/runs').then(r => r.json()),
+        fetch('/api/runs?setup=1').then(r => r.json()),
         fetch('/api/config').then(r => r.json())
     ]);
 
     allRuns = runsData;
+    liveConfig = cfg;
     trendsRunCount = cfg.trendsRunCount || 20;
 
     const fromGarage = bikesData.bikes || [];
@@ -384,6 +511,12 @@ async function loadTrendsForSelectedBike()
     document.getElementById('sagCard').style.display = 'none';
     document.getElementById('boCard').style.display = 'none';
     document.getElementById('progressNote').style.display = '';
+
+    // Needs no telemetry, so it is there before the first run has loaded —
+    // and for a bike with a single run, which is too few for a trend.
+    historyEntries = setupHistory(allRuns, bikeName);
+    lockedOutRuns = allRuns.filter(r => (r.bike_name || '') === bikeName && runLockedOut(r)).reverse();
+    renderSetupHistory(bikeName);
 
     try {
         if (!bikeName) {

@@ -388,6 +388,8 @@ function adjusterAvailability(setup) {
 //   comp / rebound          the pre-split shape, for runs old enough to have
 //                           none of the four dials (a run's .JSON is a
 //                           snapshot — old files keep that shape forever).
+//   lockout                 only when the run was marked, afterwards, as
+//                           ridden with that end locked out (run.html).
 const SETUP_DIALS = ['lsc', 'hsc', 'lsr', 'hsr'];
 
 function setupFields(setup)
@@ -410,6 +412,7 @@ function setupFields(setup)
     }
 
     if (positive(setup.pressure_psi)) fields.push({ key: 'psi', value: setup.pressure_psi });
+    if (setup.lockout === true) fields.push({ key: 'lockout', value: true });
     if (positive(setup.sag_pct)) fields.push({ key: 'sag', value: setup.sag_pct });
 
     return fields;
@@ -424,8 +427,135 @@ function setupFieldText(field)
         case 'rebound': return `${field.value} rebound`;
         case 'psi':     return `${field.value.toFixed(0)} psi`;
         case 'sag':     return `${field.value.toFixed(0)}% static sag`;
+        case 'lockout': return 'locked out';
         default:        return `${field.value} ${field.key.toUpperCase()}`;
     }
+}
+
+// ── Setup history ──────────────────────────────────────────────────────────
+// There is no log of setup changes. Every run carries the setup it was ridden
+// with, so the history is whatever differs between one run of a bike and the
+// next. Two things follow: it only knows what Settings held when each run
+// ended, and it goes when the runs do.
+
+const SETUP_ENDS = [
+    { end: 'front', field: 'front_suspension' },
+    { end: 'rear', field: 'rear_suspension' }
+];
+
+// What differs between two setups of one end, as [{ key, from, to }], with
+// undefined for a side that doesn't have the field. Two fields are never a
+// change: static sag (recapturing it measures the setup, it doesn't alter
+// it) and a lockout (the lever left closed for one run is not the setup
+// being changed — see runLockedOut()).
+function setupChanges(before, after)
+{
+    const values = setup => new Map(setupFields(setup).filter(f => f.key !== 'sag' && f.key !== 'lockout').map(f => [f.key, f.value]));
+    const a = values(before);
+    const b = values(after);
+
+    const changes = [];
+
+    new Set([...a.keys(), ...b.keys()]).forEach(key => {
+        if (a.get(key) !== b.get(key)) changes.push({ key, from: a.get(key), to: b.get(key) });
+    });
+
+    return changes;
+}
+
+// One change in words — "rear pressure 225 → 235 psi", "front LSC 0 → 4" —
+// or without the end where the place it's shown already says which.
+function setupChangeText(change, withEnd = true)
+{
+    const NAMES = { tokens: 'volume tokens', psi: 'pressure', comp: 'compression', rebound: 'rebound' };
+
+    // Tokens are only in a snapshot above zero, so "none" is a real count
+    // there; anywhere else a missing value is one that was never entered.
+    const show = v => v === undefined ? (change.key === 'tokens' ? '0' : 'not set')
+        : change.key === 'psi' ? v.toFixed(0) : String(v);
+
+    const name = NAMES[change.key] || change.key.toUpperCase();
+    const unit = change.key === 'psi' && change.to !== undefined ? ' psi' : '';
+
+    return `${withEnd ? change.end + ' ' : ''}${name} ${show(change.from)} → ${show(change.to)}${unit}`;
+}
+
+// Whether a run was marked as ridden with either end locked out (run.html).
+// The setup history sets such a run aside: the lever was closed for the
+// climb and not opened again, which says nothing about the setup — counted
+// as a change, it would cut one stretch on one setup into three.
+function runLockedOut(run)
+{
+    return SETUP_ENDS.some(({ field }) => !!run[field] && run[field].lockout === true);
+}
+
+// The runs of one bike that can be compared, oldest first, each with what
+// changed from the one before it:
+//   { run, changes: [{ end, key, from, to }], sagStale: { front, rear } }
+// `runs` is the reply of /api/runs?setup=1. Left out: runs with no setup
+// recorded, locked-out ones (runLockedOut()), and recovered ones — their
+// .JSON was rebuilt at the next boot, from whatever Settings held by then.
+// sagStale[end] names the run at which that end's pressure or tokens changed
+// while its static sag stayed as it was, and keeps naming it until the sag
+// changes: the figure on record was most likely captured on the old spring.
+function setupHistory(runs, bikeName)
+{
+    const counted = runs
+        .filter(r => (r.bike_name || '') === bikeName && !r.recovered && r.front_suspension && !runLockedOut(r))
+        .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+
+    const entries = [];
+
+    counted.forEach((run, i) => {
+        const entry = { run, changes: [], sagStale: { front: null, rear: null } };
+        const prev = i > 0 ? counted[i - 1] : null;
+
+        SETUP_ENDS.forEach(({ end, field }) => {
+            if (!prev || !prev[field] || !run[field]) return;
+            if (end === 'rear' && (prev.full_suspension === false || run.full_suspension === false)) return;
+
+            const changes = setupChanges(prev[field], run[field]);
+            changes.forEach(c => entry.changes.push({ end, key: c.key, from: c.from, to: c.to }));
+
+            const springChanged = changes.some(c => c.key === 'psi' || c.key === 'tokens');
+            const sagChanged = (prev[field].sag_pct || 0) !== (run[field].sag_pct || 0);
+
+            entry.sagStale[end] = sagChanged ? null
+                : (springChanged && run[field].sag_pct > 0) ? run.name
+                : entries[i - 1].sagStale[end];
+        });
+
+        entries.push(entry);
+    });
+
+    return entries;
+}
+
+// Those entries as the stretches ridden on one setup, oldest first:
+//   { entries, changes }    changes: what started it — none for the first
+function setupEpochs(entries)
+{
+    const epochs = [];
+
+    entries.forEach(entry => {
+        if (epochs.length === 0 || entry.changes.length > 0) epochs.push({ entries: [], changes: entry.changes });
+        epochs[epochs.length - 1].entries.push(entry);
+    });
+
+    return epochs;
+}
+
+// The last time any of `keys` changed at one end, at or before entries[index]:
+//   { run, changes, runsSince }    runsSince 0: it changed for that very run
+// null when none of them has changed in the runs on record.
+function lastSetupChange(entries, index, end, keys)
+{
+    for (let i = index; i >= 0; i--) {
+        const changes = entries[i].changes.filter(c => c.end === end && keys.includes(c.key));
+        if (changes.length > 0) return { run: entries[i].run, changes, runsSince: index - i };
+    }
+
+    return null;
 }
 
 // ── Charts that redraw themselves ──────────────────────────────────────────

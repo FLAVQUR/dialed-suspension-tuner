@@ -88,6 +88,11 @@
                 <p class="stat-sub" id="setupWheel" style="margin:0;"></p>
                 <p class="stat-sub" id="setupFront" style="margin:0;"></p>
                 <p class="stat-sub" id="setupRear" style="margin:0;"></p>
+                <p class="stat-sub" id="setupChange" style="margin:0;"></p>
+                <label class="stat-sub" id="rearLockoutRow" style="display:none; align-items:center; gap:6px; margin:2px 0 0; cursor:pointer;">
+                    <input id="rearLockout" type="checkbox" style="width:14px; height:14px; min-height:auto; margin:0;" onchange="saveRearLockout()">
+                    Rear shock was locked out
+                </label>
             </div>
             <div>
                 <p class="stat-label">Duration</p>
@@ -1861,9 +1866,10 @@ function renderSetupInfo(bike, isFullSusp)
     // or the pre-split click counts.
     const suspText = (label, s) => {
         const parts = setupFields(s)
-            .filter(f => SETUP_DIALS.includes(f.key) || f.key === 'tokens' || f.key === 'psi')
+            .filter(f => SETUP_DIALS.includes(f.key) || f.key === 'tokens' || f.key === 'psi' || f.key === 'lockout')
             .map(f => f.key === 'tokens' ? `${f.value} tok`
                 : f.key === 'psi' ? `${f.value.toFixed(0)} psi`
+                : f.key === 'lockout' ? 'locked out'
                 : `${f.key.toUpperCase()} ${f.value}`);
 
         return parts.length ? `${label}: ${parts.join(' · ')}` : '';
@@ -1874,6 +1880,76 @@ function renderSetupInfo(bike, isFullSusp)
 
     const hasAnything = wheelBits.length || bike.front_suspension || (isFullSusp && bike.rear_suspension);
     info.style.display = hasAnything ? '' : 'none';
+
+    const hasRearSetup = isFullSusp && !!bike.rear_suspension;
+    document.getElementById('rearLockoutRow').style.display = hasRearSetup ? 'flex' : 'none';
+    document.getElementById('rearLockout').checked = hasRearSetup && bike.rear_suspension.lockout === true;
+}
+
+// Marks this run as ridden with the rear shock locked out (its Threshold
+// lever), or takes the mark off. It is a correction to the run, kept in its
+// .JSON, and not a setting: a lever closed for the climb and left that way
+// is only noticed once the run is done. The setup history sets such a run
+// aside (runLockedOut() in telemetry.js), and the Tuning tab stops reading
+// its rear as the open setup's.
+function saveRearLockout()
+{
+    const box = document.getElementById('rearLockout');
+    box.disabled = true;
+
+    fetch('/api/runs/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: runName, end: 'rear', field: 'lockout', value: box.checked })
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('save failed');
+
+        // Nearly everything on the page was worked out from the setup as it
+        // was loaded, so it is loaded again rather than patched up.
+        location.reload();
+    })
+    .catch(() => {
+        box.checked = !box.checked;
+        box.disabled = false;
+        BikeUI.alert({ title: 'Could not save', message: 'The device didn\'t accept the change — check the connection and try again.' });
+    });
+}
+
+// Where this run sits in the bike's setup history (setupHistory() in
+// telemetry.js): { entries, index }, or null when it can't be placed — the
+// list didn't load, or the run is one the history leaves out.
+function setupContextFor(runs, name, bikeName)
+{
+    if (!runs) return null;
+
+    const entries = setupHistory(runs, bikeName);
+    const index = entries.findIndex(e => e.run.name === name);
+
+    return index >= 0 ? { entries, index } : null;
+}
+
+// The line under the setup: what was changed for this run, or how long the
+// setup has been the same. Nothing for the first run on record — there is
+// no earlier one to compare it with.
+function renderSetupChange(ctx, lockedOut)
+{
+    const line = document.getElementById('setupChange');
+    line.textContent = lockedOut ? 'Not counted in the setup history' : '';
+
+    if (!ctx || ctx.index === 0) return;
+
+    const { entries, index } = ctx;
+
+    if (entries[index].changes.length > 0) {
+        line.textContent = `Changed since ${entries[index - 1].run.name}: ${entries[index].changes.map(c => setupChangeText(c)).join(' · ')}`;
+        return;
+    }
+
+    let first = index;
+    while (first > 0 && entries[first].changes.length === 0) first--;
+
+    line.textContent = `Same setup for ${index - first + 1} runs, since ${entries[first].run.name}`;
 }
 
 // The name the rider gave this run, if any (RunInfo::title on the device).
@@ -2680,10 +2756,12 @@ function generateSuggestions(avgPct, toppedOutPct, boCount, totalMinutes, vels, 
 
     const suggestions = [];
 
+    // Each suggestion keeps the type of the diagnosis behind it, which is
+    // what addSetupContext() goes by.
     const primary = diagnosePrimary(ev);
     if (primary) {
         const desc = describeDiagnosis(primary, ev, compLabel, reboundLabel, bothReboundSplit);
-        if (desc) suggestions.push(desc);
+        if (desc) suggestions.push(Object.assign(desc, { type: primary.type }));
     }
 
     // Skipped when the primary diagnosis already covers rebound — telling
@@ -2694,11 +2772,97 @@ function generateSuggestions(avgPct, toppedOutPct, boCount, totalMinutes, vels, 
         const reboundBalance = diagnoseReboundBalance(ev);
         if (reboundBalance) {
             const desc = describeDiagnosis(reboundBalance, ev, compLabel, reboundLabel, bothReboundSplit);
-            if (desc) suggestions.push(desc);
+            if (desc) suggestions.push(Object.assign(desc, { type: reboundBalance.type }));
         }
     }
 
     return suggestions;
+}
+
+// Phase 4 — what the setup history has to say about each suggestion, added
+// as a line under it. The three phases above only ever see this one run, so
+// on their own they would say the same thing ride after ride with no idea
+// whether the rider had just acted on it.
+//
+// It states what changed and when, and stops there. It does not say whether
+// a change went the way a suggestion asked: a click count is only a number
+// here (counted from open on one dial, from closed on another), so "up" is
+// not a direction it can read. Nor does it know what the previous run's
+// suggestions were — that would take loading that run's telemetry too.
+
+// The part of the setup each diagnosis is about.
+const DIAGNOSIS_SETUP = {
+    'bottoming-hard': ['spring', 'compression'],
+    'bottoming-occasional': ['spring', 'compression'],
+    'sag-too-high': ['spring', 'compression'],
+    'sag-too-low': ['spring', 'compression'],
+    'sag-balanced': ['spring', 'compression'],
+    'too-firm': ['spring', 'compression'],
+    'high-usage': ['spring'],
+    'balanced': ['spring', 'compression'],
+    'rebound-too-fast': ['rebound'],
+    'rebound-ratio-fast': ['rebound'],
+    'rebound-ratio-slow': ['rebound'],
+    'rebound-ratio-ok': ['rebound']
+};
+
+// The setup fields (setupFields() keys) in each of those parts, the
+// pre-split click counts of old runs included.
+const SETUP_PARTS = {
+    spring: ['psi', 'tokens'],
+    compression: ['lsc', 'hsc', 'comp'],
+    rebound: ['lsr', 'hsr', 'rebound']
+};
+
+function addSetupContext(suggestions, ctx, end, available, staticSagPct)
+{
+    if (!ctx) return;
+
+    const { entries, index } = ctx;
+
+    suggestions.forEach(s => {
+        const parts = DIAGNOSIS_SETUP[s.type];
+        if (!parts) return;
+
+        const keys = parts.flatMap(p => SETUP_PARTS[p]);
+        const last = lastSetupChange(entries, index, end, keys);
+
+        if (last) {
+            const what = last.changes.map(c => setupChangeText(c, false)).join(', ');
+
+            if (last.runsSince === 0) {
+                s.context = s.ok
+                    ? `First run since ${what}.`
+                    : `First run since ${what} — this is what the data says with that change already made.`;
+            } else if (!s.ok) {
+                s.context = `Last changed ${last.runsSince} run${last.runsSince === 1 ? '' : 's'} before this one, at ${last.run.name}: ${what}.`;
+            }
+
+            return;
+        }
+
+        // Nothing to add to "all fine", or to the only run there is.
+        if (s.ok || index === 0) return;
+
+        const names = keys
+            .filter(k => k === 'psi' || k === 'tokens' || available[k])
+            .map(k => k === 'psi' ? 'pressure' : k === 'tokens' ? 'tokens' : k.toUpperCase());
+
+        if (names.length === 0) return;
+
+        s.context = `No change to ${names.slice(0, -1).join(', ')}${names.length > 1 ? ' or ' : ''}${names[names.length - 1]} in the ${index + 1} runs on record for this bike.`;
+    });
+
+    // A static sag older than the spring it is supposed to describe: every
+    // comparison above that uses it is against the wrong figure.
+    const staleSince = entries[index].sagStale[end];
+
+    if (staleSince && staticSagPct > 0) {
+        suggestions.push({
+            tag: 'Static sag', ok: false,
+            text: `The static sag on record (${staticSagPct.toFixed(0)}%) did not change when pressure or tokens did, at ${staleSince} — it was most likely captured on the previous spring setup. Recapture it in Settings → Sensors before reading anything above that compares against it.`
+        });
+    }
 }
 
 function renderTuningSide(containerId, sideName, color, setup, suggestions)
@@ -2716,7 +2880,8 @@ function renderTuningSide(containerId, sideName, color, setup, suggestions)
         html += `<p class="stat-sub" style="margin:0;">Not enough data to suggest anything for this side.</p>`;
     } else {
         html += `<div class="suggestion-list">` + suggestions.map(s =>
-            `<div class="suggestion-item"><span class="suggestion-tag${s.ok ? ' ok' : ''}">${s.tag}</span><span>${s.text}</span></div>`
+            `<div class="suggestion-item"><span class="suggestion-tag${s.ok ? ' ok' : ''}">${s.tag}</span><span>${s.text}`
+            + (s.context ? `<span class="stat-sub" style="display:block;">${s.context}</span>` : '') + `</span></div>`
         ).join('') + `</div>`;
     }
 
@@ -3187,6 +3352,10 @@ async function load()
         const csvPromise = fetch(`/api/runs/telemetry?name=${encodeURIComponent(runName)}`);
         const metaPromise = fetch(`/api/runs/download?file=${encodeURIComponent(runName)}.JSON`);
 
+        // Every run's setup, for the setup history. The page is complete
+        // without it, so a failure here costs only the lines it would add.
+        const runsPromise = fetch('/api/runs?setup=1').then(r => r.ok ? r.json() : null).catch(() => null);
+
         const metaRes = await metaPromise;
         const meta = metaRes.ok ? await metaRes.json().catch(() => null) : null;
         const bike = meta && meta.bike ? meta.bike : null;
@@ -3207,6 +3376,9 @@ async function load()
         showRunInfoLines();
 
         renderSetupInfo(bike, isFullSusp);
+
+        const setupContextPromise = runsPromise.then(runs => setupContextFor(runs, runName, bikeName)).catch(() => null);
+        setupContextPromise.then(ctx => renderSetupChange(ctx, !!bike && runLockedOut(bike)));
 
         document.getElementById('notesText').value = (meta && typeof meta.notes === 'string') ? meta.notes : '';
 
@@ -3624,8 +3796,12 @@ async function load()
             }
         );
 
+        // Asked for when the page started loading; long since answered.
+        const setupContext = await setupContextPromise;
+
         const frontToppedOutPct = computeToppedOutPct(frontVals, frontMaxMM, TOPPED_OUT_PCT);
         const frontSuggestions = generateSuggestions(frontMaxMM ? (frontAvg / frontMaxMM * 100) : 0, frontToppedOutPct, frontBOTimes.length, totalMinutes, frontVels, frontStaticSag, adjusterAvailability(frontSetup), impactEvents.length, maxImpactG);
+        addSetupContext(frontSuggestions, setupContext, 'front', adjusterAvailability(frontSetup), frontStaticSag);
         renderTuningSide('tuningFront', 'Front', COLOR_FRONT, formatSetup(frontSetup), frontSuggestions);
 
         if (isFullSusp) {
@@ -3649,6 +3825,16 @@ async function load()
 
             const rearToppedOutPct = computeToppedOutPct(rearVals, rearMaxMM, TOPPED_OUT_PCT);
             const rearSuggestions = generateSuggestions(rearMaxMM ? (rearAvg / rearMaxMM * 100) : 0, rearToppedOutPct, rearBOTimes.length, totalMinutes, rearVels, rearStaticSag, adjusterAvailability(rearSetup), impactEvents.length, maxImpactG);
+            addSetupContext(rearSuggestions, setupContext, 'rear', adjusterAvailability(rearSetup), rearStaticSag);
+
+            // Said first: everything under it describes the shock with its
+            // lever closed, which is not the setup there is to tune.
+            if (rearSetup && rearSetup.lockout === true) {
+                rearSuggestions.unshift({
+                    tag: 'Lockout', ok: false,
+                    text: 'This run was ridden with the rear shock locked out, so the rear figures here are of the locked shock, not of the setup as it is ridden open. Tune the rear from another run.'
+                });
+            }
             renderTuningSide('tuningRear', 'Rear', COLOR_REAR, formatSetup(rearSetup), rearSuggestions);
         }
 

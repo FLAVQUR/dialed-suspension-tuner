@@ -9,7 +9,7 @@ How it is used:
 
 ## Now — without the bike
 
-- [ ] **Delete the old folder in OneDrive** (`Documentos\PlatformIO\Projects\Bike Telemetry`) once the new one has been worked in for a while. Nothing in it is needed any more: the repository is on GitHub and the two local files were copied across.
+- [ ] *(Idea)* **Correct a run's recorded setup from its page.** The endpoint takes clicks, tokens and pressure (`POST /api/runs/setup`), but only the lockout has a control. Worth one if a run is again recorded with Settings that were not what was on the bike.
 - [ ] *(Idea)* **Sleep instead of spinning between samples.** The loop now idles for 79% of every sample period, in a busy wait. Sleeping through most of it would cut the current draw on a ride. Not done with the rewrite, to keep the timing change small.
 
 ## With the bike or on a real screen
@@ -21,14 +21,14 @@ How it is used:
   - Dashboard
     - [ ] Guided calibration with a real Zero / Max / Sag.
     - [ ] Bike profiles from the page itself (2026-10-07; so far only driven through the API): a setup edit is in the profile after switching to another bike and back, renaming the bike in its field renames the profile in the list, and Save As… lands on the new profile.
+- [ ] **Setup history on a run with a changed setup** (built 2026-10-08, so far seen only on four runs with one setup). The next run is the first on rear 235 psi: its page should say "Changed since RUN0046: rear pressure 225 → 235 psi", its rear suggestions should carry a "First run since…" line, and Trends should mark it with a dashed line.
+- [ ] **Recapture the rear static sag** before that run: the 26% on record was captured at 225 psi (Trends says so under "Not ridden yet").
 - [ ] **Rear shock.** Confirm whether +10 psi was enough to stop the bottom-outs: compare `avg_rear_pct`, the number and duration of bottom-outs and the peak G near each one against the RUN0044/RUN0046 baseline. If not, move up the ladder: more tokens, then the Linear XL can.
 - [ ] **Harsh events.** Check them against a run remembered as harsh. Only then decide whether they are reliable enough to feed the Tuning tab.
 
 ## Secondary
 
-- [ ] **Setup-change history.** It doesn't exist, and two things depend on it — build it once for both:
-  - [ ] "Possible need for service" signal: logarithmic decrement/ζ per impact, sag drift between sessions.
-  - [ ] Tuning suggestions that don't repeat themselves run after run without context ("you just changed this").
+- [ ] **"Possible need for service" signal**: logarithmic decrement/ζ per impact, sag drift between sessions. The setup history it was waiting for exists now — compare runs inside one stretch of `setupEpochs()`, where a drift is not explained by a setup change.
 - [ ] **SD card: what is disturbing the link.** Narrowed down on 2026-10-07 (see "SD card write path" in `summary.md`): the failures are bit errors on the wires to the card, at a steady rate per second of bus activity, and they are not the LED, the GPS line, the IMU bus or the file layer. Finding the actual source needs hardware: a decoupling capacitor at the card socket, a look at the ground return and wire lengths, ideally a scope on the clock line. It still costs no data.
 
 ## Future nice-to-haves
@@ -44,6 +44,9 @@ How it is used:
 
 ## Done
 
+- 2026-10-08 — **Rear lockout marked on the run, and the old runs' token count corrected.** A "Rear shock was locked out" checkbox on the run page (a correction to the run, not a setting); RUN0045 is marked, and the setup history sets a locked-out run aside instead of counting it as a change. Through the same endpoint, RUN0042/44/45/46 now record the rear's one volume token instead of 0. See "Corrections to a run's recorded setup" in `summary.md`.
+- 2026-10-08 — **Setup-change history.** Derived from the setup each run was recorded with, not logged: a line under the setup on the run page, a context line under each tuning suggestion ("First run since…", "No change to… in the N runs on record"), a Setup History card on Trends with what has been changed in Settings and not ridden yet, and a warning when the static sag is older than the pressure or tokens. See "Setup-change history" in `summary.md`.
+- 2026-10-08 — **The old folder in OneDrive is deleted** (`Documentos\PlatformIO\Projects\Bike Telemetry`). Checked first: no unpushed commits, a clean working tree, and the two untracked files (`platformio.local.ini`, `src/config/secrets.h`) identical to the ones in the new folder.
 - 2026-10-08 — **The project is out of OneDrive**, in `D:\Dev\dialed-suspension-tuner` — a fresh clone, not a copy. The clone's first build did not fit the flash: it had pulled a newer FastLED. Platform and libraries are now pinned to exact versions (see "Repository" in `summary.md`).
 - 2026-10-08 — **Firmware versioning.** Every build is stamped with `git describe` (tag, commits since, commit, `-dirty`) and its build time; the dashboard carries its own stamp; both show in Settings → System, and each run records the firmware that made it. `pio run -t upload` now uploads firmware and dashboard together — the rider preferred that to a warning when the two do not match. First tag: `v0.1.0`. See "Versions" in `summary.md`.
 - 2026-10-08 — **The rename is on the device.** Firmware and pages uploaded: `http://dialedtuner.local` answers, `bikelogger.local` no longer resolves (Windows kept the old name for about two minutes), and all six pages are titled "Dialed".

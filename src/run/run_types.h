@@ -1,9 +1,45 @@
 #pragma once
 #include <Arduino.h>
 
+// One end's suspension setup as a run's .JSON recorded it (the snapshot of
+// Settings writeRunMeta() takes when the run ends).
+struct RunSetup {
+    // False when the run's .JSON has no such block, or one from before
+    // compression and rebound were split into four dials.
+    bool recorded = false;
+
+    uint8_t lsc = 0;
+    uint8_t hsc = 0;
+    uint8_t lsr = 0;
+    uint8_t hsr = 0;
+    uint8_t volumeTokens = 0;
+    float pressurePsi = 0;
+    float sagPct = 0;
+
+    // The run was ridden with this end locked out (the shock's Threshold
+    // lever). Never part of the snapshot taken from Settings — a lever left
+    // closed is only noticed once the run is done — so it is only ever set
+    // afterwards, on the run itself (RunService::setSetupField()).
+    bool lockout = false;
+
+    // Runs recorded before the has_* flags existed have none, and count as
+    // having every dial — the call adjusterAvailability() makes in
+    // telemetry.js for the same runs.
+    bool hasLSC = true;
+    bool hasHSC = true;
+    bool hasLSR = true;
+    bool hasHSR = true;
+};
+
 struct RunInfo {
     String name;
     String bikeName;
+
+    // The setup each end was ridden with. There is no log of setup changes:
+    // the dashboard works the history out from how this differs from one run
+    // to the next (setupHistory() in telemetry.js).
+    RunSetup frontSetup;
+    RunSetup rearSetup;
 
     size_t sizeBytes = 0;
 
