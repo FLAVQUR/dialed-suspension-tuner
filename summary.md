@@ -398,7 +398,7 @@ Problems that cost real time, kept here so they are recognised quickly if they c
 
 - `pio device monitor` does not work in a non-interactive shell; read the port with a short pyserial script. A "port busy" error on a later upload usually means a leftover python/esptool process still holds it.
 - USB reflash needs `platformio.local.ini` flipped to `esptool`/`COM3` and back to `espota` afterwards.
-- `pio run -t uploadfs` rewrites only LittleFS, which holds nothing but the web files — settings and calibration are in NVS, runs and bike profiles on the SD. After a firmware upload, wait for the device to answer `/api/status` again before running it. It gzips the files on the way (see *Shared files*), so to compare what the device serves with `data/` the client has to unpack: `HttpWebRequest` + `GZipStream` in PowerShell — `WebClient.DownloadData` hands back the packed bytes.
+- `pio run -t upload` uploads the firmware and then the dashboard (see *Versions*). `pio run -t uploadfs` on its own rewrites only LittleFS, which holds nothing but the web files — settings and calibration are in NVS, runs and bike profiles on the SD. It gzips the files on the way (see *Shared files*), so to compare what the device serves with `data/` the client has to unpack: `HttpWebRequest` + `GZipStream` in PowerShell — `WebClient.DownloadData` hands back the packed bytes.
 - **Checking the dashboard without a browser session**: headless Edge (`msedge --headless=new --screenshot=… --window-size=…`, or `--dump-dom` with the result written into `document.title` by a small injected script). To exercise a page against the real device without changing anything on it, use a local copy of the page whose `fetch` is wrapped to forward GETs to the device and answer every other method locally, opened with `--disable-web-security`. Check the DOM before believing a screenshot: a stale tab highlight once turned out to be a capture artifact.
 - **Refactoring the dashboard safely**: with the read-only proxy above, snapshot every page before and after (a hash of the page text, each chart's SVG, the form values) and diff. Two snapshots of unchanged code are identical except for the live values in Settings, so any other difference is real. This is how the 2026-10-07 de-duplication was checked.
 - **Never start an open-ended run from a test.** With `wifiOffWhileRecording` on, the device leaves the network and can only be stopped with its button. Use a **timed run** instead: `POST /api/run/timed` with `seconds=N` (1-120) starts a run that stops by itself and answers with its name.
@@ -419,6 +419,16 @@ Under git since 2026-10-08, branch `main`. On GitHub it is `FLAVQUR/dialed-suspe
 - Also ignored: `.pio/`, the VS Code files the PlatformIO extension regenerates, `.claude/settings.local.json`.
 - The working folder is still inside OneDrive, which syncs `.git` too. It works, but OneDrive locking or duplicating files inside `.git` is the known risk; the remote is the copy to trust.
 
+## Versions
+
+Since 2026-10-08 a build says what code it is, not only when it was made.
+
+- **The version is `git describe --tags --always --dirty`**: last tag, commits since it, the commit, and `-dirty` when the build included uncommitted changes — `v0.1.0-3-gabc1234-dirty`. `tools/version_stamp.py` (a `pre:` script) works it out on every build, together with the build's date and time (local), and writes both to `include/version_stamp.h`, which is not in the repository. Only `src/system/version.cpp` includes it. That is what fixed the old stamp's flaw: `__DATE__`/`__TIME__` lived in `version.h`, so the "build time" was the compile time of `server.cpp` and did not move when a build changed other files.
+- **Releases are tags** (`v0.1.0` is the commit that introduced this). Nothing is bumped by hand; tag a commit when it is worth a name — a build validated on a ride, say.
+- **Where it shows**: Settings → System has a line for the firmware and one for the dashboard (`/api/system` → `device.firmware_version` / `firmware_build`; the pages' own stamp is `version.json`, which `gzip_web_files.py` writes into the filesystem image — there is no such file in `data/`). Every run's `.JSON` gets `firmware` and `firmware_build`, shown at the bottom of the run page; a run recovered at boot gets neither, because the firmware recovering it is not necessarily the one that recorded it.
+- **`pio run -t upload` uploads both** the firmware and the dashboard (`tools/upload_both.py`, a `post:` script: after an OTA upload it waits for the device to answer `/api/status` again, then runs `uploadfs`). The rider's rule, 2026-10-08: always upload both, even when one did not change, rather than have the device warn about a mismatch — a compatibility check between the two was considered and turned down. The two lines in Settings are how to see that they match; the dashboard's time is some seconds after the firmware's.
+- A build with no git available (or outside a repository) is stamped `unknown` instead of failing.
+
 ## Next tasks
 
 The task list lives in [`todo.md`](todo.md). It is grouped by what a task needs: doable now without the bike, needing a ride or a real screen, secondary, future nice-to-haves, and parked by decision (do not re-propose those).
@@ -428,8 +438,8 @@ The task list lives in [`todo.md`](todo.md). It is grouped by what a task needs:
 ## Relevant files
 
 ```
-platformio.ini           — esp32dev, extra_scripts → tools/gzip_web_files.py, CORE_DEBUG_LEVEL=2
-                           (for log_capture); pulls in platformio.local.ini
+platformio.ini           — esp32dev, extra_scripts → the three in tools/ (their order matters),
+                           CORE_DEBUG_LEVEL=2 (for log_capture); pulls in platformio.local.ini
 platformio.local.ini     — not in git: OTA address + password (USB/esptool lines commented out for
                            recovery); platformio.local.ini.example is the template
 src/config/secrets.h     — not in git: OTA_PASSWORD; secrets.example.h is the template
@@ -457,7 +467,11 @@ src/bikes/bikes.cpp      — bike profiles (/bikes/*.json on the SD): save/activ
 src/web/server.cpp       — one serveWebFile() route per web file (gzip); /api/status, /api/time,
                            /api/config, /api/runs/*, /api/run/timed, /api/bikes/*,
                            /api/suspension/*, /api/imu*, /api/wifi/*, /api/debug/loop
+tools/version_stamp.py   — build step: git describe + build time → include/version_stamp.h
+src/system/version.cpp   — FIRMWARE_VERSION / FIRMWARE_BUILD, the only file that includes the stamp
 tools/gzip_web_files.py  — build step: gzips data/ into the filesystem image (buildfs/uploadfs)
+                           and adds version.json
+tools/upload_both.py     — makes "upload" send the dashboard after the firmware
 todo.md                  — the task list; see "Next tasks"
 data/style.css           — colour roles (top of the file), components, wide-screen block (end)
 data/common.js           — every page: applyTheme/escapeHtml/formatDuration, BikeUI dialogs/toast,

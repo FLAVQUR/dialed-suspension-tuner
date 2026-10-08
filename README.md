@@ -31,9 +31,11 @@ The firmware does not compile without `secrets.h`. `platformio.local.ini` is opt
 
 ```
 pio run               # build the firmware
-pio run -t upload     # upload the firmware
-pio run -t uploadfs   # upload the dashboard (data/) — after the firmware is back online
+pio run -t upload     # upload the firmware, then the dashboard (data/)
+pio run -t uploadfs   # upload the dashboard only
 ```
+
+Every build is stamped with `git describe` and its build time; Settings → System shows the stamp of the firmware and of the dashboard, and each run records the firmware that made it. A release is a git tag.
 
 A board that has never run this firmware has to be flashed over USB once; after that, uploads can go over the air.
 

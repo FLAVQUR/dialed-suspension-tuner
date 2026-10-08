@@ -10,11 +10,6 @@ How it is used:
 ## Now — without the bike
 
 - [ ] **Move the working folder out of OneDrive.** OneDrive syncs `.git` along with everything else, which is a known source of locked and duplicated files; now that GitHub has the copy to trust, the folder can live somewhere plain (and take the new name, e.g. `C:\Dev\dialed-suspension-tuner`). The rider's decision.
-- [ ] **Firmware versioning.** *Planned alongside the repository.* Today the only version is `FIRMWARE_BUILD` in `src/system/version.h`: the compiler's date and time, shown in Settings → System. Its weak points, to design around:
-  - It is the compile time of whichever file includes it (`server.cpp`), so a build that only changed other files keeps the old stamp.
-  - It says when, not what: nothing ties a device to the code that is on it. With git in place, a pre-build script can stamp the commit (and whether the tree had uncommitted changes) next to the date.
-  - The web files have no version at all, and firmware and filesystem are uploaded separately — and can now be incompatible (a gzipped filesystem needs firmware from 2026-10-07 or later). The device could say when the two don't match.
-  - A run does not record which firmware made it. It would have helped on 2026-10-07, when the sample rate turned out to have moved with every build.
 - [ ] *(Idea)* **Sleep instead of spinning between samples.** The loop now idles for 79% of every sample period, in a busy wait. Sleeping through most of it would cut the current draw on a ride. Not done with the rewrite, to keep the timing change small.
 
 ## With the bike or on a real screen
@@ -45,9 +40,11 @@ How it is used:
 - **Sampling at 1000Hz.** 500Hz was taken off this list and done on 2026-10-07; 1000Hz stays here for now. The loop has the headroom for it on paper (it is busy for about a quarter of a 500Hz period), but it doubles what the SD write path has to take, and that path has not even been ridden at 500Hz yet. The option stays selectable in Settings, labelled "1000 Hz (Beta)"; what is parked is the work of testing it and making it dependable.
 - **IMU at 3MHz.** Already confirmed to break again; it stays at 400kHz.
 - **Checking for internet on the ESP32 itself.**
+- **A warning when firmware and dashboard don't match.** Turned down on 2026-10-08: the two are always uploaded together instead (`pio run -t upload` does both).
 
 ## Done
 
+- 2026-10-08 — **Firmware versioning.** Every build is stamped with `git describe` (tag, commits since, commit, `-dirty`) and its build time; the dashboard carries its own stamp; both show in Settings → System, and each run records the firmware that made it. `pio run -t upload` now uploads firmware and dashboard together — the rider preferred that to a warning when the two do not match. First tag: `v0.1.0`. See "Versions" in `summary.md`.
 - 2026-10-08 — **The rename is on the device.** Firmware and pages uploaded: `http://dialedtuner.local` answers, `bikelogger.local` no longer resolves (Windows kept the old name for about two minutes), and all six pages are titled "Dialed".
 - 2026-10-08 — **Version control.** The project is under git and on GitHub as `FLAVQUR/dialed-suspension-tuner` (private, MIT), renamed from Bike Telemetry to Dialed on the way. The OTA password was moved out of the tracked files before the first commit. See "Repository" in `summary.md`.
 - 2026-10-07 — **SD clock raised to 20MHz**, the rider's decision on the numbers below: 0.4 write failures a minute at 20MHz against 1.2 at 10MHz and 3.3 at 4MHz, with flush times no worse.

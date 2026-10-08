@@ -16,6 +16,7 @@
 Import("env")
 
 import gzip
+import json
 import os
 import shutil
 
@@ -67,5 +68,12 @@ if FS_TARGETS & set(COMMAND_LINE_TARGETS):
 
     before, after = pack(source_dir, staged_dir)
     print("Web files gzipped for the filesystem image: %.0f KB -> %.0f KB" % (before / 1024, after / 1024))
+
+    # Which code these pages are, for Settings to show next to the firmware's
+    # (the values come from version_stamp.py). Only in the image: data/ has
+    # no such file.
+    with open(os.path.join(staged_dir, "version.json"), "w", newline="\n") as stamp:
+        json.dump({"version": env.get("DIALED_VERSION", "unknown"),
+                   "build": env.get("DIALED_BUILD_TIME", "")}, stamp)
 
     env.Replace(PROJECT_DATA_DIR=staged_dir)

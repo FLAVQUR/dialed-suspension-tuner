@@ -446,6 +446,7 @@
         </div>
 
         <p class="stat-sub" id="loadError" style="text-align:center; display:none;">Could not load run data.</p>
+        <p class="stat-sub" id="runFirmware" style="text-align:center; display:none;"></p>
     </div>
 </main>
 
@@ -3208,6 +3209,13 @@ async function load()
         renderSetupInfo(bike, isFullSusp);
 
         document.getElementById('notesText').value = (meta && typeof meta.notes === 'string') ? meta.notes : '';
+
+        // Absent on runs recorded before the firmware carried a version.
+        if (meta && meta.firmware) {
+            const fw = document.getElementById('runFirmware');
+            fw.textContent = `Recorded with firmware ${[meta.firmware, meta.firmware_build].filter(Boolean).join(' · ')}`;
+            fw.style.display = '';
+        }
 
         document.getElementById('rearAvgSagBlock').style.display = isFullSusp ? '' : 'none';
         document.getElementById('rearBottomOutsBlock').style.display = isFullSusp ? '' : 'none';

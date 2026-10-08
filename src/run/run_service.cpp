@@ -15,6 +15,7 @@
 #include "system/system.h"
 #include "system/settings.h"
 #include "system/clock.h"
+#include "system/version.h"
 #include "suspension/suspension.h"
 #include "imu/imu.h"
 
@@ -937,6 +938,13 @@ static void writeRunMeta(float durationSeconds) {
         doc["start_utc"] = clockNow() - (uint32_t)durationSeconds;
 
     doc["csv_size"] = csvSize;
+
+    // Which code recorded this run. Not written for a recovered run (see
+    // recoverOrphanedRun()): the firmware doing the recovering is not
+    // necessarily the one that was recording.
+    doc["firmware"] = FIRMWARE_VERSION;
+    doc["firmware_build"] = FIRMWARE_BUILD;
+
     doc["incomplete"] = writeEverStalledThisRun || writeFailedThisRun;
     doc["no_gps"] = !runStats.gpsFixSeen;
     addImuReference(doc);

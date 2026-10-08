@@ -511,6 +511,7 @@ void handleApiSystem() {
     device["chip"] = "ESP32";
     device["cores"] = 2;
     device["freq"] = getCpuFrequencyMhz();
+    device["firmware_version"] = FIRMWARE_VERSION;
     device["firmware_build"] = FIRMWARE_BUILD;
 
     JsonObject memory = doc["memory"].to<JsonObject>();
@@ -1122,6 +1123,7 @@ bool serverInit() {
     serveWebFile("/style.css", "/style.css", "text/css");
     serveWebFile("/common.js", "/common.js", "application/javascript");
     serveWebFile("/telemetry.js", "/telemetry.js", "application/javascript");
+    serveWebFile("/version.json", "/version.json", "application/json");
 
     server.on("/api/status", handleApiStatus);
     server.on("/api/time", HTTP_POST, handleApiTimeSet);

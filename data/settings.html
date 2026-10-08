@@ -444,6 +444,7 @@
                 <p class="stat-sub" id="deviceInfo">--</p>
                 <p class="stat-sub" id="uptime">Uptime --</p>
                 <p class="stat-sub" id="firmwareBuild">Firmware --</p>
+                <p class="stat-sub" id="dashboardBuild">Dashboard --</p>
                 <p class="stat-sub" id="deviceClock" style="margin-bottom:16px;">Clock --</p>
 
                 <p class="stat-label">Battery</p>
@@ -534,6 +535,27 @@ function formatSeconds(s)
     return `${h}h ${m}m ${sec}s`;
 }
 
+// "v0.1.0-3-gabc1234 · 2026-10-08 16:02:11". Firmware from before the version
+// stamp only reports its build time.
+function versionLabel(version, build)
+{
+    return [version, build].filter(Boolean).join(' · ') || 'unknown';
+}
+
+// The pages carry their own stamp, written into the filesystem image when it
+// is built (version.json — there is no such file in data/). It is the same
+// as the firmware's when both went up together.
+function showDashboardVersion()
+{
+    fetch('/version.json')
+    .then(r => r.ok ? r.json() : null)
+    .catch(() => null)
+    .then(stamp => {
+        document.getElementById('dashboardBuild').innerText =
+            "Dashboard " + (stamp ? versionLabel(stamp.version, stamp.build) : 'unknown');
+    });
+}
+
 function updateDevice()
 {
     fetch('/api/system')
@@ -543,7 +565,8 @@ function updateDevice()
         document.getElementById('deviceInfo').innerText =
             `${data.device.chip} · ${data.device.cores} cores · ${data.device.freq} MHz`;
         document.getElementById('uptime').innerText = "Uptime " + formatSeconds(data.uptime_s);
-        document.getElementById('firmwareBuild').innerText = "Firmware " + data.device.firmware_build;
+        document.getElementById('firmwareBuild').innerText =
+            "Firmware " + versionLabel(data.device.firmware_version, data.device.firmware_build);
 
         const heapPct = (data.memory.heap_used / data.memory.heap_total) * 100;
         document.getElementById('heapFill').style.width = heapPct.toFixed(0) + '%';
@@ -1557,6 +1580,7 @@ setInterval(updateDevice, 5000);
 setInterval(loadWifiStatus, 5000);
 updateBattery();
 updateDevice();
+showDashboardVersion();
 loadConfig();
 loadBikeProfiles();
 loadCalibration();

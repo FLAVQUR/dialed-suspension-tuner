@@ -11,6 +11,9 @@
 src/config/secrets.h
 platformio.local.ini
 
+# Written by tools/version_stamp.py on every build
+include/version_stamp.h
+
 # Claude Code per-machine settings
 .claude/settings.local.json
 
