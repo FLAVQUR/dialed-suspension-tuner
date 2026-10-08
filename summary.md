@@ -408,7 +408,9 @@ Problems that cost real time, kept here so they are recognised quickly if they c
 
 ## Repository
 
-Under git since 2026-10-08, branch `main`. On GitHub it is `dialed-suspension-tuner`, private for now, MIT licence.
+Under git since 2026-10-08, branch `main`. On GitHub it is `FLAVQUR/dialed-suspension-tuner`, private for now, MIT licence.
+
+- **Pushing from an agent's shell**: git there cannot ask for credentials. The first `fetch` was run by hand in a terminal, which stored the GitHub login in Windows Credential Manager; everything since goes through without a prompt. If pushes start failing with "Cannot prompt", that stored login is gone and the same step is needed again.
 
 - **The rename to Dialed** (2026-10-08) covered the documents, the pages' `<title>`s and the device's names on the network: mDNS `dialedtuner.local` (was `bikelogger.local`), OTA name `dialedtuner` (was `esp32-bike`), default hotspot `DialedTuner-XXXX` with password `dialedtuner` (were `BikeLogger-XXXX` / `bikelogger`). The hotspot name and password are only defaults — a device that has saved its settings keeps the old ones in NVS until they are changed in Settings or connectivity is reset with the 10s button press. The longer hotspot name no longer fitted the 16-byte buffer it is built in (`defaultApSSID()`), which would have cut the MAC suffix short without any error; the buffer is 24 now. Left alone on purpose: the NVS namespaces `bike` and `net` — renaming one makes the device start from defaults, calibration included.
 

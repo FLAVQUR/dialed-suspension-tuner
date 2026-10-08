@@ -9,8 +9,7 @@ How it is used:
 
 ## Now — without the bike
 
-- [ ] **Version control (git).** *Next up — planned for 2026-10-08: set up the repository with a private remote on GitHub.* The project has a `.gitignore` but no repository, and sits inside a OneDrive folder; OneDrive syncing a `.git` folder is a known source of trouble, and the remote is the safety net. The changes of 6–7 October touched the firmware and all six pages with nothing to roll back to.
-  State on 2026-10-08: git installed, first commit made on `main`, the OTA password moved out of the tracked files and the project renamed to Dialed (see "Repository" in `summary.md`). Still to do: the first push to `FLAVQUR/dialed-suspension-tuner` — it needs a one-time GitHub login from an interactive terminal, and the commit has to go on top of the licence commit GitHub created. Then decide whether the folder stays inside OneDrive (and takes the new name).
+- [ ] **Move the working folder out of OneDrive.** OneDrive syncs `.git` along with everything else, which is a known source of locked and duplicated files; now that GitHub has the copy to trust, the folder can live somewhere plain (and take the new name, e.g. `C:\Dev\dialed-suspension-tuner`). The rider's decision.
 - [ ] **Flash the rename.** The device was off when the names changed on 2026-10-08, so it still runs the old firmware and pages. Upload both, then check that `http://dialedtuner.local` answers and that the browser tabs say "Dialed".
 - [ ] **Firmware versioning.** *Planned alongside the repository.* Today the only version is `FIRMWARE_BUILD` in `src/system/version.h`: the compiler's date and time, shown in Settings → System. Its weak points, to design around:
   - It is the compile time of whichever file includes it (`server.cpp`), so a build that only changed other files keeps the old stamp.
@@ -50,6 +49,7 @@ How it is used:
 
 ## Done
 
+- 2026-10-08 — **Version control.** The project is under git and on GitHub as `FLAVQUR/dialed-suspension-tuner` (private, MIT), renamed from Bike Telemetry to Dialed on the way. The OTA password was moved out of the tracked files before the first commit. See "Repository" in `summary.md`.
 - 2026-10-07 — **SD clock raised to 20MHz**, the rider's decision on the numbers below: 0.4 write failures a minute at 20MHz against 1.2 at 10MHz and 3.3 at 4MHz, with flush times no worse.
 - 2026-10-07 — **A write failure no longer costs any rows.** Each recovery used to lose 1 to 20 rows silently — sampled while the file was being reopened, discarded before the queue, counted nowhere. Found by comparing rows sampled with rows written; a run with a recovery in it now has every row, each 2ms after the one before.
 - 2026-10-07 — **Why SD writes fail, narrowed down.** About 35 minutes of timed bench runs with conditions switched at run time. The failures are bit errors on the link to the card (the card's own checksum rejects them — nothing is ever corrupted silently); their rate follows how long the bus is busy, so a slower clock is worse; the LED, the GPS serial line and the IMU bus were each tested and cleared. The device now keeps its libraries' warnings in memory (`/api/debug/log`), which is what made this visible.
