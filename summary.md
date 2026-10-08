@@ -4,7 +4,7 @@ Technical summary of the project so far, to start a new session without losing c
 
 ## Project
 
-**Dialed** — a DIY ESP32-based MTB suspension telemetry and tuning helper for enduro/downhill. (The project was called "Bike Telemetry", and the dashboard "Bike Logger", until 2026-10-08; the local folder still has the old name.) It logs GPS, IMU and suspension travel (two **KPM12J linear position sensors** — 200mm stroke at the front, 75mm at the rear) to CSV at **500Hz** (exactly, since the sampling loop was rewritten on 2026-10-07; ~385Hz before that), with a web dashboard served by the device itself (`data/*.html`) and firmware in `src/`.
+**Dialed** — a DIY ESP32-based MTB suspension telemetry and tuning helper for enduro/downhill. (The project was called "Bike Telemetry", and the dashboard "Bike Logger", until 2026-10-08.) It logs GPS, IMU and suspension travel (two **KPM12J linear position sensors** — 200mm stroke at the front, 75mm at the rear) to CSV at **500Hz** (exactly, since the sampling loop was rewritten on 2026-10-07; ~385Hz before that), with a web dashboard served by the device itself (`data/*.html`) and firmware in `src/`.
 
 The original idea of two rotary potentiometers used as string-pots was abandoned; the KPM12J sensors bolt alongside the fork/shock and their rod follows the travel directly.
 
@@ -417,7 +417,8 @@ Under git since 2026-10-08, branch `main`. On GitHub it is `FLAVQUR/dialed-suspe
 - **What is not in it**: `src/config/secrets.h` (the OTA password) and `platformio.local.ini` (the device's address and the same password, as `--auth`). Each has a committed `.example` next to it. `platformio.ini` pulls the local file in with `extra_configs`; a missing file is skipped without a word, and uploads then go over USB. The password was moved out before the first commit, so no commit contains it — which is what keeps making the repository public an option.
 - **Line endings**: 27 of the files were CRLF and the rest LF. `.gitattributes` (`* text=auto eol=lf`) makes the repository store LF everywhere; a CRLF file in the working folder becomes LF the next time git writes it.
 - Also ignored: `.pio/`, the VS Code files the PlatformIO extension regenerates, `.claude/settings.local.json`.
-- The working folder is still inside OneDrive, which syncs `.git` too. It works, but OneDrive locking or duplicating files inside `.git` is the known risk; the remote is the copy to trust.
+- **The working folder is `D:\Dev\dialed-suspension-tuner`** since 2026-10-08. Until then it was inside OneDrive (`Documentos\PlatformIO\Projects\Bike Telemetry`), which syncs `.git` along with everything else. The move was a fresh clone plus the two untracked files, not a copy of the folder.
+- **Platform and libraries are pinned to exact versions** in `platformio.ini`. That fresh clone was the first build ever made without the old folder's `.pio/`, and it failed: `fastled/FastLED@^3.10.3` resolved to 3.10.6, which is 390KB bigger, and the firmware came to 115.6% of its partition instead of 85%. Nothing had warned of it, because an existing `.pio/libdeps` keeps whatever was installed first. With `espressif32@7.0.1`, FastLED 3.10.3, ArduinoJson 7.4.3, TinyGPSPlus 1.1.0 and the BNO08x library 1.0.6 pinned, a clean build gives the same binary as before. A library upgrade is now a deliberate change — and FastLED's needs its size looked at first.
 
 ## Versions
 

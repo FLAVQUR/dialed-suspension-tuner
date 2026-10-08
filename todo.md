@@ -9,7 +9,7 @@ How it is used:
 
 ## Now — without the bike
 
-- [ ] **Move the working folder out of OneDrive.** OneDrive syncs `.git` along with everything else, which is a known source of locked and duplicated files; now that GitHub has the copy to trust, the folder can live somewhere plain (and take the new name, e.g. `C:\Dev\dialed-suspension-tuner`). The rider's decision.
+- [ ] **Delete the old folder in OneDrive** (`Documentos\PlatformIO\Projects\Bike Telemetry`) once the new one has been worked in for a while. Nothing in it is needed any more: the repository is on GitHub and the two local files were copied across.
 - [ ] *(Idea)* **Sleep instead of spinning between samples.** The loop now idles for 79% of every sample period, in a busy wait. Sleeping through most of it would cut the current draw on a ride. Not done with the rewrite, to keep the timing change small.
 
 ## With the bike or on a real screen
@@ -44,6 +44,7 @@ How it is used:
 
 ## Done
 
+- 2026-10-08 — **The project is out of OneDrive**, in `D:\Dev\dialed-suspension-tuner` — a fresh clone, not a copy. The clone's first build did not fit the flash: it had pulled a newer FastLED. Platform and libraries are now pinned to exact versions (see "Repository" in `summary.md`).
 - 2026-10-08 — **Firmware versioning.** Every build is stamped with `git describe` (tag, commits since, commit, `-dirty`) and its build time; the dashboard carries its own stamp; both show in Settings → System, and each run records the firmware that made it. `pio run -t upload` now uploads firmware and dashboard together — the rider preferred that to a warning when the two do not match. First tag: `v0.1.0`. See "Versions" in `summary.md`.
 - 2026-10-08 — **The rename is on the device.** Firmware and pages uploaded: `http://dialedtuner.local` answers, `bikelogger.local` no longer resolves (Windows kept the old name for about two minutes), and all six pages are titled "Dialed".
 - 2026-10-08 — **Version control.** The project is under git and on GitHub as `FLAVQUR/dialed-suspension-tuner` (private, MIT), renamed from Bike Telemetry to Dialed on the way. The OTA password was moved out of the tracked files before the first commit. See "Repository" in `summary.md`.
