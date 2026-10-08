@@ -1,0 +1,423 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/style.css">
+<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<title>Runs — Dialed</title>
+</head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="glass-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="2" result="soft"/><feDisplacementMap in="SourceGraphic" in2="soft" scale="70" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
+<script>if (/Chrome\//.test(navigator.userAgent)) document.documentElement.classList.add('glass-refract');</script>
+
+<div class="topbar">
+    <h1>Runs</h1>
+    <div class="battery-indicator" id="batteryIndicator">
+        <svg viewBox="0 0 28 14" width="26" height="13">
+            <rect x="1" y="1" width="23" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="25" y="4.5" width="2" height="5" rx="1" fill="currentColor"/>
+            <rect id="batteryFill" x="3" y="3" width="0" height="8" rx="1.5" fill="currentColor"/>
+        </svg>
+    </div>
+</div>
+
+<main class="runs-main">
+    <!-- Placeholder cards until /api/runs answers — the device reads every
+         run's .JSON off the SD card to build the list, which takes long
+         enough that an empty page looked like "no runs". -->
+    <div id="list" class="stack">
+        <div class="card glass run-card skeleton-card"><div class="run-card-info"><div class="skeleton-line" style="width:38%;"></div><div class="skeleton-line" style="width:55%;"></div><div class="skeleton-line" style="width:70%;"></div></div></div>
+        <div class="card glass run-card skeleton-card"><div class="run-card-info"><div class="skeleton-line" style="width:38%;"></div><div class="skeleton-line" style="width:55%;"></div><div class="skeleton-line" style="width:70%;"></div></div></div>
+        <div class="card glass run-card skeleton-card"><div class="run-card-info"><div class="skeleton-line" style="width:38%;"></div><div class="skeleton-line" style="width:55%;"></div><div class="skeleton-line" style="width:70%;"></div></div></div>
+    </div>
+    <p id="empty" class="stat-sub" style="display:none; text-align:center; margin-top:24px;">No runs recorded yet.</p>
+    <p id="loadError" class="stat-sub" style="display:none; text-align:center; margin-top:24px;">Could not load the runs from the device.</p>
+</main>
+
+<div class="fab-stack">
+    <a href="/compare" class="fab-btn" id="compareLink">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>
+        <span id="compareLabel">Compare</span>
+    </a>
+    <a href="/trends" class="fab-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-7"/><path d="M15 8h5v5"/></svg>
+        Trends
+    </a>
+</div>
+
+<nav class="bottom-nav">
+    <a href="/" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Dashboard</span>
+        </span>
+    </a>
+    <a href="/runs" class="nav-item active">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Runs</span>
+        </span>
+    </a>
+    <a href="/settings" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="14" y2="6"/><circle cx="17" cy="6" r="2"/><line x1="10" y1="12" x2="20" y2="12"/><circle cx="7" cy="12" r="2"/><line x1="4" y1="18" x2="14" y2="18"/><circle cx="17" cy="18" r="2"/></svg>
+            <span>Settings</span>
+        </span>
+    </a>
+</nav>
+
+<script src="/common.js"></script>
+<script>
+
+// Same threshold run.html's Analysis tab counts a bottom-out at.
+const BOTTOM_OUT_PCT = 95;
+
+// How deep into its travel one end got at its worst, as "Front 92%" — the
+// list only has each run's peak, not a count, so it can say that an end
+// bottomed out but not how many times.
+function peakPct(peakMM, travelMM)
+{
+    if (!(peakMM > 0) || !(travelMM > 0)) return null;
+
+    // Rounded down, so a 94.8% peak reads "94%" rather than a "95%" that
+    // isn't flagged as a bottom-out.
+    return Math.floor(Math.min(100, peakMM / travelMM * 100));
+}
+
+function peakTravel(label, peakMM, travelMM)
+{
+    const pct = peakPct(peakMM, travelMM);
+    if (pct === null) return '';
+
+    return pct >= BOTTOM_OUT_PCT
+        ? `<span class="peak-bottomed">${label} ${pct}% (bottomed out)</span>`
+        : `${label} ${pct}%`;
+}
+
+function formatSize(kb)
+{
+    return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb.toFixed(0)} KB`;
+}
+
+// Things that went wrong while a run was being recorded. data-info rather
+// than title: the explanation has to be reachable by tapping, too.
+const RUN_FLAGS = [
+    { key: 'recovered', cls: 'warn', label: 'Recovered', info: 'Power was lost mid-recording — duration is accurate, but bike/setup info reflects current Settings, not necessarily what was configured during this ride.' },
+    { key: 'incomplete', cls: 'bad', label: 'Incomplete', info: 'The SD card stopped responding partway through this recording — the data is real up to some point, but likely ends well before the reported duration.' },
+    { key: 'rows_dropped', cls: 'bad', label: 'Rows dropped', info: 'Some samples never reached the SD card: it could not take them as fast as they were recorded. The run covers its whole duration, but with gaps. If it was recorded at 1000 Hz, record at 500 Hz instead.' },
+    { key: 'no_gps', cls: 'warn', label: 'No GPS', info: 'No GPS fix was acquired during this recording — the map, distance, speed and elevation figures will be empty, but suspension travel is unaffected.' }
+];
+
+// A run the rider has named (on its own page) shows that name, with the
+// RUN number kept next to it — it's still what the files are called.
+function runLabel(run)
+{
+    return run.title
+        ? `${escapeHtml(run.title)} <span class="run-number">${run.name}</span>`
+        : run.name;
+}
+
+function runBadges(run)
+{
+    return RUN_FLAGS.filter(flag => run[flag.key]).map(flag =>
+        `<span class="badge ${flag.cls}" data-info="${flag.info}" style="margin-left:8px;"><span class="dot"></span>${flag.label}</span>`
+    ).join('');
+}
+
+const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
+const DELETE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>';
+
+// ── Wide screens: a sortable table ─────────────────────────────────────────
+// One row per run with a column per number, so runs can be scanned and
+// ranked against each other — which a stack of cards, each mostly empty at
+// this width, was no good for. Ticking two rows turns the topbar's Compare
+// button into "compare these two".
+const wideLayout = window.matchMedia('(min-width: 1024px)');
+
+let runsData = [];
+let sortKey = 'name';
+let sortDir = -1;       // newest first — the order the device lists them in
+let selected = [];      // names of the runs ticked for comparison, two at most
+
+// `value` is what a column sorts by; null means "no such data for this run"
+// and always sorts to the bottom, whichever way the column is ordered.
+const RUN_COLUMNS = [
+    { key: 'name',     label: 'Run',        value: r => r.name },
+    { key: 'date',     label: 'Date',       value: r => r.start_utc > 0 ? r.start_utc : null },
+    { key: 'bike',     label: 'Bike',       value: r => r.bike_name ? r.bike_name.toLowerCase() : null },
+    { key: 'duration', label: 'Duration',   num: true, value: r => r.duration_s },
+    { key: 'distance', label: 'Distance',   num: true, value: r => r.distance_km > 0 ? r.distance_km : null },
+    { key: 'speed',    label: 'Max speed',  num: true, value: r => r.max_speed_kmh > 0 ? r.max_speed_kmh : null },
+    { key: 'front',    label: 'Peak front', num: true, value: r => peakPct(r.max_front_mm, r.front_travel) },
+    { key: 'rear',     label: 'Peak rear',  num: true, value: r => r.full_suspension ? peakPct(r.max_rear_mm, r.rear_travel) : null },
+    { key: 'notes',    label: 'Notes',      value: r => r.notes && r.notes.trim() ? r.notes.trim().toLowerCase() : null }
+];
+
+function sortedRuns()
+{
+    const value = RUN_COLUMNS.find(c => c.key === sortKey).value;
+
+    return runsData.slice().sort((a, b) => {
+        const va = value(a), vb = value(b);
+
+        if (va === null || vb === null) return (va === null) - (vb === null);
+        return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir;
+    });
+}
+
+function renderRunsTable(container)
+{
+    const dash = '<span class="muted">—</span>';
+
+    const peakCell = pct => pct === null ? dash
+        : pct >= BOTTOM_OUT_PCT ? `<span class="peak-bottomed" title="Reached bottom-out depth (${BOTTOM_OUT_PCT}% or more)">${pct}%</span>`
+        : `${pct}%`;
+
+    const head = RUN_COLUMNS.map(c => {
+        const arrow = c.key === sortKey ? (sortDir > 0 ? '▲' : '▼') : '';
+        return `<th class="sortable${c.num ? ' num' : ''}${arrow ? ' sorted' : ''}" data-sort="${c.key}">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+    }).join('');
+
+    const rows = sortedRuns().map(run => {
+        const picked = selected.includes(run.name);
+        const travel = run.full_suspension ? `${run.front_travel}/${run.rear_travel}mm` : `${run.front_travel}mm`;
+        const notes = run.notes ? run.notes.trim() : '';
+        const size = formatSize(run.size_kb);
+
+        return `
+            <tr data-run="${run.name}"${picked ? ' class="selected"' : ''}>
+                <td><input type="checkbox" class="run-pick" aria-label="Select ${run.name} to compare"${picked ? ' checked' : ''}></td>
+                <td class="run-name"><a href="/run?name=${encodeURIComponent(run.name)}">${runLabel(run)}</a>${runBadges(run)}</td>
+                <td>${run.start_utc > 0 ? formatRunDate(run.start_utc) : dash}</td>
+                <td>${run.bike_name ? escapeHtml(run.bike_name) + ' ' : ''}<span class="muted">${travel}</span></td>
+                <td class="num">${formatDuration(run.duration_s)}</td>
+                <td class="num">${run.distance_km > 0 ? run.distance_km.toFixed(2) + ' km' : dash}</td>
+                <td class="num">${run.max_speed_kmh > 0 ? run.max_speed_kmh.toFixed(0) + ' km/h' : dash}</td>
+                <td class="num">${peakCell(peakPct(run.max_front_mm, run.front_travel))}</td>
+                <td class="num">${run.full_suspension ? peakCell(peakPct(run.max_rear_mm, run.rear_travel)) : dash}</td>
+                <td class="notes" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>
+                <td class="actions">
+                    <a class="icon-btn" href="/api/runs/downloadzip?name=${run.name}" title="Download (${size})" aria-label="Download ${run.name}, ${size}">${DOWNLOAD_ICON}</a>
+                    <button class="icon-btn danger" data-delete="${run.name}" title="Delete" aria-label="Delete ${run.name}">${DELETE_ICON}</button>
+                </td>
+            </tr>`;
+    }).join('');
+
+    const card = document.createElement('div');
+    card.className = 'card glass runs-table-card';
+    card.innerHTML = `
+        <p class="stat-sub runs-table-hint">Tick two runs to compare them &middot; click a column to sort &middot; amber peak = that end bottomed out</p>
+        <table class="runs-table">
+            <thead><tr><th></th>${head}<th></th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+
+    card.addEventListener('click', evt => {
+        const sortHeader = evt.target.closest('th[data-sort]');
+        if (sortHeader) {
+            // Same column again flips the order; a new one starts ascending.
+            sortDir = sortHeader.dataset.sort === sortKey ? -sortDir : 1;
+            sortKey = sortHeader.dataset.sort;
+            renderRuns();
+            return;
+        }
+
+        const badge = evt.target.closest('[data-info]');
+        if (badge) {
+            BikeUI.alert({ title: badge.textContent.trim(), message: badge.dataset.info });
+            return;
+        }
+
+        const deleteBtn = evt.target.closest('[data-delete]');
+        if (deleteBtn) {
+            deleteRun(deleteBtn.dataset.delete);
+            return;
+        }
+
+        // Anywhere else on a row opens the run, except its own controls.
+        const row = evt.target.closest('tr[data-run]');
+        if (row && !evt.target.closest('a, button, input'))
+            location.href = '/run?name=' + encodeURIComponent(row.dataset.run);
+    });
+
+    card.addEventListener('change', evt => {
+        if (!evt.target.classList.contains('run-pick')) return;
+
+        const name = evt.target.closest('tr').dataset.run;
+
+        // A comparison is between two runs: ticking a third lets go of the
+        // one that was picked first.
+        selected = selected.filter(n => n !== name);
+        if (evt.target.checked) selected.push(name);
+        if (selected.length > 2) selected.shift();
+
+        renderRuns();
+    });
+
+    container.appendChild(card);
+}
+
+// Older run as A (the baseline), newer as B — the Compare page reads its
+// time-gained chart as "B relative to A".
+function updateCompareLink()
+{
+    const link = document.getElementById('compareLink');
+    const picked = selected.slice().sort();
+
+    link.href = picked.length === 2 ? `/compare?a=${encodeURIComponent(picked[0])}&b=${encodeURIComponent(picked[1])}`
+        : picked.length === 1 ? `/compare?a=${encodeURIComponent(picked[0])}`
+        : '/compare';
+
+    link.classList.toggle('primary', picked.length === 2);
+    document.getElementById('compareLabel').textContent = picked.length === 2 ? 'Compare selected' : 'Compare';
+}
+
+// ── Narrow screens: one card per run ───────────────────────────────────────
+function buildRunCard(run)
+{
+    const card = document.createElement('div');
+    card.className = 'card glass run-card';
+
+    const travelText = run.full_suspension
+        ? `${run.front_travel}/${run.rear_travel}mm`
+        : `${run.front_travel}mm`;
+
+    const bikeLine = run.bike_name
+        ? `${travelText} &middot; ${escapeHtml(run.bike_name)}`
+        : travelText;
+
+    const notesPreviewText = run.notes && run.notes.trim()
+        ? (run.notes.trim().length > 90 ? run.notes.trim().slice(0, 90) + '…' : run.notes.trim())
+        : '';
+    const notesPreview = notesPreviewText
+        ? `<div class="stat-sub" style="font-style:italic; margin-top:2px;" title="${escapeHtml(run.notes.trim())}">"${escapeHtml(notesPreviewText)}"</div>`
+        : '';
+
+    // What the ride was, rather than what the file is — the size
+    // only matters when downloading, so it moved to that button.
+    // Distance and speed are absent on a run with no GPS fix, and
+    // all of it on one with no stats block (see RunInfo::hasStats).
+    const facts = [formatDuration(run.duration_s)];
+    if (run.distance_km > 0) facts.push(`${run.distance_km.toFixed(2)} km`);
+    if (run.max_speed_kmh > 0) facts.push(`${run.max_speed_kmh.toFixed(0)} km/h max`);
+
+    const peaks = [peakTravel('Front', run.max_front_mm, run.front_travel)];
+    if (run.full_suspension) peaks.push(peakTravel('Rear', run.max_rear_mm, run.rear_travel));
+
+    const peakLine = peaks.some(Boolean)
+        ? `<div class="stat-sub">Peak travel: ${peaks.filter(Boolean).join(' &middot; ')}</div>`
+        : '';
+
+    // Stored as UTC on the device, shown in this browser's own time
+    // zone. Missing on runs recorded before the device could tell
+    // the time, or with nothing to tell it (see clock.h).
+    const dateLine = run.start_utc > 0
+        ? `<div class="stat-sub">${formatRunDate(run.start_utc)}</div>`
+        : '';
+
+    const size = formatSize(run.size_kb);
+
+    card.innerHTML = `
+        <a href="/run?name=${encodeURIComponent(run.name)}" class="run-card-info" style="text-decoration:none;">
+            <div style="font-weight:700; display:flex; align-items:center;">${runLabel(run)}${runBadges(run)}</div>
+            ${dateLine}
+            <div class="stat-sub">${bikeLine}</div>
+            <div class="stat-sub">${facts.join(' &middot; ')}</div>
+            ${peakLine}
+            ${notesPreview}
+            <div class="stat-sub badge-note" style="display:none;"></div>
+        </a>
+        <div class="run-actions">
+            <a class="icon-btn" href="/api/runs/downloadzip?name=${run.name}" title="Download (${size})" aria-label="Download ${run.name}, ${size}">
+                ${DOWNLOAD_ICON}
+            </a>
+            <button class="icon-btn danger" onclick="deleteRun('${run.name}')" title="Delete" aria-label="Delete ${run.name}">
+                ${DELETE_ICON}
+            </button>
+        </div>
+    `;
+
+    // The badges sit inside the card's link, so a tap on one would
+    // otherwise just open the run — intercept it and toggle that
+    // badge's explanation in place instead.
+    card.addEventListener('click', evt => {
+        const badge = evt.target.closest('[data-info]');
+        if (!badge) return;
+        evt.preventDefault();
+
+        const note = card.querySelector('.badge-note');
+        const showing = note.style.display !== 'none' && note.textContent === badge.dataset.info;
+        note.textContent = badge.dataset.info;
+        note.style.display = showing ? 'none' : '';
+    });
+
+    return card;
+}
+
+function renderRuns()
+{
+    const container = document.getElementById('list');
+
+    container.innerHTML = '';
+    document.getElementById('loadError').style.display = 'none';
+    document.getElementById('empty').style.display = runsData.length === 0 ? 'block' : 'none';
+
+    if (runsData.length > 0) {
+        if (wideLayout.matches) renderRunsTable(container);
+        else runsData.forEach(run => container.appendChild(buildRunCard(run)));
+    }
+
+    updateCompareLink();
+}
+
+wideLayout.addEventListener('change', renderRuns);
+
+// A run's ZIP is megabytes built on the fly by a device that serves one
+// request at a time: nothing visible happens for a few seconds after the
+// click, and every other page stalls until it's done. Say so.
+document.addEventListener('click', evt => {
+    if (evt.target.closest('a[href^="/api/runs/downloadzip"]'))
+        BikeUI.toast('Preparing the download — the device is busy until it finishes, so other pages will wait.', 8000);
+});
+
+function loadRuns()
+{
+    fetch('/api/runs')
+    .then(r => r.json())
+    .then(runs => {
+        runsData = runs;
+
+        // A run that was just deleted can't stay picked for comparison.
+        selected = selected.filter(name => runs.some(r => r.name === name));
+
+        renderRuns();
+    })
+    .catch(() => {
+        document.getElementById('list').innerHTML = '';
+        document.getElementById('empty').style.display = 'none';
+        document.getElementById('loadError').style.display = 'block';
+    });
+}
+
+async function deleteRun(name)
+{
+    const ok = await BikeUI.confirm({
+        title: `Delete ${name}?`,
+        message: 'The recording and its notes are removed from the SD card. This can\'t be undone.',
+        confirmLabel: 'Delete',
+        danger: true
+    });
+    if (!ok) return;
+
+    fetch('/api/runs', {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name })
+    })
+    .then(() => loadRuns());
+}
+
+loadRuns();
+
+</script>
+</body></html>

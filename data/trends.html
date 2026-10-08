@@ -1,0 +1,456 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/style.css">
+<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<title>Trends — Dialed</title>
+
+<style>
+    .legend-row { display: flex; gap: 18px; margin-top: 4px; margin-bottom: 10px; font-size: 13px; color: var(--text-muted); }
+    .legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+</style>
+</head><body class="is-loading">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="glass-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="2" result="soft"/><feDisplacementMap in="SourceGraphic" in2="soft" scale="70" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
+<script>if (/Chrome\//.test(navigator.userAgent)) document.documentElement.classList.add('glass-refract');</script>
+
+<div class="topbar">
+    <a href="/runs" class="back-link">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </a>
+    <h1>Trends</h1>
+    <div class="battery-indicator" id="batteryIndicator">
+        <svg viewBox="0 0 28 14" width="26" height="13">
+            <rect x="1" y="1" width="23" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="25" y="4.5" width="2" height="5" rx="1" fill="currentColor"/>
+            <rect id="batteryFill" x="3" y="3" width="0" height="8" rx="1.5" fill="currentColor"/>
+        </svg>
+    </div>
+</div>
+
+<main class="page-stack">
+    <div class="card glass span-2">
+        <div class="field" style="margin-bottom:0;">
+            <label for="bikeSelect">Bike</label>
+            <select id="bikeSelect" onchange="loadTrendsForSelectedBike()"></select>
+        </div>
+        <p class="stat-sub" id="progressNote" style="margin-top:10px;">Loading…</p>
+        <p class="stat-sub" id="mixedNote" style="display:none; margin:6px 0 0;">Rear series hidden — one or more runs in this range are from a hardtail setup.</p>
+        <p class="stat-sub" id="emptyNote" style="display:none; margin:6px 0 0;">Need at least 2 runs from this bike to show a trend.</p>
+        <p class="stat-sub" id="loadError" style="display:none; margin:6px 0 0;">Could not load run history.</p>
+    </div>
+
+    <div class="card glass span-2" id="sagCard" style="display:none;">
+        <h3 style="margin-top:0;">Average Sag</h3>
+        <div class="legend-row">
+            <span><span class="legend-dot" id="legendFrontSag"></span>Front</span>
+            <span id="legendRearSagWrap"><span class="legend-dot" id="legendRearSag"></span>Rear</span>
+        </div>
+        <p class="stat-sub" style="margin-top:-4px;">Dashed lines mark where suspension setup (LSC/HSC/LSR/HSR/pressure) changed from the previous run</p>
+        <div class="chart-wrap">
+            <svg class="chart-svg" id="sagChart" viewBox="0 0 300 140"></svg>
+            <div class="chart-tooltip" id="sagTooltip"></div>
+        </div>
+    </div>
+
+    <div class="card glass span-2" id="boCard" style="display:none;">
+        <h3 style="margin-top:0;">Bottom-Outs per Minute</h3>
+        <div class="legend-row">
+            <span><span class="legend-dot" id="legendFrontBo"></span>Front</span>
+            <span id="legendRearBoWrap"><span class="legend-dot" id="legendRearBo"></span>Rear</span>
+        </div>
+        <div class="chart-wrap">
+            <svg class="chart-svg" id="boChart" viewBox="0 0 300 140"></svg>
+            <div class="chart-tooltip" id="boTooltip"></div>
+        </div>
+    </div>
+</main>
+
+<nav class="bottom-nav">
+    <a href="/" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Dashboard</span>
+        </span>
+    </a>
+    <a href="/runs" class="nav-item active">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Runs</span>
+        </span>
+    </a>
+    <a href="/settings" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="14" y2="6"/><circle cx="17" cy="6" r="2"/><line x1="10" y1="12" x2="20" y2="12"/><circle cx="7" cy="12" r="2"/><line x1="4" y1="18" x2="14" y2="18"/><circle cx="17" cy="18" r="2"/></svg>
+            <span>Settings</span>
+        </span>
+    </a>
+</nav>
+
+<script src="/common.js"></script>
+<script src="/telemetry.js"></script>
+<script>
+
+const COLOR_FRONT = cssVar('--series-front');
+const COLOR_REAR = cssVar('--series-rear');
+
+document.getElementById('legendFrontSag').style.background = COLOR_FRONT;
+document.getElementById('legendRearSag').style.background = COLOR_REAR;
+document.getElementById('legendFrontBo').style.background = COLOR_FRONT;
+document.getElementById('legendRearBo').style.background = COLOR_REAR;
+
+// One compact string per run's setup ("4LSC,6LSR,1tok,69psi"), which this
+// page only ever compares with the previous run's to mark where the setup
+// changed. Which fields a run has is setupFields()'s call (telemetry.js).
+// Static sag is left out on purpose: recapturing it is not a setup change.
+function formatSetup(setup)
+{
+    const SHORT = { tokens: 'tok', comp: 'comp', rebound: 'rbd', psi: 'psi' };
+
+    return setupFields(setup)
+        .filter(f => f.key !== 'sag')
+        .map(f => (f.key === 'psi' ? f.value.toFixed(0) : f.value) + (SHORT[f.key] || f.key.toUpperCase()))
+        .join(',');
+}
+
+function analyzeRun(name, run)
+{
+    const { rows, bike } = run;
+    const isFullSusp = !bike || bike.full_suspension !== false;
+
+    const frontMaxMM = (bike && typeof bike.front_travel === 'number' && bike.front_travel > 0) ? bike.front_travel : 0;
+    const rearMaxMM = (bike && typeof bike.rear_travel === 'number' && bike.rear_travel > 0) ? bike.rear_travel : 0;
+
+    const totalMinutes = Math.max((rows[rows.length - 1].t - rows[0].t) / 1000 / 60, 1 / 60);
+
+    const frontAvg = average(rows.map(r => r.front));
+    const rearAvg = average(rows.map(r => r.rear));
+
+    const frontBOCount = countBottomOuts(rows, 'front', frontMaxMM, 95, 85).length;
+    const rearBOCount = isFullSusp ? countBottomOuts(rows, 'rear', rearMaxMM, 95, 85).length : 0;
+
+    return {
+        name, isFullSusp,
+        frontAvgPct: frontMaxMM ? frontAvg / frontMaxMM * 100 : null,
+        rearAvgPct: (isFullSusp && rearMaxMM) ? rearAvg / rearMaxMM * 100 : null,
+        frontBOPerMin: frontMaxMM ? frontBOCount / totalMinutes : null,
+        rearBOPerMin: (isFullSusp && rearMaxMM) ? rearBOCount / totalMinutes : null,
+        frontSetup: formatSetup(bike && bike.front_suspension),
+        rearSetup: formatSetup(bike && bike.rear_suspension)
+    };
+}
+
+// A line+dots chart over an ordinal run index rather than continuous
+// time — every run is a real, individually-hoverable point (unlike the
+// per-run charts elsewhere, where only the shape over time matters, here
+// each dot IS a specific ride worth identifying). Dashed verticals mark
+// where a series' setup string changed from the previous run, so a step
+// change in the trend can be matched up with what was actually adjusted.
+function drawTrendChart(svg, tooltip, series, opts)
+{
+    rememberChart(svg.id, fresh => drawTrendChart(fresh, tooltip, series, opts));
+
+    svg.innerHTML = '';
+
+    // The chart is drawn 300 units wide and stretched to the card. On a
+    // phone that's about 1:1; on a desktop it's 3-4x, and a line or dot
+    // sized in units comes out that many times too heavy. `scale` is the
+    // fraction of its phone size a mark should be drawn at so it ends up
+    // roughly the same weight on screen (floored, so marks still grow a
+    // little with the chart instead of looking spindly on a big one). The
+    // chart is also made less tall when it's wide: it has few points and
+    // gains nothing from 470px of height.
+    const W = 300;
+    const pxWidth = svg.getBoundingClientRect().width || W;
+    const scale = Math.max(0.4, Math.min(1, W / pxWidth));
+    const H = opts.height || (pxWidth > 700 ? 100 : 140);
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const padL = 30, padR = 8, padT = 10, padB = 20;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const n = opts.count;
+    const allVals = series.flatMap(s => s.points.map(p => p.y));
+    let yMin = 0, yMax = Math.max(1, arrayMax(allVals));
+    const yStep = niceStep(yMax - yMin, 4);
+    yMax = Math.ceil(yMax / yStep) * yStep || yStep;
+
+    const X = i => n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2;
+    const Y = v => padT + plotH - (v / yMax) * plotH;
+
+    for (let v = 0; v <= yMax + 0.0001; v += yStep) {
+        const y = Y(v);
+        svg.appendChild(el('line', { x1: padL, y1: y.toFixed(1), x2: W - padR, y2: y.toFixed(1), stroke: COLOR_BORDER, 'stroke-width': 0.5 }));
+
+        const label = el('text', { x: padL - 6, y: (y + 3).toFixed(1), 'text-anchor': 'end', 'font-size': 4, fill: COLOR_MUTED });
+        label.textContent = opts.yFormat(v);
+        svg.appendChild(label);
+    }
+
+    (opts.markerIndices || []).forEach(i => {
+        const x = X(i);
+        svg.appendChild(el('line', { x1: x.toFixed(1), y1: padT, x2: x.toFixed(1), y2: padT + plotH, stroke: COLOR_MUTED, 'stroke-width': 0.5, 'stroke-dasharray': '2,2' }));
+    });
+
+    const allPoints = [];
+
+    series.forEach(s => {
+        let d = '';
+        s.points.forEach((p, i) => { d += (i === 0 ? 'M' : 'L') + X(p.x).toFixed(1) + ',' + Y(p.y).toFixed(1) + ' '; });
+        if (d) svg.appendChild(el('path', { d, fill: 'none', stroke: s.color, 'stroke-width': (1.5 * scale).toFixed(2), 'stroke-linejoin': 'round' }));
+
+        s.points.forEach(p => {
+            const c = el('circle', { cx: X(p.x).toFixed(1), cy: Y(p.y).toFixed(1), r: (2.5 * scale).toFixed(2), fill: s.color, stroke: COLOR_SURFACE, 'stroke-width': (0.5 * scale).toFixed(2) });
+            svg.appendChild(c);
+            allPoints.push({ x: p.x, dot: c });
+        });
+    });
+
+    // Name every run along the axis when there's room, every 2nd/3rd/…
+    // when there isn't — it used to be only the first and last, leaving the
+    // points in between identifiable by hovering alone. The last run is
+    // always labeled; a stepped label that would collide with it is dropped.
+    const LABEL_WIDTH = 24;
+    const spacing = n > 1 ? plotW / (n - 1) : plotW;
+    const step = Math.max(1, Math.ceil(LABEL_WIDTH / spacing));
+
+    for (let i = 0; i < n; i++) {
+        const isLast = i === n - 1;
+        if (!isLast && (i % step !== 0 || (n - 1 - i) * spacing < LABEL_WIDTH)) continue;
+
+        const label = el('text', {
+            x: X(i).toFixed(1), y: H - 5,
+            'text-anchor': i === 0 ? 'start' : isLast && n > 1 ? 'end' : 'middle',
+            'font-size': 4, fill: COLOR_MUTED
+        });
+        label.textContent = opts.xFormat(i);
+        svg.appendChild(label);
+    }
+
+    const crosshair = el('line', { x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: COLOR_MUTED, 'stroke-width': 0.5, opacity: 0 });
+    svg.appendChild(crosshair);
+
+    function pointerHandler(evt)
+    {
+        const rect = svg.getBoundingClientRect();
+        const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+        const px = (clientX - rect.left) / rect.width * W;
+
+        let idx = 0, best = Infinity;
+        for (let i = 0; i < n; i++) {
+            const diff = Math.abs(X(i) - px);
+            if (diff < best) { best = diff; idx = i; }
+        }
+
+        const cx = X(idx);
+        crosshair.setAttribute('x1', cx.toFixed(1));
+        crosshair.setAttribute('x2', cx.toFixed(1));
+        crosshair.setAttribute('opacity', 1);
+
+        let html = `<div class="label" style="margin-bottom:4px;">${opts.xFormat(idx)}</div>`;
+        series.forEach(s => {
+            const p = s.points.find(pt => pt.x === idx);
+            if (!p) return;
+            html += `<div class="row"><span class="key" style="background:${s.color}"></span>`
+                + `<span class="value">${opts.yFormat(p.y)}</span> <span class="label">${s.name}</span></div>`;
+        });
+        tooltip.innerHTML = html;
+        tooltip.classList.add('visible');
+
+        const tw = tooltip.offsetWidth || 90;
+        let left = (cx / W) * rect.width - tw / 2;
+        left = Math.max(0, Math.min(rect.width - tw, left));
+        tooltip.style.left = left + 'px';
+    }
+
+    function clearHover()
+    {
+        crosshair.setAttribute('opacity', 0);
+        tooltip.classList.remove('visible');
+    }
+
+    svg.addEventListener('pointermove', pointerHandler);
+    svg.addEventListener('pointerdown', pointerHandler);
+    svg.addEventListener('pointerleave', clearHover);
+}
+
+function setupChangeIndices(results, key)
+{
+    const idx = [];
+    for (let i = 1; i < results.length; i++) {
+        if (results[i][key] && results[i][key] !== results[i - 1][key]) idx.push(i);
+    }
+    return idx;
+}
+
+function seriesPoints(results, key)
+{
+    const points = [];
+    results.forEach((r, i) => { if (r[key] !== null) points.push({ x: i, y: r[key] }); });
+    return points;
+}
+
+function renderTrends(results)
+{
+    const anyHardtail = results.some(r => !r.isFullSusp);
+    document.getElementById('mixedNote').style.display = anyHardtail ? 'block' : 'none';
+    document.getElementById('legendRearSagWrap').style.display = anyHardtail ? 'none' : '';
+    document.getElementById('legendRearBoWrap').style.display = anyHardtail ? 'none' : '';
+
+    const n = results.length;
+    const xFormat = i => results[i] ? results[i].name : '';
+
+    // Shown before drawing, not after: a chart sizes its marks from the
+    // width it's rendered at, and a hidden card has none.
+    document.getElementById('sagCard').style.display = '';
+    document.getElementById('boCard').style.display = '';
+
+    drawTrendChart(
+        document.getElementById('sagChart'), document.getElementById('sagTooltip'),
+        [
+            { name: 'Front', color: COLOR_FRONT, points: seriesPoints(results, 'frontAvgPct') },
+            ...(anyHardtail ? [] : [{ name: 'Rear', color: COLOR_REAR, points: seriesPoints(results, 'rearAvgPct') }])
+        ],
+        { count: n, xFormat, yFormat: v => v.toFixed(0) + '%', markerIndices: setupChangeIndices(results, 'frontSetup') }
+    );
+
+    drawTrendChart(
+        document.getElementById('boChart'), document.getElementById('boTooltip'),
+        [
+            { name: 'Front', color: COLOR_FRONT, points: seriesPoints(results, 'frontBOPerMin') },
+            ...(anyHardtail ? [] : [{ name: 'Rear', color: COLOR_REAR, points: seriesPoints(results, 'rearBOPerMin') }])
+        ],
+        { count: n, xFormat, yFormat: v => v.toFixed(1) + '/min', markerIndices: setupChangeIndices(results, 'frontSetup') }
+    );
+}
+
+let allRuns = [];
+let trendsRunCount = 20;
+
+// The dropdown is seeded from the garage (BikeProfiles) rather than just
+// "whatever's active right now" — the whole point is being able to look
+// back at a bike's history without having to switch Settings over to it
+// first. Any bike_name actually seen in recorded runs is included too,
+// even if no garage profile was ever saved for it (exactly this
+// project's own situation today: real run history exists before the
+// Bike Profiles feature did), so a name never silently disappears from
+// the list just because it was never explicitly saved as a profile.
+async function loadBikeOptions()
+{
+    const [bikesData, runsData, cfg] = await Promise.all([
+        fetch('/api/bikes').then(r => r.json()),
+        fetch('/api/runs').then(r => r.json()),
+        fetch('/api/config').then(r => r.json())
+    ]);
+
+    allRuns = runsData;
+    trendsRunCount = cfg.trendsRunCount || 20;
+
+    const fromGarage = bikesData.bikes || [];
+    const fromRuns = [...new Set(allRuns.map(r => r.bike_name || ''))].filter(n => n);
+    const names = [...new Set([...fromGarage, ...fromRuns])];
+
+    const select = document.getElementById('bikeSelect');
+    select.innerHTML = '';
+
+    if (names.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '(no bikes yet)';
+        select.appendChild(opt);
+        return null;
+    }
+
+    names.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n;
+        opt.textContent = n;
+        select.appendChild(opt);
+    });
+
+    const active = bikesData.active || cfg.bikeName || '';
+    if (names.includes(active)) select.value = active;
+
+    return select.value;
+}
+
+async function loadTrendsForSelectedBike()
+{
+    const bikeName = document.getElementById('bikeSelect').value;
+
+    document.body.classList.add('is-loading');
+    document.getElementById('emptyNote').style.display = 'none';
+    document.getElementById('loadError').style.display = 'none';
+    document.getElementById('sagCard').style.display = 'none';
+    document.getElementById('boCard').style.display = 'none';
+    document.getElementById('progressNote').style.display = '';
+
+    try {
+        if (!bikeName) {
+            document.getElementById('emptyNote').style.display = 'block';
+            document.getElementById('progressNote').style.display = 'none';
+            return;
+        }
+
+        const sameBikeRuns = allRuns.filter(r => (r.bike_name || '') === bikeName);
+        const subset = sameBikeRuns.slice(0, trendsRunCount).reverse(); // newest-first list -> chronological, oldest first
+
+        if (subset.length < 2) {
+            document.getElementById('emptyNote').style.display = 'block';
+            document.getElementById('progressNote').style.display = 'none';
+            return;
+        }
+
+        const results = [];
+
+        for (let i = 0; i < subset.length; i++) {
+            document.getElementById('progressNote').textContent = `Loading run ${i + 1} of ${subset.length}…`;
+
+            try {
+                const run = await fetchRun(subset[i].name);
+                results.push(analyzeRun(subset[i].name, run));
+            } catch (e) {
+                // Skip a run that fails to load rather than aborting the
+                // whole trend — one corrupted/unreadable file shouldn't
+                // hide the history of every other run.
+            }
+        }
+
+        if (results.length < 2) {
+            document.getElementById('emptyNote').style.display = 'block';
+            document.getElementById('progressNote').style.display = 'none';
+            return;
+        }
+
+        document.getElementById('progressNote').textContent = `Showing ${results.length} runs for "${bikeName}", oldest to newest`;
+        renderTrends(results);
+    } catch (e) {
+        document.getElementById('loadError').style.display = 'block';
+        document.getElementById('progressNote').style.display = 'none';
+    } finally {
+        document.body.classList.remove('is-loading');
+    }
+}
+
+async function load()
+{
+    try {
+        const selected = await loadBikeOptions();
+        if (selected) {
+            await loadTrendsForSelectedBike();
+        } else {
+            document.getElementById('emptyNote').style.display = 'block';
+            document.getElementById('progressNote').style.display = 'none';
+        }
+    } catch (e) {
+        document.getElementById('loadError').style.display = 'block';
+        document.getElementById('progressNote').style.display = 'none';
+    } finally {
+        document.body.classList.remove('is-loading');
+    }
+}
+
+load();
+
+</script>
+</body></html>

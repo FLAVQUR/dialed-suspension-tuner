@@ -1,0 +1,1570 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/style.css">
+<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<title>Settings — Dialed</title>
+</head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="glass-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="2" result="soft"/><feDisplacementMap in="SourceGraphic" in2="soft" scale="70" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
+<script>if (/Chrome\//.test(navigator.userAgent)) document.documentElement.classList.add('glass-refract');</script>
+
+<div class="topbar">
+    <h1>Settings</h1>
+    <div class="battery-indicator" id="batteryIndicator">
+        <svg viewBox="0 0 28 14" width="26" height="13">
+            <rect x="1" y="1" width="23" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="25" y="4.5" width="2" height="5" rx="1" fill="currentColor"/>
+            <rect id="batteryFill" x="3" y="3" width="0" height="8" rx="1.5" fill="currentColor"/>
+        </svg>
+    </div>
+</div>
+
+<main>
+    <div class="seg-tabs" role="tablist">
+        <button type="button" class="seg-tab active" id="railBike" role="tab" onclick="showTab('bike')">Bike</button>
+        <button type="button" class="seg-tab" id="railSensors" role="tab" onclick="showTab('sensors')">Sensors</button>
+        <button type="button" class="seg-tab" id="railWifi" role="tab" onclick="showTab('wifi')">WiFi</button>
+        <button type="button" class="seg-tab" id="railSystem" role="tab" onclick="showTab('system')">System</button>
+    </div>
+
+    <div class="settings-layout">
+        <div class="settings-content">
+        <div class="tab-panel active" id="tabBike">
+            <div class="card glass span-2">
+                <h3 style="margin-top:0;">Bike Profiles</h3>
+
+                <div class="field" style="margin-bottom:0;">
+                    <label for="bikeProfileSelect">Active Bike</label>
+                    <select id="bikeProfileSelect" onchange="activateBikeProfile()"></select>
+                </div>
+                <p class="stat-sub" id="bikeProfileStatus" style="min-height:16px;"></p>
+
+                <div style="display:flex; gap:8px;">
+                    <button class="btn ghost" style="flex:1;" onclick="saveBikeProfile()">Save As…</button>
+                    <button class="btn ghost" style="flex:1;" onclick="renameBikeProfile()">Rename</button>
+                    <button class="btn danger" style="flex:1;" onclick="deleteBikeProfile()">Delete</button>
+                </div>
+                <details class="help">
+                    <summary>What a profile includes</summary>
+                    <p class="stat-sub">
+                        A profile is a bike's name, wheel/travel info and suspension setup. The
+                        active one is kept up to date by itself: every change made below is saved
+                        into it, and renaming the bike renames it. Save As… starts a new profile
+                        from the current setup and switches to it, leaving the one you were on as
+                        it was. Switching bikes loads that profile's values below.
+                    </p>
+                    <p class="stat-sub">
+                        Sensor calibration (the Sensors tab) is not part of a profile — it stays
+                        as-is, since it's tied to how the sensors happen to be mounted right now,
+                        not to which bike is active.
+                    </p>
+                </details>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">Bike Information</h3>
+
+                <div class="field">
+                    <label for="bikeName">Bike Name</label>
+                    <input id="bikeName" type="text" maxlength="40" placeholder="e.g. Enduro 29">
+                </div>
+
+                <div class="field">
+                    <label for="wheelSize">Wheel Size</label>
+                    <select id="wheelSize">
+                        <option value="29">29"</option>
+                        <option value="mullet">Mullet (29 / 27.5)</option>
+                        <option value="27.5">27.5"</option>
+                    </select>
+                </div>
+
+                <div class="field" style="margin-bottom:0; display:flex; justify-content:space-between; align-items:center;">
+                    <label for="fullSuspension" style="margin-bottom:0;">Full Suspension</label>
+                    <input id="fullSuspension" type="checkbox" style="width:22px; height:22px; min-height:auto;" onchange="updateFullSuspensionVisibility()">
+                </div>
+
+                <div class="field" style="margin-top:14px;">
+                    <label for="frontWheelTravelMM">Front Wheel Travel (mm)</label>
+                    <input id="frontWheelTravelMM" type="number" min="0" placeholder="e.g. 150" onchange="saveTravelMM('front', 'frontWheelTravelMM')">
+                </div>
+
+                <div id="rearBikeInfo">
+                    <div class="field">
+                        <label for="rearWheelTravelMM">Rear Wheel Travel (mm)</label>
+                        <input id="rearWheelTravelMM" type="number" min="0" placeholder="e.g. 160">
+                    </div>
+                    <div class="field" id="shockStrokeInfo" style="margin-bottom:0;">
+                        <label for="shockStrokeMM">Shock Stroke (mm)</label>
+                        <input id="shockStrokeMM" type="number" min="0" placeholder="e.g. 55" onchange="saveTravelMM('rear', 'shockStrokeMM')">
+                    </div>
+                </div>
+
+                <p class="stat-sub" style="margin-top:2px;">
+                    Front Wheel Travel and Shock Stroke double as the mm target when you tap
+                    Capture Max in the Sensors tab.
+                </p>
+
+                <p class="stat-sub" id="bikeConfigStatus" style="text-align:center; min-height:16px;"></p>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">Suspension Setup</h3>
+
+                <details class="help" style="margin-bottom:14px;">
+                    <summary>About these fields</summary>
+                    <p class="stat-sub">
+                        Only some forks/shocks split compression and rebound into low/high-speed
+                        adjusters. Leave a dial blank if your fork/shock doesn't have it (e.g. a
+                        fixed-shim HSC with no click count) — the tuning suggestions only mention
+                        dials you've actually got. 0 is a real setting, not "none": use it when the
+                        dial exists and sits at zero clicks. With the − / + buttons, − from 0 clears
+                        the field back to "no dial" and + from blank starts it at 0.
+                    </p>
+                    <p class="stat-sub">
+                        The click counts, tokens and pressure aren't used in any calculation, just
+                        kept for reference and shown alongside each run. Static Sag (captured in
+                        the Sensors tab) is the exception: Run Analysis uses it to judge whether a
+                        ride's average travel looks too firm or too soft for how the bike was set up.
+                    </p>
+                </details>
+
+                <div class="stack" style="gap:18px;">
+                    <div>
+                        <p class="stat-label">Front</p>
+                        <div style="display:flex; gap:8px;">
+                            <div class="field" style="flex:1;">
+                                <label for="frontLSC">LSC</label>
+                                <input id="frontLSC" type="number" min="0" placeholder="no dial">
+                            </div>
+                            <div class="field" style="flex:1;">
+                                <label for="frontHSC">HSC</label>
+                                <input id="frontHSC" type="number" min="0" placeholder="no dial">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <div class="field" style="flex:1;">
+                                <label for="frontLSR">LSR</label>
+                                <input id="frontLSR" type="number" min="0" placeholder="no dial">
+                            </div>
+                            <div class="field" style="flex:1;">
+                                <label for="frontHSR">HSR</label>
+                                <input id="frontHSR" type="number" min="0" placeholder="no dial">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <div class="field" style="flex:1;">
+                                <label for="frontVolumeTokens">Volume Tokens</label>
+                                <input id="frontVolumeTokens" type="number" min="0" placeholder="tokens">
+                            </div>
+                            <div class="field" style="flex:1; margin-bottom:0;">
+                                <label for="frontPressurePsi">Pressure (psi)</label>
+                                <input id="frontPressurePsi" type="number" min="0" placeholder="psi">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <p class="stat-label">Rear</p>
+                        <div style="display:flex; gap:8px;">
+                            <div class="field" style="flex:1;">
+                                <label for="rearLSC">LSC</label>
+                                <input id="rearLSC" type="number" min="0" placeholder="no dial">
+                            </div>
+                            <div class="field" style="flex:1;">
+                                <label for="rearHSC">HSC</label>
+                                <input id="rearHSC" type="number" min="0" placeholder="no dial">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <div class="field" style="flex:1;">
+                                <label for="rearLSR">LSR</label>
+                                <input id="rearLSR" type="number" min="0" placeholder="no dial">
+                            </div>
+                            <div class="field" style="flex:1;">
+                                <label for="rearHSR">HSR</label>
+                                <input id="rearHSR" type="number" min="0" placeholder="no dial">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <div class="field" style="flex:1;">
+                                <label for="rearVolumeTokens">Volume Tokens</label>
+                                <input id="rearVolumeTokens" type="number" min="0" placeholder="tokens">
+                            </div>
+                            <div class="field" style="flex:1; margin-bottom:0;">
+                                <label for="rearPressurePsi">Pressure (psi)</label>
+                                <input id="rearPressurePsi" type="number" min="0" placeholder="psi">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="stat-sub" id="suspensionSetupStatus" style="text-align:center; min-height:16px;"></p>
+            </div>
+        </div>
+
+        <!-- Calibration and IMU zero belong to the device and how its sensors
+             are mounted, not to whichever bike profile is active — hence
+             their own tab rather than the bottom of the Bike one. -->
+        <div class="tab-panel" id="tabSensors">
+            <div class="card glass">
+                <h3 style="margin-top:0;">Suspension Calibration</h3>
+
+                <details class="help" style="margin-bottom:6px;">
+                    <summary>How to calibrate</summary>
+                    <p class="stat-sub">
+                        Zero and Max teach the sensor where each end of the travel is: Zero with the
+                        suspension fully extended, Max with it fully compressed — measured with a ruler
+                        against the Front Wheel Travel / Shock Stroke set in the Bike tab. Max keeps
+                        refining itself if you ever bottom out harder during a ride, so it never needs
+                        recapturing for that.
+                    </p>
+                    <p class="stat-sub">
+                        Sag is how far the bike settles under your weight, sitting still. One capture
+                        reads both ends at once, since your weight loads them together.
+                    </p>
+                </details>
+
+                <!-- Front/Rear blocks are generated by buildCalibrationUI() —
+                     same two steps each, so one template rather than two
+                     copies of the markup to keep in sync. -->
+                <div id="calSides"></div>
+
+                <div class="cal-side">
+                    <div class="cal-side-header">
+                        <p class="stat-label">Rider on the bike</p>
+                    </div>
+                    <div class="cal-step" id="calSag">
+                        <span class="cal-mark"></span>
+                        <div class="cal-body">
+                            <div class="cal-title">3 · Sag <span class="cal-value"></span></div>
+                            <div class="stat-sub cal-hint"></div>
+                            <div class="stat-sub cal-msg"></div>
+                        </div>
+                        <button class="ghost cal-btn" onclick="captureSag()">Capture</button>
+                    </div>
+                </div>
+
+                <button class="ghost cal-reset" onclick="resetCal()">Reset All Calibration</button>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">IMU Orientation</h3>
+
+                <div id="imuStatus" class="stat-sub" style="text-align:left; margin-bottom:6px;">Loading...</div>
+                <div id="imuLive" class="stat-sub" style="text-align:left; margin-bottom:12px; font-variant-numeric:tabular-nums;">&nbsp;</div>
+
+                <button class="ghost" style="width:100%; margin-bottom:8px;" id="imuZeroBtn" onclick="zeroImu()">Zero IMU (bike upright and still)</button>
+                <button class="danger" style="width:100%;" onclick="clearImuZero()">Clear IMU Zero</button>
+                <p class="stat-sub" id="imuActionStatus" style="text-align:center; min-height:16px; margin-top:8px;"></p>
+
+                <p class="stat-sub" style="margin-top:6px; margin-bottom:0;">
+                    Stand the bike truly vertical and keep it still for about 2 seconds. Redo it
+                    whenever the master unit is re-mounted or moved to another bike.
+                </p>
+
+                <details class="help">
+                    <summary>How zeroing works</summary>
+                    <p class="stat-sub">
+                        The master sits tilted inside the frame, so its raw roll/pitch aren't the bike's
+                        lean and pitch. Zeroing records which way is "up" in the sensor's own axes so the
+                        run page can rotate the data into the bike's frame.
+                    </p>
+                    <p class="stat-sub">
+                        Use a wall or a stand, checked with a level if you can: whatever lean the bike
+                        has at that moment becomes 0°, so a bike held 5° off leaves every run 5° off.
+                    </p>
+                    <p class="stat-sub">
+                        It is stored on the device with the suspension calibration, not in a bike
+                        profile; each run keeps a copy of the reference it was recorded with, so older
+                        runs are never re-interpreted.
+                    </p>
+                </details>
+            </div>
+        </div>
+
+        <div class="tab-panel" id="tabWifi">
+            <div class="card glass span-2">
+                <h3 style="margin-top:0;">Connection Status</h3>
+                <p class="stat-sub" id="wifiStatusText">--</p>
+
+                <div class="field" style="margin-top:14px; margin-bottom:0;">
+                    <label for="connModeSelect">Connection Mode</label>
+                    <select id="connModeSelect" onchange="changeConnMode()">
+                        <option value="ap">Access Point</option>
+                        <option value="sta">WiFi (Home Network)</option>
+                    </select>
+                </div>
+                <p class="stat-sub" id="connModeStatus" style="text-align:center; min-height:16px;"></p>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">Access Point</h3>
+
+                <div class="field">
+                    <label for="apSSID">Network Name</label>
+                    <input id="apSSID" type="text" maxlength="32" placeholder="e.g. Bike">
+                </div>
+
+                <div class="field" style="margin-bottom:0;">
+                    <label for="apPassword">Password</label>
+                    <input id="apPassword" type="password" minlength="8" maxlength="63" placeholder="Leave blank to keep current" autocomplete="new-password">
+                </div>
+
+                <button style="width:100%; margin-top:16px;" onclick="saveApConfig()">Save</button>
+                <p class="stat-sub" id="apConfigStatus" style="text-align:center; min-height:16px;"></p>
+                <p class="stat-sub" style="margin-top:0;">
+                    The hotspot the device creates when no home network is configured or
+                    reachable. At least 8 characters.
+                </p>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">Home Network</h3>
+
+                <div class="field" style="margin-bottom:0; display:flex; justify-content:space-between; align-items:center;">
+                    <label for="staEnabled" style="margin-bottom:0;">Connect to a home WiFi network</label>
+                    <input id="staEnabled" type="checkbox" style="width:22px; height:22px; min-height:auto;">
+                </div>
+
+                <div class="field" style="margin-top:14px;">
+                    <label for="scanResults">Scanned Networks</label>
+                    <select id="scanResults" onchange="selectScannedNetwork()">
+                        <option value="">Tap Scan to search…</option>
+                    </select>
+                </div>
+
+                <button class="ghost" style="width:100%;" id="scanBtn" onclick="scanNetworks()">Scan Networks</button>
+
+                <div class="field" style="margin-top:14px;">
+                    <label for="staSSID">Network Name</label>
+                    <input id="staSSID" type="text" maxlength="32" placeholder="e.g. Home WiFi">
+                </div>
+
+                <div class="field" style="margin-bottom:0;">
+                    <label for="staPassword">Password</label>
+                    <input id="staPassword" type="password" minlength="8" maxlength="63" placeholder="Leave blank to keep current" autocomplete="new-password">
+                </div>
+
+                <button style="width:100%; margin-top:16px;" onclick="saveStaConfig()">Save</button>
+                <p class="stat-sub" id="staConfigStatus" style="text-align:center; min-height:16px;"></p>
+
+                <details class="help" style="margin-top:0;">
+                    <summary>What happens if it can't connect</summary>
+                    <p class="stat-sub">
+                        The device tries this network first and falls back to its own Access
+                        Point automatically if it can't connect within 20 seconds. Use the
+                        Connection Mode selector above to switch immediately instead of waiting.
+                    </p>
+                </details>
+            </div>
+
+            <div class="card glass span-2">
+                <h3 style="margin-top:0;">Forgot a Password?</h3>
+                <p class="stat-sub" style="margin-top:0;">
+                    Hold the record button for 10 seconds while the device is idle (not
+                    recording) to reset the Access Point and home network settings back to
+                    factory defaults. The LED blinks magenta to confirm, then the device
+                    restarts.
+                </p>
+            </div>
+        </div>
+
+        <div class="tab-panel" id="tabSystem">
+            <div class="card glass">
+                <h3 style="margin-top:0;">Recording</h3>
+
+                <div class="field" style="margin-bottom:0; display:flex; justify-content:space-between; align-items:center;">
+                    <label for="wifiOffWhileRecording" style="margin-bottom:0;">Turn off WiFi while recording</label>
+                    <input id="wifiOffWhileRecording" type="checkbox" style="width:22px; height:22px; min-height:auto;">
+                </div>
+                <p class="stat-sub" style="margin-top:6px;">
+                    Saves power and avoids interference during a run. Turn off to keep the
+                    dashboard reachable so you can stop a run remotely.
+                </p>
+
+                <div class="field" style="margin-top:16px; margin-bottom:0;">
+                    <label for="suspensionSampleRateHz">Suspension Sample Rate</label>
+                    <select id="suspensionSampleRateHz">
+                        <option value="500">500 Hz</option>
+                        <option value="1000">1000 Hz (Beta)</option>
+                    </select>
+                </div>
+                <details class="help">
+                    <summary>What this changes</summary>
+                    <p class="stat-sub">
+                        How many rows a run records each second. The suspension is read fresh for
+                        every row; GPS and IMU repeat their last reading between their own updates
+                        (the IMU reports 100 times a second). A higher rate captures more suspension
+                        detail and grows the run file in proportion.
+                    </p>
+                    <p class="stat-sub">
+                        500 Hz is the rate the device has been tested at. 1000 Hz is in beta: it
+                        has not been through a real ride yet, and it asks the SD card to take twice
+                        the data. If a run recorded at 1000 Hz shows "Rows dropped" in the Runs
+                        list, the card could not keep up — go back to 500.
+                    </p>
+                </details>
+
+                <p class="stat-sub" id="recordingConfigStatus" style="text-align:center; min-height:16px;"></p>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">Analysis</h3>
+
+                <div class="field" style="margin-bottom:0;">
+                    <label for="trendsRunCount">Runs Shown in Trends</label>
+                    <input id="trendsRunCount" type="number" min="5" max="100" placeholder="20">
+                </div>
+                <p class="stat-sub" style="margin-top:6px;">
+                    How many of your most recent runs the Trends page loads and analyzes.
+                    Each one is a full CSV read, so a higher number means a slower page —
+                    5 to 100.
+                </p>
+
+                <p class="stat-sub" id="analysisConfigStatus" style="text-align:center; min-height:16px;"></p>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">Appearance</h3>
+
+                <div class="field" style="margin-bottom:0;">
+                    <label for="theme">Theme</label>
+                    <select id="theme" onchange="applyTheme(this.value)">
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                    </select>
+                </div>
+
+                <p class="stat-sub" id="appearanceConfigStatus" style="text-align:center; min-height:16px;"></p>
+            </div>
+
+            <div class="card glass">
+                <h3 style="margin-top:0;">Device</h3>
+
+                <p class="stat-sub" id="deviceInfo">--</p>
+                <p class="stat-sub" id="uptime">Uptime --</p>
+                <p class="stat-sub" id="firmwareBuild">Firmware --</p>
+                <p class="stat-sub" id="deviceClock" style="margin-bottom:16px;">Clock --</p>
+
+                <p class="stat-label">Battery</p>
+                <p class="stat-value" id="battPercent">-- %</p>
+                <div class="bar"><div class="bar-fill" id="battFill"></div></div>
+                <p class="stat-sub" id="battVoltage" style="margin-bottom:16px;">-- V</p>
+
+                <p class="stat-label">Memory</p>
+                <div class="bar"><div class="bar-fill" id="heapFill"></div></div>
+                <p class="stat-sub" id="heapText" style="margin-bottom:16px;">--</p>
+
+                <p class="stat-label">Storage</p>
+                <div class="bar"><div class="bar-fill" id="storageFill"></div></div>
+                <p class="stat-sub" id="storageText">--</p>
+
+                <button class="danger" style="width:100%; margin-top:16px;" onclick="deleteAllRuns()">Delete All Runs</button>
+                <p class="stat-sub" id="deleteAllStatus" style="text-align:center; min-height:16px;"></p>
+            </div>
+        </div>
+        </div>
+    </div>
+</main>
+
+<nav class="bottom-nav">
+    <a href="/" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Dashboard</span>
+        </span>
+    </a>
+    <a href="/runs" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Runs</span>
+        </span>
+    </a>
+    <a href="/settings" class="nav-item active">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="14" y2="6"/><circle cx="17" cy="6" r="2"/><line x1="10" y1="12" x2="20" y2="12"/><circle cx="7" cy="12" r="2"/><line x1="4" y1="18" x2="14" y2="18"/><circle cx="17" cy="18" r="2"/></svg>
+            <span>Settings</span>
+        </span>
+    </a>
+</nav>
+
+<script src="/common.js"></script>
+<script>
+
+function updateBattery()
+{
+    fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+        const pct = data.battery.percent;
+        const cls = pct >= 50 ? 'good' : pct >= 20 ? 'warn' : 'bad';
+
+        document.getElementById('batteryIndicator').className = 'battery-indicator ' + cls;
+        document.getElementById('batteryFill').setAttribute('width', (pct / 100 * 20).toFixed(1));
+
+        document.getElementById('battPercent').innerText = pct + " %";
+        document.getElementById('battVoltage').innerText = data.battery.voltage + " V";
+        document.getElementById('battFill').style.width = pct + "%";
+        document.getElementById('battFill').style.background = 'var(--' + cls + ')';
+
+        // The device has no clock after a power-up until GPS, the home
+        // network or a browser gives it the time — and a run recorded
+        // before that happens gets no date.
+        const CLOCK_SOURCES = { gps: 'GPS', ntp: 'the internet', browser: 'this browser' };
+        const clock = data.clock;
+
+        if (clock) {
+            document.getElementById('deviceClock').innerText = clock.set
+                ? `Clock ${new Date(clock.epoch * 1000).toLocaleString()} · set from ${CLOCK_SOURCES[clock.source] || clock.source}`
+                : 'Clock not set yet — runs recorded now get no date';
+        }
+    });
+}
+
+function usageColor(pct) {
+    return pct >= 90 ? 'var(--bad)' : pct >= 70 ? 'var(--warn)' : 'var(--good)';
+}
+
+function formatSeconds(s)
+{
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+
+    return `${h}h ${m}m ${sec}s`;
+}
+
+function updateDevice()
+{
+    fetch('/api/system')
+    .then(r => r.json())
+    .then(data => {
+
+        document.getElementById('deviceInfo').innerText =
+            `${data.device.chip} · ${data.device.cores} cores · ${data.device.freq} MHz`;
+        document.getElementById('uptime').innerText = "Uptime " + formatSeconds(data.uptime_s);
+        document.getElementById('firmwareBuild').innerText = "Firmware " + data.device.firmware_build;
+
+        const heapPct = (data.memory.heap_used / data.memory.heap_total) * 100;
+        document.getElementById('heapFill').style.width = heapPct.toFixed(0) + '%';
+        document.getElementById('heapFill').style.background = usageColor(heapPct);
+        document.getElementById('heapText').innerText =
+            `${(data.memory.heap_used / 1024).toFixed(0)} / ${(data.memory.heap_total / 1024).toFixed(0)} KB used`;
+
+        const storagePct = (data.storage.used_mb / data.storage.total_mb) * 100;
+        document.getElementById('storageFill').style.width = storagePct.toFixed(0) + '%';
+        document.getElementById('storageFill').style.background = usageColor(storagePct);
+        document.getElementById('storageText').innerText =
+            `${data.storage.used_mb} / ${data.storage.total_mb} MB used`;
+    });
+}
+
+// Lives here rather than as a button on the Runs list, where it sat a
+// thumb's width from Compare and Trends.
+async function deleteAllRuns() {
+    const status = document.getElementById('deleteAllStatus');
+
+    let count;
+    try {
+        count = (await (await fetch('/api/runs')).json()).length;
+    } catch (e) {
+        status.innerText = 'Could not reach the device';
+        status.style.color = 'var(--bad)';
+        return;
+    }
+
+    if (count === 0) {
+        status.innerText = 'No runs to delete';
+        status.style.color = '';
+        return;
+    }
+
+    const ok = await BikeUI.confirm({
+        title: `Delete all ${count} run${count > 1 ? 's' : ''}?`,
+        message: 'Every recording and its notes are removed from the SD card. This can\'t be undone — download the ones you want to keep first.',
+        confirmLabel: 'Delete all',
+        danger: true
+    });
+    if (!ok) return;
+
+    fetch('/api/runs/clear', { method: 'POST' })
+    .then(r => {
+        status.innerText = r.ok ? 'All runs deleted' : 'Delete failed';
+        status.style.color = r.ok ? 'var(--good)' : 'var(--bad)';
+        updateDevice();
+    });
+}
+
+const TABS = ['bike', 'sensors', 'wifi', 'system'];
+
+function showTab(name) {
+    TABS.forEach(tab => {
+        const id = tab[0].toUpperCase() + tab.slice(1);
+        document.getElementById('tab' + id).classList.toggle('active', tab === name);
+        document.getElementById('rail' + id).classList.toggle('active', tab === name);
+    });
+
+    // Kept in the URL so a link can land on a specific tab (the Dashboard's
+    // pre-ride checklist points at #sensors) and a reload stays put.
+    history.replaceState(null, '', '#' + name);
+
+    // Each tab is its own long page — start the new one from its top
+    // rather than wherever the previous one happened to be scrolled to.
+    window.scrollTo(0, 0);
+}
+
+function updateFullSuspensionVisibility() {
+    const full = document.getElementById('fullSuspension').checked;
+
+    document.getElementById('rearBikeInfo').style.display = full ? '' : 'none';
+
+    // A hardtail has no rear end to calibrate either.
+    renderCalibration();
+}
+
+function loadConfig() {
+    fetch('/api/config')
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('bikeName').value = data.bikeName || '';
+        document.getElementById('fullSuspension').checked = !!data.fullSuspension;
+        document.getElementById('wifiOffWhileRecording').checked = !!data.wifiOffWhileRecording;
+        document.getElementById('suspensionSampleRateHz').value = data.suspensionSampleRateHz || 500;
+        document.getElementById('trendsRunCount').value = data.trendsRunCount || 20;
+        document.getElementById('theme').value = data.theme || 'dark';
+        applyTheme(data.theme || 'dark');
+        document.getElementById('wheelSize').value = data.wheelSize || '29';
+        document.getElementById('rearWheelTravelMM').value = data.rearWheelTravelMM || '';
+
+        document.getElementById('apSSID').value = data.apSSID || '';
+        document.getElementById('staEnabled').checked = !!data.staEnabled;
+        document.getElementById('staSSID').value = data.staSSID || '';
+
+        // A dial's field is the has-flag and the click count in one: blank
+        // when the fork/shock has no such adjuster, a number — 0 included,
+        // that's a real setting — when it does. Same defaults as before
+        // for a config that predates the flags: LSC/LSR assumed present,
+        // HSC/HSR not.
+        const setDial = (id, clicks, has) => {
+            document.getElementById(id).value = has ? (clicks || 0) : '';
+        };
+
+        ['front', 'rear'].forEach(side => {
+            setDial(side + 'LSC', data[side + 'LSC'], data[side + 'HasLSC'] !== false);
+            setDial(side + 'HSC', data[side + 'HSC'], !!data[side + 'HasHSC']);
+            setDial(side + 'LSR', data[side + 'LSR'], data[side + 'HasLSR'] !== false);
+            setDial(side + 'HSR', data[side + 'HSR'], !!data[side + 'HasHSR']);
+
+            // 0 tokens is a real setup; 0 psi just means it was never filled in.
+            document.getElementById(side + 'VolumeTokens').value = data[side + 'VolumeTokens'] || 0;
+            document.getElementById(side + 'PressurePsi').value = data[side + 'PressurePsi'] || '';
+        });
+
+        sagPct = { front: data.frontSagPct || 0, rear: data.rearSagPct || 0 };
+
+        lastSavedBody = {};
+
+        updateFullSuspensionVisibility();
+    });
+}
+
+// ── Saving ─────────────────────────────────────────────────────────────────
+// Two kinds of card. These five save themselves as soon as a field changes —
+// there used to be a Save button on each, alongside fields that already
+// saved on their own (travel, active profile) and a theme that applied
+// instantly but was forgotten on reload, so it was never clear what had
+// actually been stored. The two WiFi cards keep an explicit Save, since a
+// half-typed network name or password must never go live on its own; they
+// flag unsaved edits instead (see the WiFi section below).
+const AUTOSAVE = {
+    bikeConfigStatus:       () => saveBikeConfig(),
+    suspensionSetupStatus:  () => saveSuspensionSetupConfig(),
+    recordingConfigStatus:  () => saveRecordingConfig(),
+    analysisConfigStatus:   () => saveAnalysisConfig(),
+    appearanceConfigStatus: () => saveAppearanceConfig()
+};
+
+const AUTOSAVE_IDLE_TEXT = 'Changes save automatically';
+const AUTOSAVE_TYPING_MS = 800;
+
+// Last body sent per autosaved card, so a blur right after the typing timer
+// already saved the same values doesn't post them a second time. Cleared
+// whenever the fields are reloaded from the device.
+let lastSavedBody = {};
+
+function setSaveStatus(statusId, text, color) {
+    const status = document.getElementById(statusId);
+    status.innerText = text;
+    status.style.color = color;
+}
+
+function postConfig(body, statusId) {
+    const auto = statusId in AUTOSAVE;
+
+    // Resolves to whether the values are now stored on the device.
+    if (auto && lastSavedBody[statusId] === body) return Promise.resolve(true);
+
+    // Recorded up front (and taken back if the save fails), so the same
+    // values arriving again while this request is still out are skipped too.
+    const forget = () => { if (lastSavedBody[statusId] === body) delete lastSavedBody[statusId]; };
+    if (auto) lastSavedBody[statusId] = body;
+
+    setSaveStatus(statusId, 'Saving…', '');
+
+    // keepalive: a field usually loses focus (and so saves) because another
+    // page's link was just tapped — the request has to outlive this page.
+    return fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        keepalive: true
+    })
+    .then(async (r) => {
+        if (!r.ok) {
+            // Stays up until the next attempt — a rejected value isn't saved.
+            forget();
+            setSaveStatus(statusId, await r.text(), 'var(--bad)');
+            return false;
+        }
+
+        setSaveStatus(statusId, 'Saved', 'var(--good)');
+        setTimeout(() => {
+            if (document.getElementById(statusId).innerText === 'Saved')
+                setSaveStatus(statusId, auto ? AUTOSAVE_IDLE_TEXT : '', '');
+        }, 3000);
+
+        return true;
+    })
+    .catch(() => {
+        forget();
+        setSaveStatus(statusId, 'Not saved — could not reach the device', 'var(--bad)');
+        return false;
+    });
+}
+
+// − / + either side of every click count and token count: these change one
+// step at a time, in the garage, often with gloves on — a tap beats bringing
+// up a keyboard to turn a 6 into a 7. Wrapped around the existing inputs
+// here rather than written out twelve times in the markup.
+function initSteppers() {
+    document.querySelectorAll('#tabBike input[placeholder="no dial"], #frontVolumeTokens, #rearVolumeTokens').forEach(input => {
+        const isDial = input.placeholder === 'no dial';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'stepper';
+        input.replaceWith(wrap);
+
+        const button = (text, delta, label) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'ghost stepper-btn';
+            b.textContent = text;
+            b.setAttribute('aria-label', label);
+            b.addEventListener('click', () => stepInput(input, delta, isDial));
+            return b;
+        };
+
+        wrap.append(button('−', -1, 'One less'), input, button('+', 1, 'One more'));
+    });
+}
+
+function stepInput(input, delta, isDial) {
+    const current = input.value === '' ? null : Number(input.value);
+    let next;
+
+    if (current === null) {
+        // From blank, + brings a dial into existence at 0 clicks.
+        next = delta > 0 ? 0 : null;
+    } else if (current + delta < 0) {
+        // Below 0 there's only "this dial doesn't exist" — which tokens,
+        // not being a dial, don't have.
+        next = isDial ? null : 0;
+    } else {
+        next = current + delta;
+    }
+
+    input.value = next === null ? '' : next;
+
+    // As if it had been typed: the card's autosave is listening for this.
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function initAutosave() {
+    Object.keys(AUTOSAVE).forEach(statusId => {
+        const card = document.getElementById(statusId).closest('.card');
+        let typingTimer = null;
+
+        document.getElementById(statusId).classList.add('autosave-status');
+        setSaveStatus(statusId, AUTOSAVE_IDLE_TEXT, '');
+
+        // While typing: save once the keys go quiet, but not a value the
+        // field itself already knows is out of range (the "1" on the way to
+        // typing "10") — that one waits for the change event below.
+        card.addEventListener('input', evt => {
+            if (!evt.target.matches('input[type="text"], input[type="number"]')) return;
+
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                if (!card.querySelector('input:invalid')) AUTOSAVE[statusId]();
+            }, AUTOSAVE_TYPING_MS);
+        });
+
+        // Selects and checkboxes land here straight away; text and number
+        // fields when they lose focus.
+        card.addEventListener('change', () => {
+            clearTimeout(typingTimer);
+            AUTOSAVE[statusId]();
+        });
+    });
+}
+
+let bikeProfileNames = [];
+
+function loadBikeProfiles() {
+    fetch('/api/bikes')
+    .then(r => r.json())
+    .then(data => {
+        bikeProfileNames = data.bikes || [];
+
+        const select = document.getElementById('bikeProfileSelect');
+        select.innerHTML = '';
+
+        if (bikeProfileNames.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '(no saved profiles yet)';
+            select.appendChild(opt);
+            return;
+        }
+
+        bikeProfileNames.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            select.appendChild(opt);
+        });
+
+        if (bikeProfileNames.includes(data.active)) {
+            select.value = data.active;
+            return;
+        }
+
+        // The setup on the device isn't any of the saved profiles (nothing
+        // was ever saved under this bike's name). Say so, rather than leave
+        // the list on its first entry as if that were the active bike.
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '(current setup — not saved as a profile)';
+        select.prepend(opt);
+        select.value = '';
+    })
+    .catch(() => {});
+}
+
+function postBikeAction(url, body, successMsg) {
+    const status = document.getElementById('bikeProfileStatus');
+
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+    })
+    .then(async (r) => {
+        status.innerText = r.ok ? successMsg : await r.text();
+        status.style.color = r.ok ? 'var(--good)' : 'var(--bad)';
+        return r.ok;
+    });
+}
+
+async function activateBikeProfile() {
+    const select = document.getElementById('bikeProfileSelect');
+    const name = select.value;
+    if (!name) return;
+
+    const ok = await BikeUI.confirm({
+        title: `Switch to "${name}"?`,
+        message: 'This overwrites Bike Information and Suspension Setup below with that profile\'s saved values.',
+        confirmLabel: 'Switch'
+    });
+
+    if (!ok) {
+        loadBikeProfiles();  // revert the dropdown to whatever's actually active
+        return;
+    }
+
+    postBikeAction('/api/bikes/activate', `name=${encodeURIComponent(name)}`, `Switched to "${name}"`)
+    .then(ok => { if (ok) { loadConfig(); loadCalibration(); } });
+}
+
+// "Save As": a new profile, started from the setup as it is now, which then
+// becomes the active one. Not how the active profile is kept up to date —
+// that happens by itself, with every edit (see the Bike Profiles help text).
+async function saveBikeProfile() {
+    const active = document.getElementById('bikeProfileSelect').value;
+
+    // With a profile already active the new one needs a name of its own;
+    // without one, the bike's name is what its first profile will be called.
+    const name = await BikeUI.prompt({
+        title: 'Save as a new bike profile',
+        message: 'Starts a new profile from the current Bike Information and Suspension Setup, and switches to it.'
+            + (active ? ` "${active}" stays as it is.` : ''),
+        value: active ? '' : (document.getElementById('bikeName').value || ''),
+        confirmLabel: 'Save'
+    });
+    if (!name) return;
+
+    if (name !== active && bikeProfileNames.includes(name)) {
+        const ok = await BikeUI.confirm({
+            title: `Replace "${name}"?`,
+            message: 'A profile with that name already exists. Its saved setup will be replaced by the current one.',
+            confirmLabel: 'Replace',
+            danger: true
+        });
+        if (!ok) return;
+    }
+
+    postBikeAction('/api/bikes/save', `name=${encodeURIComponent(name)}`, `Saved as "${name}"`)
+    .then(ok => { if (ok) { loadBikeProfiles(); loadConfig(); } });
+}
+
+async function renameBikeProfile() {
+    const oldName = document.getElementById('bikeProfileSelect').value;
+    if (!oldName) return;
+
+    const newName = await BikeUI.prompt({
+        title: `Rename "${oldName}"`,
+        value: oldName,
+        confirmLabel: 'Rename'
+    });
+    if (!newName || newName === oldName) return;
+
+    postBikeAction('/api/bikes/rename', `oldName=${encodeURIComponent(oldName)}&newName=${encodeURIComponent(newName)}`, `Renamed to "${newName}"`)
+    .then(ok => { if (ok) { loadBikeProfiles(); loadConfig(); } });
+}
+
+async function deleteBikeProfile() {
+    const name = document.getElementById('bikeProfileSelect').value;
+    if (!name) return;
+
+    const ok = await BikeUI.confirm({
+        title: `Delete profile "${name}"?`,
+        message: 'This can\'t be undone. Runs already recorded keep their own saved copy of this setup — only the profile itself goes away.',
+        confirmLabel: 'Delete',
+        danger: true
+    });
+    if (!ok) return;
+
+    postBikeAction('/api/bikes/delete', `name=${encodeURIComponent(name)}`, `Deleted "${name}"`)
+    .then(ok => { if (ok) loadBikeProfiles(); });
+}
+
+function saveBikeConfig() {
+    const bikeName = document.getElementById('bikeName').value;
+    const fullSuspension = document.getElementById('fullSuspension').checked;
+    const wheelSize = document.getElementById('wheelSize').value;
+    const rearWheelTravelMM = document.getElementById('rearWheelTravelMM').value || 0;
+
+    const body = `bikeName=${encodeURIComponent(bikeName)}` +
+        `&fullSuspension=${fullSuspension ? '1' : '0'}` +
+        `&wheelSize=${encodeURIComponent(wheelSize)}` +
+        `&rearWheelTravelMM=${rearWheelTravelMM}`;
+
+    // A new name renames the active profile on the device, so the list
+    // above has to be read again to show it.
+    postConfig(body, 'bikeConfigStatus').then(ok => {
+        if (ok && document.getElementById('bikeProfileSelect').value !== bikeName) loadBikeProfiles();
+    });
+}
+
+function saveRecordingConfig() {
+    const wifiOffWhileRecording = document.getElementById('wifiOffWhileRecording').checked;
+    const suspensionSampleRateHz = document.getElementById('suspensionSampleRateHz').value;
+
+    const body = `wifiOffWhileRecording=${wifiOffWhileRecording ? '1' : '0'}` +
+        `&suspensionSampleRateHz=${suspensionSampleRateHz}`;
+
+    postConfig(body, 'recordingConfigStatus');
+}
+
+function saveAnalysisConfig() {
+    const trendsRunCount = document.getElementById('trendsRunCount').value || 20;
+    postConfig(`trendsRunCount=${trendsRunCount}`, 'analysisConfigStatus');
+}
+
+function saveAppearanceConfig() {
+    const theme = document.getElementById('theme').value;
+
+    postConfig(`theme=${theme}`, 'appearanceConfigStatus');
+}
+
+function saveApConfig() {
+    const apSSID = document.getElementById('apSSID').value;
+    const apPassword = document.getElementById('apPassword').value;
+
+    let body = `apSSID=${encodeURIComponent(apSSID)}`;
+    if (apPassword) body += `&apPassword=${encodeURIComponent(apPassword)}`;
+
+    postConfig(body, 'apConfigStatus').then(ok => {
+        if (!ok) return;
+
+        document.getElementById('apPassword').value = '';
+        setWifiDirty('apConfigStatus', false);
+        loadWifiStatus();
+    });
+}
+
+function saveStaConfig() {
+    const staEnabled = document.getElementById('staEnabled').checked;
+    const staSSID = document.getElementById('staSSID').value;
+    const staPassword = document.getElementById('staPassword').value;
+
+    let body = `staEnabled=${staEnabled ? '1' : '0'}` +
+        `&staSSID=${encodeURIComponent(staSSID)}`;
+    if (staPassword) body += `&staPassword=${encodeURIComponent(staPassword)}`;
+
+    postConfig(body, 'staConfigStatus').then(ok => {
+        if (!ok) return;
+
+        document.getElementById('staPassword').value = '';
+        setWifiDirty('staConfigStatus', false);
+        loadWifiStatus();
+    });
+}
+
+// The two WiFi cards are the ones that still need Save pressed, so an edit
+// that hasn't been saved is called out: on the card, as a dot on the WiFi
+// tab (the edit survives switching tabs, but is easy to forget there), and
+// by the browser's own prompt when leaving the page.
+const wifiDirty = new Set();
+
+function setWifiDirty(statusId, dirty) {
+    if (dirty) {
+        wifiDirty.add(statusId);
+        setSaveStatus(statusId, 'Unsaved changes — tap Save', 'var(--warn)');
+    } else {
+        wifiDirty.delete(statusId);
+    }
+
+    document.getElementById('railWifi').classList.toggle('has-unsaved', wifiDirty.size > 0);
+}
+
+function initWifiDirtyTracking() {
+    ['apConfigStatus', 'staConfigStatus'].forEach(statusId => {
+        const card = document.getElementById(statusId).closest('.card');
+
+        // Picking from the scan list isn't an edit by itself — what it
+        // fills in is, and selectScannedNetwork() flags that.
+        card.addEventListener('input', evt => {
+            if (evt.target.id !== 'scanResults') setWifiDirty(statusId, true);
+        });
+    });
+
+    window.addEventListener('beforeunload', evt => {
+        if (wifiDirty.size === 0) return;
+
+        evt.preventDefault();
+        evt.returnValue = '';
+    });
+}
+
+function scanNetworks() {
+    const btn = document.getElementById('scanBtn');
+    const select = document.getElementById('scanResults');
+
+    btn.disabled = true;
+    btn.textContent = 'Scanning...';
+    select.innerHTML = '<option value="">Scanning…</option>';
+
+    fetch('/api/wifi/scan')
+    .then(r => r.json())
+    .then(networks => {
+        if (networks.length === 0) {
+            select.innerHTML = '<option value="">No networks found</option>';
+            return;
+        }
+
+        select.innerHTML = '<option value="">Select a network…</option>';
+
+        networks.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n.ssid;
+            opt.textContent = `${n.ssid} (${n.rssi} dBm)${n.secure ? ' · secured' : ''}`;
+            select.appendChild(opt);
+        });
+    })
+    .catch(() => {
+        select.innerHTML = '<option value="">Scan failed</option>';
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.textContent = 'Scan Networks';
+    });
+}
+
+function selectScannedNetwork() {
+    const select = document.getElementById('scanResults');
+
+    if (select.value) {
+        document.getElementById('staSSID').value = select.value;
+        document.getElementById('staPassword').focus();
+        setWifiDirty('staConfigStatus', true);
+    }
+}
+
+async function changeConnMode() {
+    const select = document.getElementById('connModeSelect');
+    const mode = select.value;
+    const label = mode === 'sta' ? 'WiFi' : 'Access Point';
+
+    const ok = await BikeUI.confirm({
+        title: `Switch to ${label} mode?`,
+        message: 'This page will lose the device while it changes network — reconnect on the new one to keep going.',
+        confirmLabel: 'Switch'
+    });
+
+    if (!ok) {
+        loadWifiStatus();  // revert the dropdown to whatever mode is actually active
+        return;
+    }
+
+    const status = document.getElementById('connModeStatus');
+    status.innerText = 'Switching…';
+    status.style.color = '';
+
+    fetch('/api/wifi/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `mode=${mode}`
+    })
+    .then(() => {
+        status.innerText = `Switching to ${label} — reconnect if you lose the page.`;
+    })
+    .catch(() => {
+        // Expected if we were connected via the AP and it just dropped.
+        status.innerText = `Switching to ${label} — reconnect if you lose the page.`;
+    });
+}
+
+function loadWifiStatus() {
+    fetch('/api/wifi/status')
+    .then(r => r.json())
+    .then(data => {
+        const el = document.getElementById('wifiStatusText');
+
+        if (data.mode === 'sta') {
+            el.innerText = `Connected to ${data.ssid} (${data.ip})`;
+        } else if (data.mode === 'ap') {
+            el.innerText = `Access Point mode — connect to "${data.ssid}" (${data.ip})`;
+        } else if (data.mode === 'connecting') {
+            el.innerText = 'Connecting to home network…';
+        } else {
+            el.innerText = 'WiFi off';
+        }
+
+        // Never fight the rider mid-selection — only sync the dropdown to
+        // the device's actual mode while it isn't the thing they're using.
+        const select = document.getElementById('connModeSelect');
+        if (document.activeElement !== select && (data.mode === 'sta' || data.mode === 'connecting' || data.mode === 'ap')) {
+            select.value = (data.mode === 'ap') ? 'ap' : 'sta';
+        }
+    })
+    .catch(() => {});
+}
+
+function saveSuspensionSetupConfig() {
+    const value = (id) => document.getElementById(id).value;
+    const parts = [];
+
+    // Mirror of setDial() in loadConfig(): a blank dial is saved as "this
+    // adjuster doesn't exist", anything typed — 0 included — as its clicks.
+    ['front', 'rear'].forEach(side => {
+        ['LSC', 'HSC', 'LSR', 'HSR'].forEach(dial => {
+            const clicks = value(side + dial);
+
+            parts.push(`${side}${dial}=${clicks || 0}`);
+            parts.push(`${side}Has${dial}=${clicks === '' ? '0' : '1'}`);
+        });
+
+        parts.push(`${side}VolumeTokens=${value(side + 'VolumeTokens') || 0}`);
+        parts.push(`${side}PressurePsi=${value(side + 'PressurePsi') || 0}`);
+    });
+
+    const body = parts.join('&');
+
+    postConfig(body, 'suspensionSetupStatus');
+}
+
+// ── Guided suspension calibration ──────────────────────────────────────────
+// Zero → Max for each end, then Sag for both. Every step shows whether it's
+// done, the value it holds and how the last capture went, right next to its
+// own button — plus a live reading per end, so it's obvious the sensor is
+// responding before anything gets captured.
+const CAL_SIDES = {
+    front: { label: 'Front', travelInput: 'frontWheelTravelMM', travelName: 'Front Wheel Travel', travelUnit: 'mm of wheel travel' },
+    rear:  { label: 'Rear',  travelInput: 'shockStrokeMM',      travelName: 'Shock Stroke',       travelUnit: 'mm of shock stroke' }
+};
+
+// A Zero and a Max this close together (in mV) means the suspension didn't
+// really move between the two captures.
+const CAL_MIN_SPAN_MV = 300;
+
+const CAL_NOTE_MS = 6000;
+
+let calData = null;                 // last /api/suspension/calibration answer
+let calLive = null;                 // last /api/status .suspension
+let sagPct = { front: 0, rear: 0 };
+const calNotes = {};                // step id → { text, cls, until }
+
+function calId(side, suffix) {
+    return 'cal' + side[0].toUpperCase() + side.slice(1) + suffix;
+}
+
+function buildCalibrationUI() {
+    const step = (id, title, onclick) => `
+        <div class="cal-step" id="${id}">
+            <span class="cal-mark"></span>
+            <div class="cal-body">
+                <div class="cal-title">${title} <span class="cal-value"></span></div>
+                <div class="stat-sub cal-hint"></div>
+                <div class="stat-sub cal-msg"></div>
+            </div>
+            <button class="ghost cal-btn" onclick="${onclick}">Capture</button>
+        </div>`;
+
+    document.getElementById('calSides').innerHTML = Object.keys(CAL_SIDES).map(side => `
+        <div class="cal-side" id="${calId(side, '')}">
+            <div class="cal-side-header">
+                <p class="stat-label">${CAL_SIDES[side].label}</p>
+                <span class="stat-sub cal-live" id="${calId(side, 'Live')}"></span>
+            </div>
+            ${step(calId(side, 'Zero'), '1 · Zero', `captureZero('${side}')`)}
+            ${step(calId(side, 'Max'), '2 · Max', `captureMax('${side}')`)}
+        </div>`).join('');
+}
+
+buildCalibrationUI();
+
+// The outcome of a capture, shown under that step for a few seconds.
+function calNote(stepId, text, cls) {
+    calNotes[stepId] = { text, cls, until: Date.now() + CAL_NOTE_MS };
+    renderCalibration();
+    setTimeout(renderCalibration, CAL_NOTE_MS + 100);
+}
+
+// This runs twice a second off the live poll, so nothing is written to the
+// DOM unless it actually changed — rewriting a button mid-tap loses the tap.
+function setText(el, text) {
+    if (el.textContent !== text) el.textContent = text;
+}
+
+function renderCalStep(stepId, s) {
+    const el = document.getElementById(stepId);
+
+    el.classList.toggle('done', !!s.done);
+    el.classList.toggle('next', !!s.next);
+    setText(el.querySelector('.cal-value'), s.value || '');
+
+    const hint = el.querySelector('.cal-hint');
+    if (hint.dataset.src !== s.hint) {
+        hint.dataset.src = s.hint;
+        hint.innerHTML = s.hint;
+    }
+
+    const note = calNotes[stepId];
+    const noteLive = note && note.until > Date.now();
+    const msg = el.querySelector('.cal-msg');
+    const msgClass = 'stat-sub cal-msg ' + (noteLive ? note.cls : (s.warn ? 'warn' : ''));
+
+    setText(msg, noteLive ? note.text : (s.warn || ''));
+    if (msg.className !== msgClass) msg.className = msgClass;
+
+    // The step to do next gets the solid button; everything else stays ghost.
+    const btn = el.querySelector('.cal-btn');
+    setText(btn, s.done ? 'Recapture' : 'Capture');
+    btn.classList.toggle('ghost', !s.next);
+    btn.disabled = !!s.disabled;
+}
+
+function renderCalibration() {
+    if (!calData) return;
+
+    const full = document.getElementById('fullSuspension').checked;
+    const sides = full ? ['front', 'rear'] : ['front'];
+
+    document.getElementById(calId('rear', '')).style.display = full ? '' : 'none';
+
+    sides.forEach(side => {
+        const cfg = CAL_SIDES[side];
+        const cal = calData[side];
+        const travel = document.getElementById(cfg.travelInput).value;
+        const maxDone = cal.maxSet && cal.maxMM > 0;
+
+        if (calLive) {
+            const raw = calLive[side + '_raw'];
+            setText(document.getElementById(calId(side, 'Live')), cal.valid && maxDone
+                ? `Live: ${raw} mV · ${calLive[side]} mm (${calLive[side + '_pct']}%)`
+                : `Live: ${raw} mV`);
+        }
+
+        renderCalStep(calId(side, 'Zero'), {
+            done: cal.zeroSet,
+            next: !cal.zeroSet,
+            value: cal.zeroSet ? `${cal.zeroRaw} mV` : '',
+            hint: 'Suspension fully extended, no weight on the bike.'
+        });
+
+        let warn = '';
+        if (cal.maxSet && !maxDone) {
+            // The electrical max point is there, but this bike profile has
+            // no travel spec saved (e.g. an older profile from before travel
+            // moved into per-bike settings) — %-travel reads 0 until it is.
+            warn = 'No travel saved for this bike — set it in the Bike tab and recapture.';
+        } else if (cal.zeroSet && cal.maxSet && Math.abs(cal.maxRaw - cal.zeroRaw) < CAL_MIN_SPAN_MV) {
+            warn = 'Zero and Max read almost the same — was the suspension really fully compressed?';
+        }
+
+        renderCalStep(calId(side, 'Max'), {
+            done: maxDone,
+            next: cal.zeroSet && !maxDone,
+            value: cal.maxSet ? `${cal.maxRaw} mV = ${cal.maxMM} mm` : '',
+            hint: travel !== ''
+                ? `Fully compressed — ${travel} ${cfg.travelUnit}.`
+                : `Set ${cfg.travelName} in the <a href="#bike" onclick="showTab('bike'); return false;">Bike tab</a> first — Max needs to know how many mm a full compression is.`,
+            warn,
+            disabled: travel === ''
+        });
+    });
+
+    const ready = side => calData[side].valid && calData[side].maxMM > 0;
+    const anyReady = sides.some(ready);
+    const sagDone = sides.every(side => sagPct[side] > 0);
+
+    renderCalStep('calSag', {
+        done: sagDone,
+        next: sides.every(ready) && !sagDone,
+        value: sides.filter(side => sagPct[side] > 0).map(side => `${CAL_SIDES[side].label} ${sagPct[side].toFixed(0)}%`).join(' · '),
+        hint: anyReady
+            ? 'Sit in your riding position, feet on the pedals, and hold still.'
+            : 'Needs Zero and Max captured first.',
+        disabled: !anyReady
+    });
+}
+
+// The Front Wheel Travel / Shock Stroke inputs live in Bike Information but
+// double as the mm target for Capture Max here. Keep them in sync with the
+// actual calibration, but never while the rider is actively typing in one —
+// that would wipe out what they're mid-way through entering.
+function syncTravelInput(inputId, cal) {
+    const input = document.getElementById(inputId);
+
+    if (document.activeElement === input) return;
+    if (cal.maxSet) input.value = cal.maxMM;
+}
+
+function loadCalibration() {
+    return fetch('/api/suspension/calibration')
+    .then(r => r.json())
+    .then(data => {
+        calData = data;
+
+        syncTravelInput('frontWheelTravelMM', data.front);
+        syncTravelInput('shockStrokeMM', data.rear);
+
+        renderCalibration();
+    });
+}
+
+// Only while the Sensors tab is actually on screen — no point polling the
+// device twice a second for a reading nobody is looking at.
+function loadCalLive() {
+    if (document.hidden || !document.getElementById('tabSensors').classList.contains('active')) return;
+
+    fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+        calLive = data.suspension;
+        renderCalibration();
+    })
+    .catch(() => {});
+}
+
+// The travel/stroke inputs used to only ever get saved as a side effect of
+// pressing Capture Max, which needs a live sensor reading — so typing the
+// spec before the sensor is even wired/calibrated had nowhere to go and
+// was silently lost on page reload. Saving it independently here means the
+// number sticks regardless of whether calibration has happened yet.
+function saveTravelMM(side, inputId) {
+    const mm = document.getElementById(inputId).value;
+    if (mm === '') return;
+
+    fetch('/api/suspension/travel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `side=${side}&mm=${mm}`,
+        keepalive: true
+    })
+    .then(() => renderCalibration());
+}
+
+// Shared by the three captures: POST, turn a non-OK answer into an error
+// carrying the device's own message, and report either outcome on the step.
+function postCapture(stepId, url, body, onSuccess) {
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+    })
+    .then(async (r) => {
+        if (!r.ok) throw new Error(await r.text());
+        calNote(stepId, await onSuccess(r), 'good');
+    })
+    .catch(err => calNote(stepId, err instanceof TypeError ? 'Could not reach the device.' : err.message, 'bad'));
+}
+
+function captureZero(side) {
+    postCapture(calId(side, 'Zero'), '/api/suspension/calibration/zero', `side=${side}`, async () => {
+        await loadCalibration();
+        return `Zero captured at ${calData[side].zeroRaw} mV.`;
+    });
+}
+
+function captureMax(side) {
+    const mm = document.getElementById(CAL_SIDES[side].travelInput).value;
+    if (mm === '') return;
+
+    postCapture(calId(side, 'Max'), '/api/suspension/calibration/max', `side=${side}&mm=${mm}`, async () => {
+        await loadCalibration();
+        return `Max captured at ${calData[side].maxRaw} mV.`;
+    });
+}
+
+function captureSag()
+{
+    postCapture('calSag', '/api/suspension/sag/capture', '', async (r) => {
+        const data = await r.json();
+
+        if (data.frontSagPct !== undefined) sagPct.front = Number(data.frontSagPct);
+        if (data.rearSagPct !== undefined) sagPct.rear = Number(data.rearSagPct);
+
+        return 'Sag captured.';
+    });
+}
+
+async function resetCal() {
+    const ok = await BikeUI.confirm({
+        title: 'Reset all calibration?',
+        message: 'Clears the Zero and Max points of both front and rear. Travel reads 0 until they\'re captured again.',
+        confirmLabel: 'Reset',
+        danger: true
+    });
+    if (!ok) return;
+
+    fetch('/api/suspension/reset', { method: 'POST' })
+    .then(() => loadCalibration());
+}
+
+// ── IMU orientation ("Zero IMU") ───────────────────────────────────────────
+// Zeroing blocks the device's web server for ~1.5s, so the live poll pauses
+// while it runs instead of piling up timed-out requests.
+let imuBusy = false;
+
+function fmtDeg(v, digits = 1) {
+    const n = Number(v);
+    return (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(digits) + '°';
+}
+
+function loadImu() {
+    if (imuBusy) return;
+
+    fetch('/api/imu')
+    .then(r => r.json())
+    .then(d => {
+        const status = document.getElementById('imuStatus');
+        const live = document.getElementById('imuLive');
+
+        if (d.zeroed) {
+            status.innerHTML = `Zeroed &middot; the sensor's x axis points ${Number(d.mountTiltDeg).toFixed(1)}&deg; above horizontal`;
+            live.textContent = (d.leanDeg !== undefined)
+                ? `Lean ${fmtDeg(d.leanDeg)} (+ = right) · Pitch ${fmtDeg(d.pitchUpDeg)} (+ = nose up)`
+                : '';
+        } else {
+            status.innerHTML = '<span style="color:var(--warn);">Not zeroed</span> &middot; runs show the sensor\'s raw angles, which aren\'t the bike\'s';
+            const toDeg = 180 / Math.PI;
+            live.textContent = `Raw sensor angles: pitch ${fmtDeg(d.pitchRad * toDeg)} · roll ${fmtDeg(d.rollRad * toDeg)}`;
+        }
+    })
+    .catch(() => {});
+}
+
+function imuActionMessage(text, ok) {
+    const el = document.getElementById('imuActionStatus');
+    el.innerText = text;
+    el.style.color = ok ? 'var(--good)' : 'var(--bad)';
+    setTimeout(() => { el.innerText = ''; }, 5000);
+}
+
+async function zeroImu() {
+    const ok = await BikeUI.confirm({
+        title: 'Zero the IMU now?',
+        message: 'The bike must be standing truly vertical and still — whatever lean it has right now becomes 0°.',
+        confirmLabel: 'Zero IMU'
+    });
+    if (!ok) return;
+
+    const btn = document.getElementById('imuZeroBtn');
+    imuBusy = true;
+    btn.disabled = true;
+    imuActionMessage('Hold the bike still…', true);
+
+    fetch('/api/imu/zero', { method: 'POST' })
+    .then(async (r) => {
+        if (!r.ok) {
+            imuActionMessage(await r.text(), false);
+            return;
+        }
+        const d = await r.json();
+        imuActionMessage(`Zeroed (mount tilt ${Number(d.mountTiltDeg).toFixed(1)}°, movement ${d.wobbleDeg}°)`, true);
+    })
+    .catch(() => imuActionMessage('Request failed', false))
+    .finally(() => {
+        imuBusy = false;
+        btn.disabled = false;
+        loadImu();
+    });
+}
+
+async function clearImuZero() {
+    const ok = await BikeUI.confirm({
+        title: 'Clear the IMU zero?',
+        message: 'New runs will show the sensor\'s raw angles again, not the bike\'s lean and pitch.',
+        confirmLabel: 'Clear',
+        danger: true
+    });
+    if (!ok) return;
+
+    fetch('/api/imu/clear', { method: 'POST' })
+    .then(() => { imuActionMessage('Cleared', true); loadImu(); });
+}
+
+if (TABS.includes(location.hash.slice(1))) showTab(location.hash.slice(1));
+
+initSteppers();
+initAutosave();
+initWifiDirtyTracking();
+
+setInterval(updateBattery, 5000);
+setInterval(updateDevice, 5000);
+setInterval(loadWifiStatus, 5000);
+updateBattery();
+updateDevice();
+loadConfig();
+loadBikeProfiles();
+loadCalibration();
+loadWifiStatus();
+setInterval(loadCalibration, 5000);
+setInterval(loadCalLive, 500);
+loadImu();
+setInterval(loadImu, 1000);
+
+</script>
+</body></html>

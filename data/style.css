@@ -1,0 +1,1731 @@
+:root {
+    color-scheme: dark;
+
+    --bg: #0b1120;
+    --surface: #161f32;
+    --surface-alt: #1e293b;
+    --border: #2a3548;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    /* The interaction colour — primary buttons, the active tab, a selected
+       row, the map marker — is a neutral: the page's own ink, inverted. It
+       used to be a sky blue, which sat one step away from the blue the
+       front suspension is drawn in; with no hue of its own it can't be
+       mistaken for data, and the only colour left on a page is data and
+       status. */
+    --accent: #f1f5f9;
+    --accent-text: #0b1120;
+    --selected-tint: rgba(148, 163, 184, 0.16);
+    --good: #22c55e;
+    --warn: #f59e0b;
+    --bad: #ef4444;
+    --on-good: #062b12;
+    --on-warn: #2b1600;
+    --on-bad: #2b0a0a;
+    --bg-glass: rgba(11, 17, 32, 0.9);
+    /* Data colours. Every colour here has exactly one job, and none of them
+       is a status colour (--good/--warn/--bad) or the interaction colour
+       (--accent) — those never draw data, so a green line can't be read as
+       "OK" or a blue one as "selected".
+         front / rear   the two ends of the bike, the only pair ever drawn
+                        over each other in one chart
+         motion         what the GPS measures: speed, altitude
+         imu            what the IMU measures: lean, pitch, G-force
+         highlight      "this one, not that one": the run being compared,
+                        the technical stretches of a trail
+         neutral        whatever the highlight is being set against, and
+                        secondary reference traces
+       Within one chart there's only ever front+rear, or one hue + neutral —
+       the combinations the palette validates for, colour-blind included. */
+    --series-front: #3987e5;
+    --series-rear: #d95926;
+    --series-motion: #9085e9;
+    --series-imu: #199e70;
+    --series-highlight: #d55181;
+    --series-neutral: #94a3b8;
+
+    /* Lines drawn on the map tiles, which are light in both themes. */
+    --map-ink: #334155;
+    --radius: 14px;
+    --nav-height: 60px;
+    --tabs-height: 44px;
+    --sticky-top: 76px;
+    --banner-height: 44px;
+    --skeleton-sweep: rgba(255, 255, 255, 0.06);
+    --nav-shadow: rgba(0, 0, 0, 0.45);
+    --card-glass: rgba(30, 41, 59, 0.4);
+    --glass-highlight: rgba(255, 255, 255, 0.22);
+    --glass-edge: rgba(255, 255, 255, 0.06);
+    --glass-glow: rgba(255, 255, 255, 0.05);
+    --card-glass-liquid: rgba(30, 41, 59, 0.28);
+    --bg-glass-liquid: rgba(11, 17, 32, 0.55);
+    --bg-blobs:
+        radial-gradient(circle at 12% 12%, rgba(56, 189, 248, 0.22), transparent 45%),
+        radial-gradient(circle at 88% 10%, rgba(99, 102, 241, 0.18), transparent 45%),
+        radial-gradient(circle at 70% 92%, rgba(20, 184, 166, 0.12), transparent 45%);
+}
+
+[data-theme="light"] {
+    color-scheme: light;
+
+    --bg: #f4f6fb;
+    --surface: #ffffff;
+    --surface-alt: #f1f5f9;
+    --border: #dde3ec;
+    --text: #0f172a;
+    --text-muted: #5b6472;
+    --accent: #0f172a;
+    --accent-text: #ffffff;
+    --selected-tint: rgba(15, 23, 42, 0.07);
+    --good: #16a34a;
+    --warn: #b45309;
+    --bad: #dc2626;
+    --on-good: #ffffff;
+    --on-warn: #ffffff;
+    --on-bad: #ffffff;
+    --bg-glass: rgba(244, 246, 251, 0.85);
+
+    /* The same data hues, stepped for a light surface (each clears 3:1 on
+       white; the dark-theme steps of blue, orange and violet don't). */
+    --series-front: #2a78d6;
+    --series-rear: #eb6834;
+    --series-motion: #4a3aa7;
+    --series-neutral: #64748b;
+    --skeleton-sweep: rgba(0, 0, 0, 0.05);
+    --nav-shadow: rgba(15, 23, 42, 0.18);
+    --card-glass: rgba(255, 255, 255, 0.45);
+    --glass-highlight: rgba(255, 255, 255, 0.9);
+    --glass-edge: rgba(255, 255, 255, 0.35);
+    --glass-glow: rgba(255, 255, 255, 0.25);
+    --card-glass-liquid: rgba(255, 255, 255, 0.3);
+    --bg-glass-liquid: rgba(244, 246, 251, 0.5);
+    --bg-blobs:
+        radial-gradient(circle at 12% 12%, rgba(2, 132, 199, 0.16), transparent 45%),
+        radial-gradient(circle at 88% 10%, rgba(99, 102, 241, 0.12), transparent 45%),
+        radial-gradient(circle at 70% 92%, rgba(20, 184, 166, 0.10), transparent 45%);
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-tap-highlight-color: transparent;
+    padding-bottom: calc(var(--nav-height) + 24px + env(safe-area-inset-bottom));
+}
+
+/* Soft, fixed color blobs behind everything — .card.glass has nothing to
+   actually look translucent *over* without this, since a flat, uniform
+   page background blended at any opacity just looks like a different flat
+   color. Fixed (not absolute) so it stays put and doesn't add scrollable
+   height; blurred hard enough that it reads as ambient color, not shapes. All
+   three blobs are cool tones on purpose: with a warm one in the mix, the
+   cards on that side of the page were tinted red and the orange/red data
+   drawn on them lost contrast. */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--bg-blobs);
+    filter: blur(60px);
+}
+
+h1, h2, h3 { font-weight: 700; }
+
+a { color: inherit; }
+
+/* 3-column grid (not flex space-between) so the title can sit truly
+   centered regardless of whether a back-link occupies column 1 — a flex
+   row centers relative to its siblings' widths, which shifts the title
+   off-center the moment a back-arrow is added on just one side. */
+.topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-glass);
+    backdrop-filter: blur(8px);
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+    grid-column: 2;
+    justify-self: center;
+    margin: 0;
+    font-size: 18px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 45vw;
+}
+
+.battery-indicator {
+    grid-column: 3;
+    justify-self: end;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+    background: var(--card-glass);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+}
+
+/* Right-hand topbar column: connection chip + battery chip, built by
+   common.js (which moves .battery-indicator in here). */
+.topbar-status {
+    grid-column: 3;
+    justify-self: end;
+    display: flex;
+    gap: 8px;
+}
+
+/* Connection chip: the icon says how the device is reached (home WiFi vs
+   its own Access Point, or struck through when it can't be reached at
+   all), the corner dot says whether this phone/computer has internet —
+   which is what decides if the route maps can load. A <button>, so the
+   generic button styling has to be undone here. */
+.conn-indicator {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    min-height: 0;
+    padding: 0;
+    color: var(--text-muted);
+    background: var(--card-glass);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+}
+
+.conn-indicator.bad { color: var(--bad); }
+
+.conn-icon { display: flex; }
+.conn-icon svg { width: 20px; height: 20px; }
+
+.net-dot {
+    position: absolute;
+    right: 4px;
+    bottom: 4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--bg);
+    background: var(--good);
+}
+
+.net-dot.none { background: var(--warn); }
+
+.conn-popover {
+    position: fixed;
+    top: 74px;
+    right: 12px;
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    max-width: calc(100% - 24px);
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px var(--nav-shadow);
+}
+
+.conn-popover.visible { display: flex; }
+.conn-popover strong { color: var(--text); }
+
+/* Shown while the device can't be reached. Fixed just under the topbar,
+   with everything that's pinned below it (--sticky-top) and the page
+   content itself pushed down by the same amount so nothing hides under
+   it. */
+.conn-banner {
+    position: fixed;
+    top: 69px;
+    left: 0;
+    right: 0;
+    z-index: 9;
+    height: var(--banner-height);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--on-warn);
+    background: var(--warn);
+}
+
+/* The expected kind of disconnect (recording with WiFi off): stated
+   plainly, without the warning colour. */
+.conn-banner.info {
+    color: var(--text);
+    background: var(--surface-alt);
+    border-bottom: 1px solid var(--border);
+}
+
+body.device-offline { --sticky-top: calc(76px + var(--banner-height)); }
+body.device-offline .conn-banner { display: flex; }
+body.device-offline .topbar { margin-bottom: var(--banner-height); }
+
+/* Starting/stopping a run needs the device to hear it. */
+body.device-offline #recordBtn { opacity: 0.4; pointer-events: none; }
+
+/* BikeUI dialogs (common.js) — a native <dialog>, so focus trapping, Esc
+   and the dimmed backdrop come for free. */
+.dialog {
+    width: min(380px, calc(100% - 32px));
+    padding: 20px;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 16px 48px var(--nav-shadow);
+}
+
+.dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+
+.dialog h3 { margin: 0 0 8px; font-size: 17px; }
+.dialog p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--text-muted); }
+.dialog input { width: 100%; margin-top: 14px; }
+
+.dialog-actions { display: flex; gap: 8px; margin-top: 20px; }
+.dialog-actions button { flex: 1; padding: 0 12px; }
+
+/* Collapsed explanation (<details class="help">) — the background on why
+   a setting works the way it does, kept one tap away so the cards read as
+   controls first instead of opening on a paragraph of prose. */
+.help { margin-top: 10px; }
+
+.help summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 32px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    list-style: none;
+}
+
+.help summary::-webkit-details-marker { display: none; }
+
+.help summary::before {
+    content: 'i';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid currentColor;
+    border-radius: 50%;
+    font-size: 10px;
+    font-style: italic;
+    flex-shrink: 0;
+}
+
+.help p { margin: 4px 0 8px; line-height: 1.5; }
+.help p:last-child { margin-bottom: 0; }
+
+/* Guided suspension calibration (Settings → Sensors): one row per step —
+   a mark that fills in once the step is done, what it holds, and its own
+   capture button. The step to do next is the one with the accent ring and
+   the solid button. */
+.cal-side { margin-top: 16px; }
+
+.cal-side-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.cal-side-header .stat-label,
+.cal-side-header .cal-live { margin: 0; }
+
+.cal-live { font-variant-numeric: tabular-nums; }
+
+.cal-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.cal-side .cal-step:last-child { border-bottom: none; padding-bottom: 0; }
+
+.cal-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.cal-step.next .cal-mark { border-color: var(--accent); }
+
+.cal-step.done .cal-mark {
+    color: var(--on-good);
+    background: var(--good);
+    border-color: var(--good);
+}
+
+.cal-step.done .cal-mark::after { content: '✓'; }
+
+.cal-body { flex: 1; min-width: 0; }
+
+.cal-title { font-size: 14px; font-weight: 700; }
+
+.cal-value {
+    margin-left: 6px;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.cal-step .stat-sub { margin: 2px 0 0; }
+.cal-hint a { color: var(--accent); }
+
+.cal-msg:empty { display: none; }
+.cal-msg.good { color: var(--good); }
+.cal-msg.warn { color: var(--warn); }
+.cal-msg.bad { color: var(--bad); }
+
+.cal-btn {
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.cal-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Deliberately the quietest control on the card — it sits right under the
+   capture buttons, where a full red button invited a mis-tap. */
+button.ghost.cal-reset {
+    width: 100%;
+    margin-top: 18px;
+    color: var(--bad);
+}
+
+/* Dashboard: GPS status line at the foot of the Recording card. */
+.gps-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+/* Dashboard: rolling live suspension trace. */
+.live-chart {
+    position: relative;
+    height: 150px;
+    margin-top: 16px;
+}
+
+.live-chart svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.live-grid {
+    stroke: var(--border);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+.live-label {
+    position: absolute;
+    left: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+/* A short self-dismissing notice (BikeUI.toast in common.js). */
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    z-index: 40;
+    max-width: min(520px, calc(100% - 32px));
+    padding: 12px 16px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px var(--nav-shadow);
+    opacity: 0;
+    transform: translate(-50%, 12px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+/* Dashboard pre-ride checklist: what would make the run about to be
+   recorded come out incomplete, listed where the Start Run button is. */
+.preflight { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.preflight:empty { display: none; }
+
+.preflight-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.preflight-item .dot {
+    width: 8px;
+    height: 8px;
+    margin-top: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--warn);
+}
+
+.preflight-item.bad .dot { background: var(--bad); }
+.preflight-item.good .dot { background: var(--good); }
+.preflight-item a { color: var(--accent); white-space: nowrap; }
+
+body.device-offline .preflight { display: none; }
+
+.battery-indicator.good { color: var(--good); }
+.battery-indicator.warn { color: var(--warn); }
+.battery-indicator.bad  { color: var(--bad); }
+
+/* Icon-only now — the title it used to wrap moved out to its own centered
+   grid column, so this is just the tap target for the arrow. Same round
+   glass chip as .battery-indicator on the opposite side, for symmetry. */
+.back-link {
+    grid-column: 1;
+    justify-self: start;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: var(--text);
+    background: var(--card-glass);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+}
+
+main {
+    padding: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.stack { display: flex; flex-direction: column; gap: 12px; }
+
+.page-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: left;
+}
+
+/* Glass card, two tiers. This base rule is the frosted fallback (backdrop
+   blur + translucency) plus the lit rim every browser gets: a bright
+   top-left edge, a dimmer bottom-right one and a faint inner glow, which
+   is most of what makes a panel read as a thick slab rather than a tint. */
+.card.glass {
+    background: var(--card-glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow:
+        0 8px 24px var(--nav-shadow),
+        inset 1px 1px 0 var(--glass-highlight),
+        inset -1px -1px 0 var(--glass-edge),
+        inset 0 0 18px var(--glass-glow);
+}
+
+/* "Liquid Glass" tier, where the backdrop can be bent through the
+   #glass-refract SVG filter (feTurbulence noise driving an feDisplacementMap,
+   inlined at the top of each page's <body>) so that what's behind looks
+   refracted instead of just blurred. Only Chromium runs an SVG filter inside
+   backdrop-filter; Safari/iOS and Firefox accept the declaration and then
+   render nothing, so it's gated on a class the same inline snippet sets
+   from the UA rather than on @supports.
+
+   Cards get this tier's lighter, more saturated glass but not the
+   refraction itself. They only ever sit over the page's smooth color blobs,
+   which have no detail to bend: on a real tablet and a PC the effect could
+   not be told from its absence (2026-10-07), and an SVG filter per card is
+   not free. */
+html.glass-refract .card.glass {
+    background: var(--card-glass-liquid);
+    backdrop-filter: blur(3px) saturate(170%);
+}
+
+/* The refraction is on the floating chrome, which is where it shows: page
+   content scrolls underneath these. Blur is light on purpose — a heavy one
+   would smear the refraction away. Only the topbar needs its background
+   overridden as well — at --bg-glass's ~0.9 alpha there'd be nothing left
+   to see through. */
+html.glass-refract .bottom-nav,
+html.glass-refract .seg-tabs,
+html.glass-refract .fab-btn {
+    backdrop-filter: url(#glass-refract) blur(3px) saturate(170%);
+}
+
+html.glass-refract .topbar {
+    background: var(--bg-glass-liquid);
+    backdrop-filter: url(#glass-refract) blur(4px) saturate(170%);
+}
+
+.stat-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 0 0 6px;
+}
+
+.stat-value {
+    font-size: 26px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.stat-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+}
+
+/* Skeleton loading: toggled via body.is-loading (added in markup, removed
+   by the page's own load() once data actually arrives, in both the
+   success and error paths). Targets .stat-value directly (still shows
+   its "--" placeholder text underneath, just invisible) and .chart-wrap
+   rather than the <svg> inside it — pseudo-elements on SVG render
+   inconsistently across browsers, but .chart-wrap is a plain div and the
+   empty svg naturally reserves the right height via its viewBox aspect
+   ratio, so this covers exactly the space the chart will occupy. */
+body.is-loading .stat-value,
+body.is-loading .mini-value,
+body.is-loading .chart-wrap {
+    position: relative;
+    overflow: hidden;
+    color: transparent;
+    background: var(--surface-alt);
+    border-radius: 6px;
+}
+
+body.is-loading .stat-value::after,
+body.is-loading .mini-value::after,
+body.is-loading .chart-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--skeleton-sweep), transparent);
+    animation: skeleton-sweep 1.3s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.is-loading .stat-value::after,
+    body.is-loading .chart-wrap::after {
+        animation: none;
+    }
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge.good   { background: rgba(34, 197, 94, 0.15); color: var(--good); }
+.badge.warn   { background: rgba(245, 158, 11, 0.15); color: var(--warn); }
+.badge.bad    { background: rgba(239, 68, 68, 0.15);  color: var(--bad); }
+.badge.accent { background: var(--selected-tint); color: var(--text); }
+
+/* Not states — data labels in the data colours (trail segment kinds). */
+.badge.highlight { background: rgba(213, 81, 129, 0.16); color: var(--series-highlight); }
+.badge.neutral   { background: rgba(148, 163, 184, 0.16); color: var(--text-muted); }
+
+.badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+/* A badge that explains itself when tapped (see runs.html) — the small "i"
+   is the only hint that it's tappable, since on touch there's no hover
+   cursor or tooltip to give that away. */
+.badge[data-info] { cursor: pointer; }
+
+.badge[data-info]::after {
+    content: 'i';
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px;
+    height: 13px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 9px;
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.badge-note {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--surface-alt);
+    line-height: 1.4;
+}
+
+.badge .dot.pulse {
+    animation: dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+.bar {
+    width: 100%;
+    height: 10px;
+    background: var(--border);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+
+/* A reference tick on a .bar (the Dashboard's static-sag mark). */
+.bar { position: relative; }
+
+.bar-mark {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: none;
+    width: 3px;
+    margin-left: -1px;
+    background: var(--text);
+}
+
+.bar-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: var(--good);
+    transition: width 0.3s, background 0.3s;
+}
+
+button, .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 20px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+    font-size: 15px;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+button.ghost, .btn.ghost {
+    background: var(--surface-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+button.danger, .btn.danger {
+    background: var(--bad);
+    color: var(--on-bad);
+}
+
+/* Ticked boxes in the app's own interaction colour, not the browser's blue. */
+input[type="checkbox"] { accent-color: var(--accent); }
+
+.field { margin-bottom: 16px; }
+
+.settings-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.settings-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.tab-panel {
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tab-panel.active { display: flex; }
+
+.field label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+input[type="number"], input[type="text"], input[type="password"], select {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface-alt);
+    color: var(--text);
+    font-size: 16px;
+}
+
+.chart-wrap {
+    position: relative;
+}
+
+#gpsMap {
+    height: 240px;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.chart-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    touch-action: pan-y;
+}
+
+.chart-tooltip {
+    position: absolute;
+    top: 0;
+    pointer-events: none;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.1s;
+    z-index: 5;
+}
+
+.chart-tooltip.visible { opacity: 1; }
+
+.chart-tooltip .row { display: flex; align-items: center; gap: 6px; }
+.chart-tooltip .key { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.chart-tooltip .value { color: var(--text); font-weight: 700; }
+.chart-tooltip .label { color: var(--text-muted); }
+
+.run-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+}
+
+/* Runs list while /api/runs is still loading: grey bars where a card's
+   lines will be, with the same sweep as the body.is-loading skeletons. */
+.skeleton-line {
+    position: relative;
+    overflow: hidden;
+    height: 12px;
+    margin: 7px 0;
+    border-radius: 6px;
+    background: var(--surface-alt);
+}
+
+.skeleton-line::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--skeleton-sweep), transparent);
+    animation: skeleton-sweep 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-line::after { animation: none; }
+}
+
+/* An end of the bike that reached bottom-out depth on that run. */
+.peak-bottomed { color: var(--warn); font-weight: 600; }
+
+.run-card-info { min-width: 0; flex: 1; }
+.run-card-info > div + div { margin-top: 2px; }
+
+.run-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    border-radius: 10px;
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.icon-btn svg { width: 18px; height: 18px; }
+
+.icon-btn.danger {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--bad);
+    border-color: transparent;
+}
+
+/* Floating "bubble" nav — compact and centered (sized to its own content,
+   not stretched full-width) and detached from the bottom edge, like it's
+   hovering over the page rather than docked to it. env(safe-area-inset-
+   bottom) is added to the gap itself (not as inner padding) so it still
+   clears a phone's home indicator without stretching down to touch it. */
+.bottom-nav {
+    position: fixed;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    width: fit-content;
+    max-width: calc(100% - 32px);
+    display: flex;
+    background: var(--card-glass);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 8px 24px var(--nav-shadow), inset 1px 1px 0 var(--glass-highlight), inset -1px -1px 0 var(--glass-edge);
+    z-index: 20;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 4px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* The pill background hugs just the icon+label, not the whole flex-1 tap
+   target (which stays full-width for a comfortable thumb target) — same
+   "selected capsule" look as iOS's tab bar. */
+.nav-pill {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 16px;
+    border-radius: 999px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-item svg { width: 22px; height: 22px; }
+
+.nav-item.active .nav-pill {
+    background: var(--accent);
+    color: var(--accent-text);
+}
+
+/* Segmented control for switching between a page's views (Run:
+   Overview/Analysis/Tuning, Settings: Bike/WiFi/System). Labeled on
+   purpose — these used to be icon-only FABs whose names lived in `title`,
+   which never shows on a touchscreen, and which looked identical to the
+   action FABs next to them. Pinned just under the topbar so the active
+   view can be changed from anywhere in a long page. */
+.seg-tabs {
+    position: sticky;
+    top: var(--sticky-top);
+    z-index: 5;
+    display: flex;
+    gap: 2px;
+    max-width: 420px;
+    height: var(--tabs-height);
+    margin: 0 auto 12px;
+    padding: 3px;
+    background: var(--card-glass);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: 0 6px 18px var(--nav-shadow), inset 1px 1px 0 var(--glass-highlight), inset -1px -1px 0 var(--glass-edge);
+}
+
+.seg-tab {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 10px;
+    gap: 6px;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.seg-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.seg-tab.active {
+    background: var(--accent);
+    color: var(--accent-text);
+}
+
+/* − [ value ] + around a click or token count (initSteppers in
+   settings.html). */
+.stepper {
+    display: flex;
+    gap: 6px;
+}
+
+.stepper input {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+}
+
+.stepper-btn {
+    width: 44px;
+    padding: 0;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+/* Settings → WiFi has edits that still need Save pressed. */
+.seg-tab.has-unsaved::after {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warn);
+    flex-shrink: 0;
+}
+
+/* The line under an autosaving Settings card: idle hint → Saving… → Saved. */
+.autosave-status { margin: 12px 0 0; }
+
+/* Floating action buttons, bottom-right, stacked above the bottom nav —
+   icon plus a visible text label (a pill, not a bare circle), since a
+   `title` tooltip never appears on touch. Same glassy/shadowed look as
+   .bottom-nav for a consistent "floating controls" feel. Actions only:
+   view switching belongs in .seg-tabs above. */
+.fab-stack {
+    position: fixed;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom) + var(--nav-height) + 14px);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    z-index: 15;
+}
+
+.fab-btn {
+    height: 48px; min-width: 48px;
+    padding: 0 14px; gap: 8px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 999px; border: 1px solid var(--border);
+    background: var(--card-glass); backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--text-muted); text-decoration: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; white-space: nowrap;
+    box-shadow: 0 8px 20px var(--nav-shadow), inset 1px 1px 0 var(--glass-highlight), inset -1px -1px 0 var(--glass-edge);
+}
+
+.fab-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+
+@media (min-width: 560px) {
+    main { max-width: 640px; }
+}
+
+@media (min-width: 860px) {
+    main { max-width: 1080px; }
+
+    .page-stack {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        align-items: start;
+    }
+
+    .page-stack > .span-2 {
+        grid-column: 1 / -1;
+    }
+}
+
+/* Run detail: a 2-column grid — narrow left column (stats card + view-tab
+   buttons, spanning both rows as one block) beside a wide right column
+   (map/altitude on top, tab content below), aimed at tablet-sized screens.
+   Falls back to a plain stacked column below the breakpoint. Named areas
+   (rather than relying on source order + auto-placement) so the sidebar
+   can span both rows while the map and tab content each occupy just one,
+   on their own independent sticky schedules. */
+main.run-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* The gap above does the spacing; width because the auto side margins that
+   center the control would otherwise shrink it to its content here. */
+main.run-layout > .seg-tabs {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+@media (min-width: 768px) {
+    /* Portrait tablet. One column the full width of the screen, so the
+       charts get all of it: view tabs, the stats as a compact strip, the
+       map with the segment list beside it, then the tab content. (This
+       used to be a 280px stats column beside everything else, which left
+       the map card's two halves too narrow to read.) The wide-screen
+       section at the end of the file rearranges it again from 1024px. */
+    main.run-layout {
+        max-width: 1100px;
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "tabs"
+            "sidebar"
+            "map"
+            "content";
+        align-items: start;
+        gap: 16px;
+    }
+
+    main.run-layout > .seg-tabs { grid-area: tabs; }
+
+    .run-sidebar-col { grid-area: sidebar; }
+    #gpsCard { grid-area: map; }
+    .run-content { grid-area: content; }
+
+    /* Stats: bike/setup lines across the top, the five figures in a row. */
+    #statsCard {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        column-gap: 16px;
+        row-gap: 4px;
+        align-items: start;
+        padding: 14px 16px;
+    }
+
+    #statsCard > #bikeInfo,
+    #statsCard > #setupInfo { grid-column: 1 / -1; }
+
+    #statsCard .stat-label { margin-bottom: 2px; }
+    #statsCard .stat-value { font-size: 20px; }
+    #statsCard .stat-sub { margin: 0; }
+
+    #gpsCard .segment-list { max-height: 210px; }
+}
+
+/* The map stays in view while the tab content scrolls underneath it — but
+   only on a screen tall enough to have room left over for that content (a
+   phone on its side is 768px wide too, and about 390px tall). z-index
+   because sticky alone doesn't promote paint order: without it the tab
+   content, later in source order, draws over the map instead of passing
+   beneath it. */
+@media (min-width: 768px) and (min-height: 800px) {
+    #gpsCard {
+        position: sticky;
+        top: calc(var(--sticky-top) + var(--tabs-height) + 12px);
+        z-index: 2;
+    }
+}
+
+/* Run page notes on anything tablet-sized or bigger: one row — label, field,
+   save — instead of a card tall enough to push the first chart half a
+   screen down. The field grows while it's being typed in. */
+@media (min-width: 768px) {
+    #notesCard {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        column-gap: 14px;
+        padding: 10px 16px;
+    }
+
+    #notesCard .card-header { display: contents; }
+    #notesCard h3 { grid-column: 1; grid-row: 1; margin: 0; font-size: 15px; }
+    #notesCard #notesSaveBtn { grid-column: 3; grid-row: 1; }
+
+    #notesCard .notes-textarea {
+        grid-column: 2;
+        grid-row: 1;
+        height: 40px;
+        min-height: 40px;
+        transition: height 0.15s ease;
+    }
+
+    #notesCard .notes-textarea:focus { height: 110px; }
+
+    #notesCard #notesStatus { grid-column: 2; grid-row: 2; }
+    #notesCard #notesStatus:empty { display: none; }
+}
+
+/* Wider desktop viewports get more room still — the telemetry stack rows
+   below want real horizontal space for their charts once the label column
+   is taken out of that space. */
+@media (min-width: 1200px) {
+    main.run-layout {
+        max-width: 1500px;
+    }
+}
+
+/* Route map + Altitude side by side on desktop (stacked on mobile, where
+   there isn't room for either to be useful next to the other). */
+.overview-row {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.overview-col {
+    min-width: 0;
+}
+
+/* Grid rather than flex row here — grid's row-track sizing reliably
+   stretches both columns to the taller one's height (the same technique
+   already used for the outer sidebar/map layout); a flex row was leaving
+   the segments column sized to its own (much taller, many-rows) content
+   instead of matching the map next to it. */
+@media (min-width: 640px) {
+    .overview-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+/* Telemetry stack: each row is a compact Avg/Peak label next to its chart,
+   tightly packed — aimed at reviewing many metrics at once on a wider
+   screen. On a phone the label sits above its chart instead, since there
+   isn't width to spare for a side-by-side row; a portrait tablet (768px)
+   has it, and a stacked row there costs twice the height. */
+.telemetry-stack {
+    padding: 0;
+}
+
+.telemetry-row {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.telemetry-row-last, .telemetry-row:last-child {
+    border-bottom: none;
+}
+
+.telemetry-name {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin: 0 0 6px;
+}
+
+.telemetry-minis {
+    display: flex;
+    gap: 16px;
+}
+
+.telemetry-minis .mini-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    display: block;
+}
+
+.telemetry-minis .mini-value {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+@media (min-width: 700px) {
+    .telemetry-row {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .telemetry-label {
+        width: 110px;
+        flex-shrink: 0;
+    }
+
+    .telemetry-row .chart-wrap {
+        flex: 1;
+        min-width: 0;
+    }
+}
+
+/* Run page's time-series stack: the same rows, tightened so that as many of
+   them as possible are on screen at once. The charts' height isn't set
+   here — the page's script works it out from the window (fitTimeCharts() in
+   run.html) and passes it in as --time-chart-h; the charts are then drawn
+   in real pixels at that size rather than stretched to it. */
+.time-stack .telemetry-row {
+    padding: 4px 16px;
+}
+
+.time-stack .telemetry-row .chart-svg {
+    height: var(--time-chart-h, 64px);
+}
+
+.time-stack .telemetry-name {
+    margin: 0 0 2px;
+    line-height: 14px;
+}
+
+.time-stack .telemetry-minis {
+    gap: 12px;
+}
+
+.time-stack .mini-label {
+    line-height: 12px;
+}
+
+.time-stack .mini-value {
+    display: block;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The value under the cursor, at the label column's far edge — next to the
+   chart it is read from, and where its changing width moves nothing else. */
+.time-stack .mini-cursor {
+    margin-left: auto;
+    text-align: right;
+}
+
+/* A chart's second series: colour key and name always (it is the legend),
+   value while there is a cursor. */
+.time-stack .mini-sub {
+    margin: 0;
+    font-size: 10px;
+    line-height: 12px;
+    color: var(--text-muted);
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.time-stack .mini-sub .key {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+}
+
+.time-stack .mini-sub .value {
+    margin-left: 4px;
+    color: var(--text);
+    font-weight: 700;
+}
+
+/* The one time axis the rows share. It is the card's first row and stays
+   in view while the others scroll under it, so it needs a background of
+   its own — the card's is translucent. Its label cell reports the zoom. */
+.time-stack .time-axis-row {
+    position: sticky;
+    top: var(--time-axis-top, calc(var(--sticky-top) + var(--tabs-height) + 8px));
+    z-index: 3;
+    padding: 6px 16px 0;
+    background: var(--surface);
+    border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+}
+
+.time-axis-row .telemetry-label {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 24px;
+    white-space: nowrap;
+}
+
+.time-axis-row .stat-sub {
+    margin: 0;
+    font-size: 11px;
+}
+
+.time-axis-row button {
+    min-height: 24px;
+    padding: 0 10px;
+    font-size: 11px;
+    border-radius: 999px;
+}
+
+.time-stack .time-axis-row .chart-svg {
+    height: 22px;
+}
+
+@media (min-width: 700px) {
+    .time-stack .telemetry-row {
+        gap: 12px;
+    }
+
+    .time-stack .telemetry-label {
+        width: 172px;
+    }
+
+    .time-axis-plot {
+        flex: 1;
+        min-width: 0;
+    }
+}
+
+/* Settings: the phone layout stacks every card in one column, which leaves
+   a lot of unused width on a desktop-sized viewport. From this breakpoint
+   up, lay the active tab's cards out in two columns instead — scoped to
+   .tab-panel.active specifically (rather than reusing .page-stack) so the
+   hidden tab stays hidden regardless of viewport width. */
+@media (min-width: 860px) {
+    .tab-panel.active {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        align-items: start;
+    }
+
+    .tab-panel.active > .span-2 {
+        grid-column: 1 / -1;
+    }
+}
+
+/* Runs list as a table (wide screens only — runs.html falls back to one
+   card per run below that). */
+.runs-table-card {
+    padding: 8px 8px 4px;
+    overflow-x: auto;
+}
+
+.runs-table-hint { margin: 6px 10px 8px; }
+
+.runs-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.runs-table th {
+    padding: 8px 10px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+}
+
+.runs-table th.sortable { cursor: pointer; }
+.runs-table th.sortable:hover,
+.runs-table th.sorted { color: var(--text); }
+
+.sort-arrow {
+    display: inline-block;
+    width: 12px;
+    margin-left: 4px;
+    font-size: 9px;
+}
+
+.runs-table td {
+    padding: 9px 10px;
+    white-space: nowrap;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--border);
+}
+
+.runs-table tbody tr:last-child td { border-bottom: none; }
+
+.runs-table tbody tr { cursor: pointer; }
+.runs-table tbody tr:hover td { background: rgba(148, 163, 184, 0.08); }
+.runs-table tbody tr.selected td { background: var(--selected-tint); }
+
+.runs-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.runs-table .muted { color: var(--text-muted); }
+
+.runs-table .run-name a {
+    font-weight: 700;
+    text-decoration: none;
+}
+
+/* The RUN number next to a run the rider has named. */
+.run-number {
+    margin-left: 4px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.runs-table td.notes {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-style: italic;
+    color: var(--text-muted);
+}
+
+.runs-table td.actions { text-align: right; }
+
+.runs-table .icon-btn {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.run-pick {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+/* A page action that's ready to go — Compare, once two runs are ticked. */
+.fab-btn.primary {
+    color: var(--accent-text);
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ── Wide screens (laptop / desktop / landscape tablet) ─────────────────────
+   These are what the app is primarily for: the analysis pages are walls of
+   charts, and every pixel of height something floating or pinned takes is a
+   pixel of chart that isn't on screen. So from here up nothing floats over
+   the content any more — the page nav and the page actions move into the
+   topbar, which has both its sides empty at this width — and the Run page is
+   rearranged so only the map stays pinned. Kept last in the file so these
+   win over the phone/tablet-portrait rules above at equal specificity. */
+@media (min-width: 1024px) {
+    body { padding-bottom: 32px; }
+
+    /* The runs table has ten columns to fit. */
+    main.runs-main { max-width: 1400px; }
+
+    /* Compare: the route map and the time-gained chart side by side rather
+       than one above the other — they're two views of the same thing (where
+       along the trail the gap opened), and stacked they didn't both fit on
+       a laptop screen. The page gets the extra width that takes. */
+    main.compare-main { max-width: 1400px; }
+
+    .compare-main > #routeMapCard,
+    .compare-main > #deltaCard { grid-column: auto; }
+
+    /* Page nav: from a bubble floating over the bottom of the page to a
+       compact row at the left of the topbar (after the back arrow, on the
+       pages that have one). Still position:fixed — the topbar it sits on
+       is pinned to the top anyway — so no page's markup has to change. */
+    .bottom-nav {
+        top: 11px;
+        bottom: auto;
+        left: 20px;
+        transform: none;
+        box-shadow: inset 1px 1px 0 var(--glass-highlight), inset -1px -1px 0 var(--glass-edge);
+    }
+
+    .topbar:has(.back-link) ~ .bottom-nav { left: 72px; }
+
+    .nav-item { padding: 3px; }
+
+    .nav-pill {
+        flex-direction: row;
+        gap: 7px;
+        height: 38px;
+        padding: 0 14px;
+        font-size: 13px;
+    }
+
+    .nav-item svg { width: 18px; height: 18px; }
+
+    /* Page actions (Compare, Trends): same move, to the right of the
+       topbar just before the status chips. */
+    .fab-stack {
+        top: 12px;
+        bottom: auto;
+        right: 124px;
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .fab-btn {
+        height: 44px;
+        box-shadow: inset 1px 1px 0 var(--glass-highlight), inset -1px -1px 0 var(--glass-edge);
+    }
+
+    /* Run page. Only what's worth seeing *while* scrolling through charts
+       stays pinned: the map (its marker follows the chart crosshair) with
+       the segment list under it, as a left column the full height of the
+       window. The headline stats are read once, so they become a strip
+       across the top that scrolls away, and the view tabs sit over the
+       chart column alone. Between them that leaves the charts everything
+       below the topbar and tabs, instead of what was left under a pinned
+       stats column *and* a pinned map card. */
+    main.run-layout {
+        max-width: 1700px;
+        grid-template-columns: minmax(340px, 27%) 1fr;
+        grid-template-rows: auto auto 1fr;
+        grid-template-areas:
+            "stats stats"
+            "map tabs"
+            "map content";
+        gap: 16px;
+    }
+
+    .run-sidebar-col {
+        grid-area: stats;
+        position: static;
+    }
+
+    #statsCard {
+        display: grid;
+        grid-template-columns: minmax(200px, 1.5fr) repeat(5, 1fr);
+        column-gap: 20px;
+        row-gap: 2px;
+        align-items: start;
+        padding: 14px 18px;
+    }
+
+    /* Bike + setup lines share the first column; the five stat blocks take
+       one column each and span both of its rows. Columns are spelled out
+       because grid places row-locked items before auto-placed ones, which
+       would otherwise push the bike info to the far right. */
+    #statsCard > #bikeInfo { grid-column: 1; grid-row: 1; }
+    #statsCard > #setupInfo { grid-column: 1; grid-row: 2; }
+    #statsCard > div:nth-of-type(n + 2) { grid-row: 1 / span 2; }
+    #statsCard > div:nth-of-type(2) { grid-column: 2; }
+    #statsCard > div:nth-of-type(3) { grid-column: 3; }
+    #statsCard > div:nth-of-type(4) { grid-column: 4; }
+    #statsCard > div:nth-of-type(5) { grid-column: 5; }
+    #statsCard > div:nth-of-type(6) { grid-column: 6; }
+
+    #statsCard .stat-label { margin-bottom: 2px; }
+    #statsCard .stat-value { font-size: 22px; }
+    #statsCard .stat-sub { margin: 0; }
+
+    /* Route above, Trail Segments below; the card is capped at the window's
+       height and the segment list takes whatever is left, scrolling inside
+       it, so the whole column is always on screen. */
+    #gpsCard {
+        grid-area: map;
+        position: sticky;
+        top: var(--sticky-top);
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100vh - var(--sticky-top) - 16px);
+    }
+
+    #gpsCard .segments-col {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #gpsCard .segment-list {
+        flex: 1;
+        min-height: 72px;
+        max-height: none;
+    }
+
+    main.run-layout > .seg-tabs { grid-area: tabs; }
+    .run-content { grid-area: content; }
+}

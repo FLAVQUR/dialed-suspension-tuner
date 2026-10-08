@@ -1,0 +1,3 @@
+# Text files are stored and checked out with LF, whatever the machine's git
+# settings say; git decides what is text.
+* text=auto eol=lf

@@ -1,0 +1,370 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/style.css">
+<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<title>Dialed</title>
+</head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="glass-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="2" result="soft"/><feDisplacementMap in="SourceGraphic" in2="soft" scale="70" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
+<script>if (/Chrome\//.test(navigator.userAgent)) document.documentElement.classList.add('glass-refract');</script>
+
+<div class="topbar">
+    <h1>Dashboard</h1>
+    <div class="battery-indicator" id="batteryIndicator">
+        <svg viewBox="0 0 28 14" width="26" height="13">
+            <rect x="1" y="1" width="23" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="25" y="4.5" width="2" height="5" rx="1" fill="currentColor"/>
+            <rect id="batteryFill" x="3" y="3" width="0" height="8" rx="1.5" fill="currentColor"/>
+        </svg>
+    </div>
+</div>
+
+<main>
+    <div class="page-stack">
+        <!-- Two cards, side by side on a wide screen: what's needed to start
+             a run, and proof the suspension sensors are alive. GPS and
+             hardware health used to be cards of their own; a fix is one
+             line here, and a fault is something the checklist under the
+             button reports — three green "OK"s said nothing. -->
+        <div class="card glass">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <p class="stat-label" style="margin:0;">Recording</p>
+                <span class="badge bad" id="recordBadge" style="display:none;">
+                    <span class="dot pulse"></span> Recording
+                </span>
+            </div>
+            <p class="stat-sub" id="recordInfo" style="margin-bottom:14px;">--</p>
+            <button style="width:100%;" id="recordBtn" onclick="toggleRun()">Start Run</button>
+            <div class="preflight" id="preflight"></div>
+            <p class="stat-sub" id="wifiOffNote" style="display:none; margin:10px 0 0;">
+                WiFi turns off while recording, so this page will lose the device once the
+                run starts. Stop the run with the button on the device.
+            </p>
+
+            <div class="gps-row">
+                <span class="stat-label" style="margin:0;">GPS</span>
+                <span class="badge" id="gpsBadge">--</span>
+                <span class="stat-sub" id="gpsDetail" style="margin:0;"></span>
+            </div>
+        </div>
+
+        <div class="card glass">
+            <p class="stat-label">Suspension (live)</p>
+
+            <div style="margin-bottom:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:13px; color:var(--text-muted);">
+                    <span>Front</span>
+                    <span id="frontPct" style="font-size:16px; font-weight:700; color:var(--text);">-- %</span>
+                </div>
+                <div class="bar"><div class="bar-fill" id="frontFill" style="background:var(--series-front);"></div><div class="bar-mark" id="frontSagMark"></div></div>
+                <p class="stat-sub" style="margin-top:4px;"><span id="frontTravel">-- mm</span><span id="frontSagText"></span></p>
+            </div>
+
+            <div id="rearLive">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; font-size:13px; color:var(--text-muted);">
+                    <span>Rear</span>
+                    <span id="rearPct" style="font-size:16px; font-weight:700; color:var(--text);">-- %</span>
+                </div>
+                <div class="bar"><div class="bar-fill" id="rearFill" style="background:var(--series-rear);"></div><div class="bar-mark" id="rearSagMark"></div></div>
+                <p class="stat-sub" style="margin-top:4px;"><span id="rearTravel">-- mm</span><span id="rearSagText"></span></p>
+            </div>
+
+            <!-- preserveAspectRatio="none" lets the trace fill whatever shape
+                 the card has; non-scaling-stroke keeps its lines the same
+                 weight however far that stretches them. -->
+            <div class="live-chart">
+                <svg viewBox="0 0 300 100" preserveAspectRatio="none">
+                    <line x1="0" y1="0.5" x2="300" y2="0.5" class="live-grid"/>
+                    <line x1="0" y1="50" x2="300" y2="50" class="live-grid"/>
+                    <line x1="0" y1="99.5" x2="300" y2="99.5" class="live-grid"/>
+                    <polyline id="liveRear" fill="none" stroke="var(--series-rear)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+                    <polyline id="liveFront" fill="none" stroke="var(--series-front)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+                </svg>
+                <span class="live-label" style="top:2px;">100%</span>
+                <span class="live-label" style="bottom:2px;">0%</span>
+            </div>
+            <p class="stat-sub" style="margin:6px 0 0;">
+                Last 60 seconds, about 5 readings a second — enough to see both sensors
+                respond when you push on the bike, not a recording.
+            </p>
+        </div>
+    </div>
+</main>
+
+<nav class="bottom-nav">
+    <a href="/" class="nav-item active">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Dashboard</span>
+        </span>
+    </a>
+    <a href="/runs" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Runs</span>
+        </span>
+    </a>
+    <a href="/settings" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="14" y2="6"/><circle cx="17" cy="6" r="2"/><line x1="10" y1="12" x2="20" y2="12"/><circle cx="7" cy="12" r="2"/><line x1="4" y1="18" x2="14" y2="18"/><circle cx="17" cy="18" r="2"/></svg>
+            <span>Settings</span>
+        </span>
+    </a>
+</nav>
+
+<script src="/common.js"></script>
+<script>
+
+// common.js fetches the device's settings once per page and announces them
+// (it applies the theme itself); this is what else the Dashboard needs of
+// them.
+document.addEventListener('bike:config', evt => {
+    const data = evt.detail;
+
+    wifiOffWhileRecording = !!data.wifiOffWhileRecording;
+    fullSuspension = !!data.fullSuspension;
+
+    // The live bars get a tick at the static sag captured in Settings, so
+    // "how deep is it sitting right now" has something to be read against.
+    // No rear end on a hardtail.
+    document.getElementById('rearLive').style.display = fullSuspension ? '' : 'none';
+    showStaticSag('front', data.frontSagPct);
+    showStaticSag('rear', data.rearSagPct);
+});
+
+function showStaticSag(side, pct)
+{
+    const captured = pct > 0;
+    const mark = document.getElementById(side + 'SagMark');
+
+    mark.style.display = captured ? 'block' : 'none';
+    mark.style.left = Math.min(100, pct) + '%';
+
+    document.getElementById(side + 'SagText').textContent =
+        captured ? ` · static sag at ${pct.toFixed(0)}%` : '';
+}
+
+// From the device's settings (see the bike:config handler above): whether
+// the Start Run card should warn that the page is about to lose the device.
+let wifiOffWhileRecording = false;
+let fullSuspension = false;
+
+// ── Pre-ride checklist ─────────────────────────────────────────────────────
+// Everything here is something that only shows up afterwards, in the
+// analysis, as a run with a hole in it — an uncalibrated end reading 0mm, a
+// map with no route. Listing it next to Start Run is the one moment it can
+// still be fixed. Advisory only: none of it blocks recording, since a ride
+// with no GPS fix is still a perfectly good suspension log.
+let calibration = null;
+let imuZeroed = null;
+let lastStatus = null;
+
+function loadPreflightInputs()
+{
+    fetch('/api/suspension/calibration')
+    .then(r => r.json())
+    .then(data => { calibration = data; renderPreflight(); })
+    .catch(() => {});
+
+    fetch('/api/imu')
+    .then(r => r.json())
+    .then(data => { imuZeroed = !!data.zeroed; renderPreflight(); })
+    .catch(() => {});
+}
+
+function renderPreflight()
+{
+    const box = document.getElementById('preflight');
+
+    // Nothing to say until the device has answered at least once.
+    if (!lastStatus) {
+        preflightHtml = '';
+        box.innerHTML = '';
+        return;
+    }
+
+    const recording = lastStatus.state === 'recording';
+    let items = [];
+    const settingsLink = ' <a href="/settings#sensors">Settings</a>';
+
+    if (!lastStatus.health.storage)
+        items.push({ cls: 'bad', html: 'SD card isn\'t responding — the run can\'t be saved.' });
+
+    if (calibration) {
+        if (!calibration.front.valid)
+            items.push({ html: 'Front suspension isn\'t calibrated — its travel will read 0.' + settingsLink });
+        if (fullSuspension && !calibration.rear.valid)
+            items.push({ html: 'Rear suspension isn\'t calibrated — its travel will read 0.' + settingsLink });
+    }
+
+    if (!lastStatus.health.imu)
+        items.push({ cls: 'bad', html: 'IMU isn\'t responding — no lean, pitch or G-force.' });
+    else if (imuZeroed === false)
+        items.push({ html: 'IMU isn\'t zeroed — lean and pitch won\'t be the bike\'s real angles.' + settingsLink });
+
+    if (!lastStatus.health.gps)
+        items.push({ cls: 'bad', html: 'GPS module isn\'t responding — no map, speed or distance.' });
+    else if (!lastStatus.gps.fix)
+        items.push({ html: 'No GPS fix yet — map, speed and distance stay empty until it locks.' });
+
+    // Mid-run there's nothing left to prepare, so the advice goes — but a
+    // piece of hardware that stopped answering is still worth knowing about
+    // (this is the only place it's reported).
+    if (recording)
+        items = items.filter(i => i.cls === 'bad');
+    else if (items.length === 0 && calibration && imuZeroed !== null)
+        items.push({ cls: 'good', html: 'Ready to record — calibration, IMU and GPS all check out.' });
+
+    const html = items.map(i => `<div class="preflight-item ${i.cls || ''}"><span class="dot"></span><span>${i.html}</span></div>`).join('');
+
+    // Status arrives 5×/s — only touch the DOM when the list really changed,
+    // or the Settings links would be replaced mid-tap.
+    if (html !== preflightHtml) {
+        preflightHtml = html;
+        box.innerHTML = html;
+    }
+}
+
+let preflightHtml = '';
+
+// ── Live suspension trace ──────────────────────────────────────────────────
+// A rolling minute of the same travel % the bars show, newest at the right
+// edge. Fed by the status poll, so it's only as fine as that (about 5 Hz).
+const LIVE_SAMPLES = 300;
+const liveFront = [];
+const liveRear = [];
+
+function pushLiveSample(frontPct, rearPct)
+{
+    const draw = (id, samples, pct) => {
+        samples.push(Math.min(100, Math.max(0, pct || 0)));
+        if (samples.length > LIVE_SAMPLES) samples.shift();
+
+        const step = 300 / (LIVE_SAMPLES - 1);
+        const offset = LIVE_SAMPLES - samples.length;
+
+        document.getElementById(id).setAttribute('points',
+            samples.map((v, i) => `${((offset + i) * step).toFixed(1)},${(100 - v).toFixed(1)}`).join(' '));
+    };
+
+    draw('liveFront', liveFront, frontPct);
+
+    // No rear trace on a hardtail — its block above is hidden too.
+    if (fullSuspension) draw('liveRear', liveRear, rearPct);
+    else document.getElementById('liveRear').setAttribute('points', '');
+}
+
+function hdopQuality(hdop)
+{
+    if (hdop <= 2)  return { text: 'Great signal', cls: 'good' };
+    if (hdop <= 5)  return { text: 'OK signal',     cls: 'warn' };
+    return               { text: 'Poor signal',   cls: 'bad'  };
+}
+
+function updateRecordUI(state, currentRun, recordingSeconds)
+{
+    const btn = document.getElementById('recordBtn');
+    const badge = document.getElementById('recordBadge');
+    const info = document.getElementById('recordInfo');
+
+    document.getElementById('wifiOffNote').style.display =
+        (wifiOffWhileRecording && state !== 'recording') ? '' : 'none';
+
+    if (state === 'recording') {
+        badge.style.display = 'inline-flex';
+        btn.textContent = 'Stop Run';
+        btn.className = 'danger';
+        btn.disabled = false;
+        info.textContent = `${currentRun || 'Run'} · ${formatDuration(recordingSeconds)}`;
+    } else if (state === 'ready') {
+        badge.style.display = 'none';
+        btn.textContent = 'Start Run';
+        btn.className = '';
+        btn.disabled = false;
+        info.textContent = 'Not recording';
+    } else {
+        badge.style.display = 'none';
+        btn.textContent = 'Start Run';
+        btn.className = '';
+        btn.disabled = true;
+        info.textContent = state === 'error' ? 'Device error' : 'Starting up...';
+    }
+}
+
+function toggleRun()
+{
+    const btn = document.getElementById('recordBtn');
+    const starting = btn.textContent === 'Start Run';
+    btn.disabled = true;
+
+    // The connection can drop before any status poll reports "recording",
+    // so tell the shared banner up front that this drop is the expected one.
+    if (starting && wifiOffWhileRecording && window.BikeConn) BikeConn.expectDrop();
+
+    fetch('/api/run/toggle', { method: 'POST' })
+    .catch(() => {
+        // Starting a run may turn WiFi off shortly after this response —
+        // losing the connection here is expected, not a failure.
+    })
+    .finally(() => {
+        setTimeout(() => btn.disabled = false, 800);
+    });
+}
+
+function updateData()
+{
+    fetch('/api/status')
+    .then(r => r.json())
+    .then(data => {
+
+        updateRecordUI(data.state, data.current_run, data.recording_seconds);
+
+        // The device saying it is recording means it is about to leave the
+        // network (when it records with WiFi off) — whether the run was
+        // started from here a moment ago or from another tab. This page
+        // asks five times a second and so sees it; the shared banner's own
+        // slow poll usually wouldn't, and has to be told.
+        if (data.state === 'recording' && wifiOffWhileRecording && window.BikeConn) BikeConn.expectDrop();
+
+        lastStatus = data;
+        renderPreflight();
+
+        const pct = data.battery.percent;
+        const battCls = pct >= 50 ? 'good' : pct >= 20 ? 'warn' : 'bad';
+
+        const batteryIndicator = document.getElementById('batteryIndicator');
+        batteryIndicator.className = 'battery-indicator ' + battCls;
+        document.getElementById('batteryFill').setAttribute('width', (pct / 100 * 20).toFixed(1));
+
+        // One badge, one line of detail. Signal quality only means
+        // something once there's a fix — without one the HDOP is a
+        // placeholder, and "No fix" next to "Poor signal" said it twice.
+        const gpsBadge = document.getElementById('gpsBadge');
+        gpsBadge.className = 'badge ' + (data.gps.fix ? 'good' : 'bad');
+        gpsBadge.innerHTML = '<span class="dot"></span>' + (data.gps.fix ? 'Fix' : 'No fix');
+
+        document.getElementById('gpsDetail').innerText = data.gps.fix
+            ? `${data.gps.satellites} satellites · ${hdopQuality(data.gps.hdop).text.toLowerCase()}`
+            : `${data.gps.satellites} satellites in view`;
+
+        document.getElementById('frontPct').innerText = data.suspension.front_pct + ' %';
+        document.getElementById('frontTravel').innerText = data.suspension.front + ' mm';
+        document.getElementById('frontFill').style.width = data.suspension.front_pct + '%';
+        document.getElementById('rearPct').innerText = data.suspension.rear_pct + ' %';
+        document.getElementById('rearTravel').innerText = data.suspension.rear + ' mm';
+        document.getElementById('rearFill').style.width = data.suspension.rear_pct + '%';
+
+        pushLiveSample(Number(data.suspension.front_pct), Number(data.suspension.rear_pct));
+    })
+    .catch(() => {
+        // Expected once WiFi is turned off during a recording.
+    });
+}
+
+setInterval(updateData, 200);
+updateData();
+setInterval(loadPreflightInputs, 5000);
+loadPreflightInputs();
+
+</script>
+</body></html>

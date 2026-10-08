@@ -1,0 +1,810 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<title>Compare Runs — Dialed</title>
+
+<style>
+    .legend-row { display: flex; gap: 18px; margin-top: 10px; font-size: 13px; color: var(--text-muted); flex-wrap: wrap; }
+    .legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+    .compare-table th, .compare-table td { text-align: right; padding: 7px 4px; border-bottom: 1px solid var(--border); }
+    .compare-table th:first-child, .compare-table td:first-child { text-align: left; color: var(--text-muted); }
+    .compare-table th { font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+    .delta { font-size: 11px; margin-left: 4px; }
+    .delta.better { color: var(--good); }
+    .delta.worse { color: var(--bad); }
+    .setup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
+    .setup-cols .stat-sub { margin: 2px 0; }
+    .setup-diff { color: var(--warn); font-weight: 700; }
+    #compareMap { height: 320px; border-radius: 10px; overflow: hidden; margin-top: 10px; margin-bottom: 4px; }
+</style>
+</head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="glass-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="2" result="soft"/><feDisplacementMap in="SourceGraphic" in2="soft" scale="70" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
+<script>if (/Chrome\//.test(navigator.userAgent)) document.documentElement.classList.add('glass-refract');</script>
+
+<div class="topbar">
+    <a href="/runs" class="back-link">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </a>
+    <h1>Compare Runs</h1>
+    <div class="battery-indicator" id="batteryIndicator">
+        <svg viewBox="0 0 28 14" width="26" height="13">
+            <rect x="1" y="1" width="23" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="25" y="4.5" width="2" height="5" rx="1" fill="currentColor"/>
+            <rect id="batteryFill" x="3" y="3" width="0" height="8" rx="1.5" fill="currentColor"/>
+        </svg>
+    </div>
+</div>
+
+<main class="page-stack compare-main">
+    <div class="card glass span-2">
+        <h3 style="margin-top:0;">Select Runs</h3>
+        <p class="stat-sub" style="margin-top:-8px;">Best used to A/B a single setting change — same trail, same conditions, one variable different.</p>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:12px;">
+            <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
+                <label for="runASelect">Run A</label>
+                <select id="runASelect"></select>
+            </div>
+            <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
+                <label for="runBSelect">Run B</label>
+                <select id="runBSelect"></select>
+            </div>
+        </div>
+        <div class="legend-row">
+            <span><span class="legend-dot" id="legendDotA"></span><span id="legendLabelA">Run A</span></span>
+            <span><span class="legend-dot" id="legendDotB"></span><span id="legendLabelB">Run B</span></span>
+        </div>
+    </div>
+
+    <div class="card glass span-2" id="routeMapCard" style="display:none;">
+        <h3 style="margin-top:0;">Route Comparison</h3>
+        <p class="stat-sub" style="margin-top:-8px;" id="routeMapNote">Run A (dashed) vs Run B, colored by where B gained or lost time.</p>
+        <div id="compareMap"></div>
+        <div class="legend-row">
+            <span><span class="legend-dot" style="background:var(--good);"></span>Run B faster here</span>
+            <span><span class="legend-dot" style="background:var(--bad);"></span>Run B slower here</span>
+        </div>
+    </div>
+
+    <div class="card glass span-2" id="deltaCard" style="display:none;">
+        <h3 style="margin-top:0;">Time Gained / Lost</h3>
+        <p class="stat-sub" style="margin-top:-8px;">Run B's time gap to Run A, by distance along the trail — rising means B is falling behind, falling means B is catching up.</p>
+        <div class="chart-wrap">
+            <svg class="chart-svg" id="deltaChart" viewBox="0 0 300 140"></svg>
+            <div class="chart-tooltip" id="deltaTooltip"></div>
+        </div>
+    </div>
+
+    <div class="card glass span-2" id="resultsCard" style="display:none;">
+        <h3 style="margin-top:0;">Setup</h3>
+        <div class="setup-cols">
+            <div>
+                <p class="stat-label">Front</p>
+                <p class="stat-sub" id="setupFrontA">--</p>
+            </div>
+            <div>
+                <p class="stat-label">Front</p>
+                <p class="stat-sub" id="setupFrontB">--</p>
+            </div>
+            <div id="setupRearABlock">
+                <p class="stat-label">Rear</p>
+                <p class="stat-sub" id="setupRearA">--</p>
+            </div>
+            <div id="setupRearBBlock">
+                <p class="stat-label">Rear</p>
+                <p class="stat-sub" id="setupRearB">--</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card glass span-2" id="summaryCard" style="display:none;">
+        <h3 style="margin-top:0;">Suspension Summary</h3>
+        <table class="compare-table">
+            <thead>
+                <tr><th>Metric</th><th id="thA">Run A</th><th id="thB">Run B</th></tr>
+            </thead>
+            <tbody id="summaryTableBody"></tbody>
+        </table>
+    </div>
+
+    <div class="card glass" id="frontHistCard" style="display:none;">
+        <h3 style="margin-top:0;">Front Travel Distribution</h3>
+        <p class="stat-sub" style="margin-top:-8px;">% of time spent at each depth of travel</p>
+        <div class="chart-wrap">
+            <svg class="chart-svg" id="frontHistChart" viewBox="0 0 300 120"></svg>
+            <div class="chart-tooltip" id="frontHistTooltip"></div>
+        </div>
+    </div>
+
+    <div class="card glass" id="rearHistCard" style="display:none;">
+        <h3 style="margin-top:0;">Rear Travel Distribution</h3>
+        <p class="stat-sub" style="margin-top:-8px;">% of time spent at each depth of travel</p>
+        <div class="chart-wrap">
+            <svg class="chart-svg" id="rearHistChart" viewBox="0 0 300 120"></svg>
+            <div class="chart-tooltip" id="rearHistTooltip"></div>
+        </div>
+    </div>
+
+    <div class="card glass" id="frontVelCard" style="display:none;">
+        <h3 style="margin-top:0;">Front Velocity</h3>
+        <p class="stat-sub" style="margin-top:-8px;">Rebound (left) vs compression (right) speed</p>
+        <div class="chart-wrap">
+            <svg class="chart-svg" id="frontVelChart" viewBox="0 0 300 120"></svg>
+            <div class="chart-tooltip" id="frontVelTooltip"></div>
+        </div>
+    </div>
+
+    <div class="card glass" id="rearVelCard" style="display:none;">
+        <h3 style="margin-top:0;">Rear Velocity</h3>
+        <p class="stat-sub" style="margin-top:-8px;">Rebound (left) vs compression (right) speed</p>
+        <div class="chart-wrap">
+            <svg class="chart-svg" id="rearVelChart" viewBox="0 0 300 120"></svg>
+            <div class="chart-tooltip" id="rearVelTooltip"></div>
+        </div>
+    </div>
+
+    <p class="stat-sub" id="loadError" style="text-align:center; display:none; grid-column: 1 / -1;">Could not load one or both runs.</p>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<nav class="bottom-nav">
+    <a href="/" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l4-4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Dashboard</span>
+        </span>
+    </a>
+    <a href="/runs" class="nav-item active">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>
+            <span>Runs</span>
+        </span>
+    </a>
+    <a href="/settings" class="nav-item">
+        <span class="nav-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="14" y2="6"/><circle cx="17" cy="6" r="2"/><line x1="10" y1="12" x2="20" y2="12"/><circle cx="7" cy="12" r="2"/><line x1="4" y1="18" x2="14" y2="18"/><circle cx="17" cy="18" r="2"/></svg>
+            <span>Settings</span>
+        </span>
+    </a>
+</nav>
+
+<script src="/common.js"></script>
+<script src="/telemetry.js"></script>
+<script>
+
+// Run A is the baseline, Run B the one being judged against it — so A is
+// drawn in the neutral and B in the highlight colour, not as two equal
+// hues (see the data-colour notes at the top of style.css).
+const COLOR_A = cssVar('--series-neutral');
+const COLOR_B = cssVar('--series-highlight');
+const COLOR_MAP_INK = cssVar('--map-ink');
+const COLOR_GOOD = cssVar('--good');
+const COLOR_BAD = cssVar('--bad');
+
+document.getElementById('legendDotA').style.background = COLOR_A;
+document.getElementById('legendDotB').style.background = COLOR_B;
+
+const params = new URLSearchParams(location.search);
+const presetA = params.get('a') || '';
+const presetB = params.get('b') || '';
+
+// One run's setup, keyed by field so it can be set against the other run's.
+// Which fields a run has is setupFields()'s call (telemetry.js) — a dial by
+// its has_* flag, never by its value: going from 2 clicks to 0 is exactly
+// the kind of change this page is for. Static sag is a measurement, not a
+// setting, so it stays out of the comparison.
+function computeSetupFieldMap(setup)
+{
+    const map = {};
+
+    setupFields(setup).forEach(f => {
+        if (f.key !== 'sag') map[f.key] = { value: f.value, text: setupFieldText(f) };
+    });
+
+    return map;
+}
+
+const SETUP_FIELD_ORDER = ['lsc', 'hsc', 'lsr', 'hsr', 'tokens', 'comp', 'rebound', 'psi'];
+
+// Highlights each clicker/pressure field that differs between the two runs
+// (in amber, the app's existing "pay attention here" color) instead of just
+// listing both setups side by side and leaving the rider to spot the
+// difference themselves — the whole point of this page is A/B-ing one
+// changed setting, so the changed field should jump out immediately.
+function renderSetupPair(elA, elB, setupA, setupB)
+{
+    const mapA = computeSetupFieldMap(setupA);
+    const mapB = computeSetupFieldMap(setupB);
+
+    function render(el, map, other)
+    {
+        const html = SETUP_FIELD_ORDER
+            .filter(key => map[key])
+            .map(key => {
+                const differs = !other[key] || other[key].value !== map[key].value;
+                return differs ? `<span class="setup-diff">${map[key].text}</span>` : map[key].text;
+            })
+            .join(' · ');
+
+        el.innerHTML = html || 'Not recorded';
+    }
+
+    render(elA, mapA, mapB);
+    render(elB, mapB, mapA);
+}
+
+// The two runs are recorded independently and start their clocks at
+// different moments, so lining them up by elapsed time or sample index
+// would compare unrelated points on the trail. Parameterizing each run by
+// cumulative distance travelled instead — the same trick Strava uses for
+// "compare efforts" — lets us ask "how long had each rider been going once
+// they'd covered X meters of trail?", which is the question that actually
+// matters here. This assumes forward travel only (true for the DH/Enduro
+// descents this tool targets); a run that loops back over its own path
+// would confuse "distance travelled" with "distance from start" and isn't
+// handled.
+function buildDistanceProfile(rows)
+{
+    const pts = rows.filter(r => r.lat !== 0 && r.lon !== 0);
+    if (pts.length < 2) return null;
+
+    const t0 = pts[0].t;
+    let dist = 0;
+    const cumDist = [0];
+    const tSec = [0];
+
+    for (let i = 1; i < pts.length; i++) {
+        dist += haversineMeters(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon);
+        cumDist.push(dist);
+        tSec.push((pts[i].t - t0) / 1000);
+    }
+
+    return { pts, cumDist, tSec, totalDist: dist };
+}
+
+// Linear-interpolates elapsed time at an arbitrary distance along a
+// profile's track. cumDist only accumulates (never decreases), so a binary
+// search finds the bracketing pair of samples to interpolate between.
+function timeAtDistance(profile, d)
+{
+    const { cumDist, tSec } = profile;
+    const n = cumDist.length;
+
+    if (d <= cumDist[0]) return tSec[0];
+    if (d >= cumDist[n - 1]) return tSec[n - 1];
+
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (cumDist[mid] <= d) lo = mid; else hi = mid;
+    }
+
+    const d0 = cumDist[lo], d1 = cumDist[hi];
+    const frac = d1 > d0 ? (d - d0) / (d1 - d0) : 0;
+    return tSec[lo] + frac * (tSec[hi] - tSec[lo]);
+}
+
+// Resamples both runs onto a shared set of distance checkpoints spanning
+// the shorter of the two tracks — comparing past where the shorter run
+// stopped recording wouldn't mean anything — and takes the elapsed time
+// each run needed to reach each checkpoint. delta = timeB - timeA: positive
+// means B took longer to reach that point on the trail (B behind A there),
+// negative means B got there faster (B ahead).
+function computeTimeDelta(profileA, profileB, numSamples)
+{
+    const maxDist = Math.min(profileA.totalDist, profileB.totalDist);
+    const series = [];
+
+    for (let i = 0; i <= numSamples; i++) {
+        const d = (maxDist / numSamples) * i;
+        series.push({ d, delta: timeAtDistance(profileB, d) - timeAtDistance(profileA, d) });
+    }
+
+    return series;
+}
+
+// Groups the resampled checkpoints into stretches where B is consistently
+// gaining or losing time on A (ignoring GPS-noise-level slope wobble below
+// the deadband), so the map can be colored in a small number of solid
+// stretches instead of flickering point-to-point.
+const DELTA_SLOPE_DEADBAND_S = 0.15;
+
+function classifyDeltaSegments(deltaSeries)
+{
+    const segments = [];
+    let current = null;
+
+    for (let i = 1; i < deltaSeries.length; i++) {
+        const d0 = deltaSeries[i - 1], d1 = deltaSeries[i];
+        const slope = d1.delta - d0.delta;
+        const cls = slope > DELTA_SLOPE_DEADBAND_S ? 'losing' : slope < -DELTA_SLOPE_DEADBAND_S ? 'gaining' : 'even';
+
+        if (!current || current.cls !== cls) {
+            if (current) segments.push(current);
+            current = { cls, startDist: d0.d, endDist: d1.d };
+        } else {
+            current.endDist = d1.d;
+        }
+    }
+
+    if (current) segments.push(current);
+    return segments;
+}
+
+// Splits Run B's actual GPS points into polyline-ready groups matching the
+// gain/lose/even distance segments above, mirroring run.html's
+// splitPointsBySegment technique but keyed on distance along track instead
+// of time.
+function splitProfileByDistanceSegments(profile, segments)
+{
+    if (!segments.length) return [{ cls: 'even', points: profile.pts }];
+
+    const groups = [];
+    let segIdx = 0;
+    let currentCls = segments[0].cls;
+    let currentPts = [profile.pts[0]];
+
+    for (let i = 1; i < profile.pts.length; i++) {
+        const d = profile.cumDist[i];
+        while (segIdx < segments.length - 1 && d > segments[segIdx].endDist) segIdx++;
+        const cls = segments[segIdx].cls;
+
+        if (cls === currentCls) {
+            currentPts.push(profile.pts[i]);
+        } else {
+            groups.push({ cls: currentCls, points: currentPts });
+            currentCls = cls;
+            currentPts = [profile.pts[i - 1], profile.pts[i]];
+        }
+    }
+
+    groups.push({ cls: currentCls, points: currentPts });
+    return groups;
+}
+
+let compareMapInstance = null;
+
+function drawCompareMap(profileA, profileB, deltaSegments)
+{
+    const card = document.getElementById('routeMapCard');
+
+    if (compareMapInstance) {
+        compareMapInstance.remove();
+        compareMapInstance = null;
+    }
+
+    if (typeof L === 'undefined' || !profileA || !profileB) {
+        card.style.display = 'none';
+        return;
+    }
+
+    card.style.display = '';
+    const mapDiv = document.getElementById('compareMap');
+    mapDiv.innerHTML = '';
+
+    const map = L.map(mapDiv, { attributionControl: true });
+    compareMapInstance = map;
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Run A is drawn as a thin dashed reference line underneath — the
+    // comparison itself (where B gained/lost time on A) is what gets the
+    // visual weight, via the color-coded Run B line on top.
+    const lineA = L.polyline(profileA.pts.map(p => [p.lat, p.lon]), {
+        color: COLOR_MAP_INK, weight: 3, dashArray: '2,8', opacity: 0.8
+    }).addTo(map);
+
+    const groups = splitProfileByDistanceSegments(profileB, deltaSegments);
+    const lineLayersB = groups.map(g => L.polyline(g.points.map(p => [p.lat, p.lon]), {
+        color: g.cls === 'gaining' ? COLOR_GOOD : g.cls === 'losing' ? COLOR_BAD : COLOR_B,
+        weight: 4
+    }).addTo(map));
+
+    const routeGroup = L.featureGroup([lineA, ...lineLayersB]);
+    const fitToRoute = () => map.fitBounds(routeGroup.getBounds(), { padding: [16, 16] });
+    fitToRoute();
+    setTimeout(() => map.invalidateSize(), 0);
+
+    const RecenterControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd() {
+            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            const link = L.DomUtil.create('a', '', container);
+            link.href = '#';
+            link.title = 'Recenter on route';
+            link.setAttribute('role', 'button');
+            link.style.display = 'flex';
+            link.style.alignItems = 'center';
+            link.style.justifyContent = 'center';
+            link.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="5"/></svg>';
+
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.on(link, 'click', (evt) => {
+                L.DomEvent.preventDefault(evt);
+                fitToRoute();
+            });
+
+            return container;
+        }
+    });
+    map.addControl(new RecenterControl());
+}
+
+function drawDeltaChart(series, labelB)
+{
+    rememberChart('deltaChart', () => drawDeltaChart(series, labelB));
+
+    const svg = document.getElementById('deltaChart');
+    const tooltip = document.getElementById('deltaTooltip');
+    svg.innerHTML = '';
+
+    // Drawn 300 units wide and stretched to the card — about 1:1 on a phone,
+    // 3-4x on a desktop, where a line sized in units comes out that many
+    // times too heavy. `scale` brings it back to roughly the same weight on
+    // screen (floored so it still grows a little with the chart). The
+    // chart is also made less tall when it's wide, so it fits on a laptop
+    // screen together with the route map above it.
+    const W = 300;
+    const pxWidth = svg.getBoundingClientRect().width || W;
+    const scale = Math.max(0.4, Math.min(1, W / pxWidth));
+    const H = pxWidth > 700 ? 100 : 140;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    // Axis text is in the same stretched units: at half the page's width
+    // (next to the map) the usual 4 would come out under 9px, so it's
+    // sized to stay around 11px there. Left alone on a phone.
+    const fontSize = pxWidth >= 500 ? Math.max(4, 11 * W / pxWidth).toFixed(1) : 4;
+
+    const padL = 32, padR = 8, padT = 10, padB = 20;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const dMax = series[series.length - 1].d || 1;
+    const absMax = Math.max(1, arrayMax(series.map(s => Math.abs(s.delta))));
+    const yStep = niceStep(absMax * 2, 4);
+    const yMax = Math.ceil(absMax / yStep) * yStep || yStep;
+    const yMin = -yMax;
+
+    const X = d => padL + (d / dMax) * plotW;
+    const Y = v => padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+    for (let v = yMin; v <= yMax + 0.0001; v += yStep) {
+        const y = Y(v);
+        svg.appendChild(el('line', {
+            x1: padL, y1: y.toFixed(1), x2: W - padR, y2: y.toFixed(1),
+            stroke: COLOR_BORDER, 'stroke-width': Math.abs(v) < 0.0001 ? 1.2 : 0.5
+        }));
+
+        const label = el('text', { x: padL - 5, y: (y + 3).toFixed(1), 'text-anchor': 'end', 'font-size': fontSize, fill: COLOR_MUTED });
+        label.textContent = (v > 0 ? '+' : '') + v.toFixed(0) + 's';
+        svg.appendChild(label);
+    }
+
+    [0, 0.5, 1].forEach(f => {
+        const label = el('text', {
+            x: (padL + f * plotW).toFixed(1), y: H - 5,
+            'text-anchor': f === 0 ? 'start' : f === 1 ? 'end' : 'middle',
+            'font-size': fontSize, fill: COLOR_MUTED
+        });
+        label.textContent = ((dMax * f) / 1000).toFixed(2) + ' km';
+        svg.appendChild(label);
+    });
+
+    // Filled per-segment (green where the gap is closing, red where it's
+    // opening) rather than one flat fill, so the shape alone tells the story
+    // without needing the tooltip.
+    const zeroY = Y(0);
+    for (let i = 1; i < series.length; i++) {
+        const x0 = X(series[i - 1].d), x1 = X(series[i].d);
+        const y0 = Y(series[i - 1].delta), y1 = Y(series[i].delta);
+        const gaining = series[i].delta < series[i - 1].delta;
+
+        svg.appendChild(el('polygon', {
+            points: `${x0.toFixed(1)},${zeroY.toFixed(1)} ${x0.toFixed(1)},${y0.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)} ${x1.toFixed(1)},${zeroY.toFixed(1)}`,
+            fill: gaining ? COLOR_GOOD : COLOR_BAD, opacity: 0.25
+        }));
+    }
+
+    let d = '';
+    series.forEach((s, i) => { d += (i === 0 ? 'M' : 'L') + X(s.d).toFixed(1) + ',' + Y(s.delta).toFixed(1) + ' '; });
+    svg.appendChild(el('path', { d, fill: 'none', stroke: COLOR_MUTED, 'stroke-width': (1.5 * scale).toFixed(2), 'stroke-linejoin': 'round' }));
+
+    const crosshair = el('line', { x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: COLOR_MUTED, 'stroke-width': 0.5, opacity: 0 });
+    svg.appendChild(crosshair);
+
+    function pointerHandler(evt)
+    {
+        const rect = svg.getBoundingClientRect();
+        const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+        const px = (clientX - rect.left) / rect.width * W;
+
+        const frac = Math.min(1, Math.max(0, (px - padL) / plotW));
+        const targetD = frac * dMax;
+
+        let idx = 0, best = Infinity;
+        for (let i = 0; i < series.length; i++) {
+            const diff = Math.abs(series[i].d - targetD);
+            if (diff < best) { best = diff; idx = i; }
+        }
+
+        const s = series[idx];
+        const cx = X(s.d);
+        crosshair.setAttribute('x1', cx.toFixed(1));
+        crosshair.setAttribute('x2', cx.toFixed(1));
+        crosshair.setAttribute('opacity', 1);
+
+        const sign = s.delta >= 0 ? '+' : '';
+        const verdict = s.delta > 0.1 ? `${labelB} behind` : s.delta < -0.1 ? `${labelB} ahead` : 'even';
+
+        tooltip.innerHTML = `<div class="label">${(s.d / 1000).toFixed(2)} km</div>`
+            + `<div class="row"><span class="value">${sign}${s.delta.toFixed(1)}s</span> <span class="label">${verdict}</span></div>`;
+        tooltip.classList.add('visible');
+
+        const tw = tooltip.offsetWidth || 90;
+        let left = (px / W) * rect.width - tw / 2;
+        left = Math.max(0, Math.min(rect.width - tw, left));
+        tooltip.style.left = left + 'px';
+    }
+
+    function clearHover()
+    {
+        crosshair.setAttribute('opacity', 0);
+        tooltip.classList.remove('visible');
+    }
+
+    svg.addEventListener('pointermove', pointerHandler);
+    svg.addEventListener('pointerdown', pointerHandler);
+    svg.addEventListener('pointerleave', clearHover);
+}
+
+function addSummaryRow(label, valA, valB, betterWhenLower)
+{
+    const tbody = document.getElementById('summaryTableBody');
+    const tr = document.createElement('tr');
+
+    let deltaHtml = '';
+    if (betterWhenLower !== undefined && typeof valA === 'number' && typeof valB === 'number' && valA !== valB) {
+        const improved = betterWhenLower ? valB < valA : valB > valA;
+        deltaHtml = `<span class="delta ${improved ? 'better' : 'worse'}">${valB > valA ? '+' : ''}${(valB - valA).toFixed(valA % 1 === 0 && valB % 1 === 0 ? 0 : 1)}</span>`;
+    }
+
+    tr.innerHTML = `<td>${label}</td><td>${valA}</td><td>${valB}${deltaHtml}</td>`;
+    tbody.appendChild(tr);
+}
+
+function analyzeRun(run)
+{
+    const { rows, bike } = run;
+    const isFullSusp = !bike || bike.full_suspension !== false;
+
+    const frontMaxMM = (bike && typeof bike.front_travel === 'number' && bike.front_travel > 0) ? bike.front_travel : 0;
+    const rearMaxMM = (bike && typeof bike.rear_travel === 'number' && bike.rear_travel > 0) ? bike.rear_travel : 0;
+
+    const totalS = (rows[rows.length - 1].t - rows[0].t) / 1000;
+    const totalMinutes = totalS / 60 || 1;
+
+    const frontVals = rows.map(r => r.front);
+    const rearVals = rows.map(r => r.rear);
+
+    const frontAvg = average(frontVals);
+    const rearAvg = average(rearVals);
+
+    const BOTTOM_OUT_PCT = 95, BOTTOM_OUT_RESET_PCT = 85;
+    const frontBO = countBottomOuts(rows, 'front', frontMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT);
+    const rearBO = isFullSusp ? countBottomOuts(rows, 'rear', rearMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT) : [];
+
+    const frontVels = computeVelocities(rows, 'front');
+    const rearVels = isFullSusp ? computeVelocities(rows, 'rear') : [];
+
+    return {
+        isFullSusp, frontMaxMM, rearMaxMM, totalMinutes,
+        frontAvgPct: frontMaxMM ? frontAvg / frontMaxMM * 100 : 0,
+        rearAvgPct: rearMaxMM ? rearAvg / rearMaxMM * 100 : 0,
+        frontBOCount: frontBO.length,
+        rearBOCount: rearBO.length,
+        frontVals, rearVals, frontVels, rearVels,
+        frontSetup: bike && bike.front_suspension ? bike.front_suspension : null,
+        rearSetup: bike && bike.rear_suspension ? bike.rear_suspension : null
+    };
+}
+
+// Both selects start empty (allowEmpty) unless a preset name is passed in
+// the URL — auto-picking a run and immediately running a comparison the
+// rider didn't ask for is more confusing than helpful. Run Analysis links
+// here with ?a=<run>, pre-filling just Run A; the Runs list links here
+// with no params at all, so both stay blank until the rider picks.
+async function populateSelect(select, preset, allowEmpty)
+{
+    const res = await fetch('/api/runs');
+    const runs = await res.json();
+
+    // The run's own name first when the rider gave it one.
+    let optionsHtml = runs.map(r =>
+        `<option value="${r.name}">${r.title ? `${escapeHtml(r.title)} (${r.name})` : r.name} · ${formatDuration(Number(r.duration_s))}${r.bike_name ? ' · ' + escapeHtml(r.bike_name) : ''}</option>`
+    ).join('');
+
+    if (allowEmpty) optionsHtml = `<option value="">Select a run…</option>` + optionsHtml;
+    select.innerHTML = optionsHtml;
+
+    if (preset && runs.some(r => r.name === preset)) {
+        select.value = preset;
+    } else if (!allowEmpty && runs.length > 0) {
+        select.selectedIndex = 0;
+    }
+}
+
+async function runComparison()
+{
+    const nameA = document.getElementById('runASelect').value;
+    const nameB = document.getElementById('runBSelect').value;
+
+    if (!nameA || !nameB) return;
+
+    document.getElementById('legendLabelA').textContent = nameA;
+    document.getElementById('legendLabelB').textContent = nameB;
+    document.getElementById('thA').textContent = nameA;
+    document.getElementById('thB').textContent = nameB;
+
+    // Reveal the result cards immediately (skeleton-styled via
+    // body.is-loading) rather than only popping them in fully-rendered
+    // once the fetch/analysis finishes — matches the loading treatment
+    // on run.html/analysis.html.
+    document.body.classList.add('is-loading');
+    document.getElementById('loadError').style.display = 'none';
+    ['routeMapCard', 'deltaCard', 'resultsCard', 'summaryCard', 'frontHistCard', 'frontVelCard', 'rearHistCard', 'rearVelCard'].forEach(id => {
+        document.getElementById(id).style.display = '';
+    });
+
+    try {
+        const [runA, runB] = await Promise.all([fetchRun(nameA), fetchRun(nameB)]);
+        const a = analyzeRun(runA);
+        const b = analyzeRun(runB);
+
+        const bothFullSusp = a.isFullSusp && b.isFullSusp;
+
+        const profileA = buildDistanceProfile(runA.rows);
+        const profileB = buildDistanceProfile(runB.rows);
+
+        if (profileA && profileB) {
+            const deltaSeries = computeTimeDelta(profileA, profileB, 200);
+            const deltaSegments = classifyDeltaSegments(deltaSeries);
+
+            drawCompareMap(profileA, profileB, deltaSegments);
+
+            // Shown before drawing, not after: the chart sizes its line
+            // from the width it's rendered at, and a hidden card has none.
+            document.getElementById('deltaCard').style.display = '';
+            drawDeltaChart(deltaSeries, nameB);
+        } else {
+            drawCompareMap(null, null, []);
+            document.getElementById('deltaCard').style.display = 'none';
+        }
+
+        renderSetupPair(document.getElementById('setupFrontA'), document.getElementById('setupFrontB'), a.frontSetup, b.frontSetup);
+        document.getElementById('setupRearABlock').style.display = bothFullSusp ? '' : 'none';
+        document.getElementById('setupRearBBlock').style.display = bothFullSusp ? '' : 'none';
+        if (bothFullSusp) {
+            renderSetupPair(document.getElementById('setupRearA'), document.getElementById('setupRearB'), a.rearSetup, b.rearSetup);
+        }
+
+        document.getElementById('summaryTableBody').innerHTML = '';
+        addSummaryRow('Front avg sag', a.frontMaxMM ? a.frontAvgPct.toFixed(0) + '%' : '--', b.frontMaxMM ? b.frontAvgPct.toFixed(0) + '%' : '--');
+        addSummaryRow('Front bottom-outs', a.frontBOCount, b.frontBOCount, true);
+        addSummaryRow('Front bottom-outs /min', (a.frontBOCount / a.totalMinutes).toFixed(1), (b.frontBOCount / b.totalMinutes).toFixed(1), true);
+
+        if (bothFullSusp) {
+            addSummaryRow('Rear avg sag', a.rearMaxMM ? a.rearAvgPct.toFixed(0) + '%' : '--', b.rearMaxMM ? b.rearAvgPct.toFixed(0) + '%' : '--');
+            addSummaryRow('Rear bottom-outs', a.rearBOCount, b.rearBOCount, true);
+            addSummaryRow('Rear bottom-outs /min', (a.rearBOCount / a.totalMinutes).toFixed(1), (b.rearBOCount / b.totalMinutes).toFixed(1), true);
+        }
+
+        // Shown before drawing: a chart sizes its axis text from the width
+        // it's rendered at, and a hidden card has none.
+        ['frontHistCard', 'frontVelCard'].forEach(id => { document.getElementById(id).style.display = ''; });
+        ['rearHistCard', 'rearVelCard'].forEach(id => { document.getElementById(id).style.display = bothFullSusp ? '' : 'none'; });
+
+        const HIST_BINS = 10;
+        drawGroupedHistogram(
+            document.getElementById('frontHistChart'), document.getElementById('frontHistTooltip'),
+            computeTravelHistogram(a.frontVals, a.frontMaxMM, HIST_BINS),
+            computeTravelHistogram(b.frontVals, b.frontMaxMM, HIST_BINS),
+            {
+                colorA: COLOR_A, colorB: COLOR_B,
+                xLabels: [{ frac: 0, text: '0%' }, { frac: 0.5, text: '50%' }, { frac: 1, text: '100%' }],
+                binLabel: i => `${i * (100 / HIST_BINS)}-${(i + 1) * (100 / HIST_BINS)}%`
+            }
+        );
+        document.getElementById('frontHistCard').style.display = '';
+
+        document.getElementById('rearHistCard').style.display = bothFullSusp ? '' : 'none';
+        if (bothFullSusp) {
+            drawGroupedHistogram(
+                document.getElementById('rearHistChart'), document.getElementById('rearHistTooltip'),
+                computeTravelHistogram(a.rearVals, a.rearMaxMM, HIST_BINS),
+                computeTravelHistogram(b.rearVals, b.rearMaxMM, HIST_BINS),
+                {
+                    colorA: COLOR_A, colorB: COLOR_B,
+                    xLabels: [{ frac: 0, text: '0%' }, { frac: 0.5, text: '50%' }, { frac: 1, text: '100%' }],
+                    binLabel: i => `${i * (100 / HIST_BINS)}-${(i + 1) * (100 / HIST_BINS)}%`
+                }
+            );
+        }
+
+        const VEL_BINS = 20;
+        const frontMaxAbs = Math.max(1, arrayMax(a.frontVels.map(Math.abs)), arrayMax(b.frontVels.map(Math.abs)));
+        const frontHistA = computeVelocityHistogram(a.frontVels, VEL_BINS, frontMaxAbs);
+        const frontHistB = computeVelocityHistogram(b.frontVels, VEL_BINS, frontMaxAbs);
+        drawGroupedHistogram(
+            document.getElementById('frontVelChart'), document.getElementById('frontVelTooltip'),
+            frontHistA.counts, frontHistB.counts,
+            {
+                colorA: COLOR_A, colorB: COLOR_B,
+                zeroIndex: -frontHistA.start / frontHistA.binWidth,
+                xLabels: [
+                    { frac: 0, text: frontHistA.start.toFixed(0) },
+                    { frac: 0.5, text: '0' },
+                    { frac: 1, text: (-frontHistA.start).toFixed(0) + ' mm/s' }
+                ],
+                binLabel: i => (frontHistA.start + i * frontHistA.binWidth).toFixed(0) + ' mm/s'
+            }
+        );
+        document.getElementById('frontVelCard').style.display = '';
+
+        document.getElementById('rearVelCard').style.display = bothFullSusp ? '' : 'none';
+        if (bothFullSusp) {
+            const rearMaxAbs = Math.max(1, arrayMax(a.rearVels.map(Math.abs)), arrayMax(b.rearVels.map(Math.abs)));
+            const rearHistA = computeVelocityHistogram(a.rearVels, VEL_BINS, rearMaxAbs);
+            const rearHistB = computeVelocityHistogram(b.rearVels, VEL_BINS, rearMaxAbs);
+            drawGroupedHistogram(
+                document.getElementById('rearVelChart'), document.getElementById('rearVelTooltip'),
+                rearHistA.counts, rearHistB.counts,
+                {
+                    colorA: COLOR_A, colorB: COLOR_B,
+                    zeroIndex: -rearHistA.start / rearHistA.binWidth,
+                    xLabels: [
+                        { frac: 0, text: rearHistA.start.toFixed(0) },
+                        { frac: 0.5, text: '0' },
+                        { frac: 1, text: (-rearHistA.start).toFixed(0) + ' mm/s' }
+                    ],
+                    binLabel: i => (rearHistA.start + i * rearHistA.binWidth).toFixed(0) + ' mm/s'
+                }
+            );
+        }
+
+    } catch (e) {
+        document.getElementById('loadError').style.display = 'block';
+        ['routeMapCard', 'deltaCard', 'resultsCard', 'summaryCard', 'frontHistCard', 'frontVelCard', 'rearHistCard', 'rearVelCard'].forEach(id => {
+            document.getElementById(id).style.display = 'none';
+        });
+        if (compareMapInstance) { compareMapInstance.remove(); compareMapInstance = null; }
+    } finally {
+        document.body.classList.remove('is-loading');
+    }
+}
+
+async function init()
+{
+    const selectA = document.getElementById('runASelect');
+    const selectB = document.getElementById('runBSelect');
+
+    try {
+        await Promise.all([populateSelect(selectA, presetA, true), populateSelect(selectB, presetB, true)]);
+        selectA.addEventListener('change', runComparison);
+        selectB.addEventListener('change', runComparison);
+        await runComparison();
+    } catch (e) {
+        document.getElementById('loadError').style.display = 'block';
+    }
+}
+
+init();
+
+</script>
+</body></html>
