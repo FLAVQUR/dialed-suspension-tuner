@@ -553,53 +553,92 @@ static void addRunSetup(JsonObject run, const char* key, const RunSetup& setup) 
     obj["has_hsr"] = setup.hasHSR;
 }
 
-void handleApiRuns() {
-    auto runs = RunService::list();
+// The runs list, a page at a time: { total, offset, runs: [...] }, newest
+// first, `limit` runs from `offset` (25 unless asked, 50 at most).
+//
+// It used to be every run in one reply, built whole in memory and then sent.
+// Each run is a .JSON read off the card inside a request that has the 8s
+// task watchdog behind it, and with 104 runs on the card (2026-10-11) asking
+// for the list reset the device, every time. Two things keep it bounded now:
+//   - a page is a limited number of runs, and the watchdog is fed after each;
+//   - the reply is sent a run at a time and never held whole. A page of 25
+//     runs with their setups is 16KB of JSON, and building that next to the
+//     document it is made from left the WiFi stack too little memory to send
+//     it: replies took 10-40s and the watchdog fired anyway.
+// The pages go through fetchRunsPage() / fetchAllRuns() in common.js.
+constexpr size_t RUNS_PAGE_DEFAULT = 25;
+constexpr size_t RUNS_PAGE_MAX = 50;
+
+static String runJson(const RunInfo& run, bool withSetup) {
+    JsonDocument doc;
+    JsonObject obj = doc.to<JsonObject>();
+
+    obj["name"] = run.name;
+    obj["bike_name"] = run.bikeName;
+    obj["size_kb"] = serialized(String(run.sizeBytes / 1024.0f, 1));
+    obj["duration_s"] = serialized(String(run.duration_s, 1));
+    obj["front_travel"] = serialized(String(run.frontTravelMM, 0));
+    obj["rear_travel"] = serialized(String(run.rearTravelMM, 0));
+    obj["full_suspension"] = run.fullSuspension;
+    obj["recovered"] = run.recovered;
+    obj["incomplete"] = run.incomplete;
+    obj["no_gps"] = run.noGpsFix;
+    obj["rows_dropped"] = run.rowsDropped;
+    obj["notes"] = run.notes;
+    obj["title"] = run.title;
+
+    if (run.startUtc > 0)
+        obj["start_utc"] = run.startUtc;
+
+    if (run.hasStats) {
+        obj["distance_km"] = serialized(String(run.distanceKm, 2));
+        obj["max_speed_kmh"] = serialized(String(run.maxSpeedKmh, 1));
+        obj["max_front_mm"] = serialized(String(run.maxFrontMM, 1));
+        obj["max_rear_mm"] = serialized(String(run.maxRearMM, 1));
+    }
 
     // Each run's setup more than doubles the reply, and only the pages that
     // show the setup history want it (?setup=1).
-    bool withSetup = server.hasArg("setup");
-
-    JsonDocument doc;
-    JsonArray arr = doc.to<JsonArray>();
-
-    for (const auto& run : runs)
-    {
-        JsonObject obj = arr.add<JsonObject>();
-
-        obj["name"] = run.name;
-        obj["bike_name"] = run.bikeName;
-        obj["size_kb"] = serialized(String(run.sizeBytes / 1024.0f, 1));
-        obj["duration_s"] = serialized(String(run.duration_s, 1));
-        obj["front_travel"] = serialized(String(run.frontTravelMM, 0));
-        obj["rear_travel"] = serialized(String(run.rearTravelMM, 0));
-        obj["full_suspension"] = run.fullSuspension;
-        obj["recovered"] = run.recovered;
-        obj["incomplete"] = run.incomplete;
-        obj["no_gps"] = run.noGpsFix;
-        obj["rows_dropped"] = run.rowsDropped;
-        obj["notes"] = run.notes;
-        obj["title"] = run.title;
-
-        if (run.startUtc > 0)
-            obj["start_utc"] = run.startUtc;
-
-        if (run.hasStats) {
-            obj["distance_km"] = serialized(String(run.distanceKm, 2));
-            obj["max_speed_kmh"] = serialized(String(run.maxSpeedKmh, 1));
-            obj["max_front_mm"] = serialized(String(run.maxFrontMM, 1));
-            obj["max_rear_mm"] = serialized(String(run.maxRearMM, 1));
-        }
-
-        if (withSetup) {
-            addRunSetup(obj, "front_suspension", run.frontSetup);
-            addRunSetup(obj, "rear_suspension", run.rearSetup);
-        }
+    if (withSetup) {
+        addRunSetup(obj, "front_suspension", run.frontSetup);
+        addRunSetup(obj, "rear_suspension", run.rearSetup);
     }
 
     String json;
     serializeJson(doc, json);
-    server.send(200, "application/json", json);
+    return json;
+}
+
+void handleApiRuns() {
+    size_t offset = server.hasArg("offset") ? (size_t)max(0L, server.arg("offset").toInt()) : 0;
+    size_t limit = server.hasArg("limit") ? (size_t)max(0L, server.arg("limit").toInt()) : RUNS_PAGE_DEFAULT;
+
+    if (limit > RUNS_PAGE_MAX)
+        limit = RUNS_PAGE_MAX;
+
+    bool withSetup = server.hasArg("setup");
+
+    std::vector<String> names = RunService::names();
+
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(200, "application/json", "");
+    server.sendContent("{\"total\":" + String(names.size()) + ",\"offset\":" + String(offset) + ",\"runs\":[");
+
+    size_t sent = 0;
+
+    for (size_t i = offset; i < names.size() && sent < limit; i++, sent++) {
+        String json = runJson(RunService::info(names[i]), withSetup);
+
+        server.sendContent(sent == 0 ? json : "," + json);
+
+        // Opening a file takes longer the further down the card's directory
+        // it is, so a page takes longer the more runs there are: bounded per
+        // run, then, not per page.
+        esp_task_wdt_reset();
+    }
+
+    server.sendContent("]}");
+    server.sendContent("");
 }
 
 // Shared by handleApiRunDownload/handleApiRunDownloadDebug/

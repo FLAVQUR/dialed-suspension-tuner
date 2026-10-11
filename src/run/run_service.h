@@ -60,7 +60,14 @@ namespace RunService
         float rear_travel
     );
 
-    std::vector<RunInfo> list();
+    // The runs on the card, newest first, by name only ("RUN0047") — read
+    // from the directory without opening a file.
+    std::vector<String> names();
+
+    // What one of those runs' .JSON says about it. A file read off the card
+    // each time: callers ask for a page of runs, never the whole card (see
+    // handleApiRuns() in server.cpp).
+    RunInfo info(const String& name);
 
     // Ensures a compact binary companion file exists for this run's CSV
     // (see writeCompactCsv() in run_service.cpp for the format and why it

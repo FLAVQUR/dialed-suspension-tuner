@@ -620,11 +620,8 @@ function analyzeRun(run)
 // rider didn't ask for is more confusing than helpful. Run Analysis links
 // here with ?a=<run>, pre-filling just Run A; the Runs list links here
 // with no params at all, so both stay blank until the rider picks.
-async function populateSelect(select, preset, allowEmpty)
+function populateSelect(select, runs, preset, allowEmpty)
 {
-    const res = await fetch('/api/runs');
-    const runs = await res.json();
-
     // The run's own name first when the rider gave it one.
     let optionsHtml = runs.map(r =>
         `<option value="${r.name}">${r.title ? `${escapeHtml(r.title)} (${r.name})` : r.name} · ${formatDuration(Number(r.duration_s))}${r.bike_name ? ' · ' + escapeHtml(r.bike_name) : ''}</option>`
@@ -795,7 +792,10 @@ async function init()
     const selectB = document.getElementById('runBSelect');
 
     try {
-        await Promise.all([populateSelect(selectA, presetA, true), populateSelect(selectB, presetB, true)]);
+        // Both pickers offer every run, read off the device once.
+        const runs = await fetchAllRuns(false);
+        populateSelect(selectA, runs, presetA, true);
+        populateSelect(selectB, runs, presetB, true);
         selectA.addEventListener('change', runComparison);
         selectB.addEventListener('change', runComparison);
         await runComparison();

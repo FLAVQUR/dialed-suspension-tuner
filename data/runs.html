@@ -20,8 +20,15 @@
 </div>
 
 <main class="runs-main">
-    <!-- Placeholder cards until /api/runs answers — the device reads every
-         run's .JSON off the SD card to build the list, which takes long
+    <!-- Above the list, not under it: a page is 25 rows, and under them the
+         pager would be a scroll away every time. -->
+    <div id="pager" style="display:none; align-items:center; justify-content:center; gap:14px; margin-bottom:12px;">
+        <button class="ghost" id="pagerPrev" onclick="changePage(-1)">&lsaquo; Newer</button>
+        <span class="stat-sub" id="pagerText" style="margin:0;"></span>
+        <button class="ghost" id="pagerNext" onclick="changePage(1)">Older &rsaquo;</button>
+    </div>
+    <!-- Placeholder cards until /api/runs answers — the device reads the
+         .JSON of every run on the page off the SD card, which takes long
          enough that an empty page looked like "no runs". -->
     <div id="list" class="stack">
         <div class="card glass run-card skeleton-card"><div class="run-card-info"><div class="skeleton-line" style="width:38%;"></div><div class="skeleton-line" style="width:55%;"></div><div class="skeleton-line" style="width:70%;"></div></div></div>
@@ -132,10 +139,21 @@ const DELETE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 // button into "compare these two".
 const wideLayout = window.matchMedia('(min-width: 1024px)');
 
-let runsData = [];
+// The list is shown a page at a time, and in the order the device keeps it
+// (newest first) that is also how it is loaded: only the page on screen is
+// asked for. Any other order needs every run before the first row can be
+// placed, so picking one loads the rest — once.
+let loaded = [];        // loaded[i]: the run at place i of the device's order, once fetched
+let runsTotal = 0;      // how many runs the card holds, as of the last page fetched
+let page = 0;           // the page on screen, counted from 0 — kept in the address (#p3)
 let sortKey = 'name';
 let sortDir = -1;       // newest first — the order the device lists them in
 let selected = [];      // names of the runs ticked for comparison, two at most
+
+function deviceOrder()
+{
+    return sortKey === 'name' && sortDir === -1;
+}
 
 // `value` is what a column sorts by; null means "no such data for this run"
 // and always sorts to the bottom, whichever way the column is ordered.
@@ -151,19 +169,24 @@ const RUN_COLUMNS = [
     { key: 'notes',    label: 'Notes',      value: r => r.notes && r.notes.trim() ? r.notes.trim().toLowerCase() : null }
 ];
 
-function sortedRuns()
+// The runs of the page on screen, in the order asked for.
+function visibleRuns()
 {
+    const from = page * RUNS_PAGE_SIZE;
+
+    if (deviceOrder()) return loaded.slice(from, from + RUNS_PAGE_SIZE).filter(Boolean);
+
     const value = RUN_COLUMNS.find(c => c.key === sortKey).value;
 
-    return runsData.slice().sort((a, b) => {
+    return loaded.filter(Boolean).sort((a, b) => {
         const va = value(a), vb = value(b);
 
         if (va === null || vb === null) return (va === null) - (vb === null);
         return (va < vb ? -1 : va > vb ? 1 : 0) * sortDir;
-    });
+    }).slice(from, from + RUNS_PAGE_SIZE);
 }
 
-function renderRunsTable(container)
+function renderRunsTable(container, runs)
 {
     const dash = '<span class="muted">—</span>';
 
@@ -176,7 +199,7 @@ function renderRunsTable(container)
         return `<th class="sortable${c.num ? ' num' : ''}${arrow ? ' sorted' : ''}" data-sort="${c.key}">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
     }).join('');
 
-    const rows = sortedRuns().map(run => {
+    const rows = runs.map(run => {
         const picked = selected.includes(run.name);
         const travel = run.full_suspension ? `${run.front_travel}/${run.rear_travel}mm` : `${run.front_travel}mm`;
         const notes = run.notes ? run.notes.trim() : '';
@@ -216,7 +239,8 @@ function renderRunsTable(container)
             // Same column again flips the order; a new one starts ascending.
             sortDir = sortHeader.dataset.sort === sortKey ? -sortDir : 1;
             sortKey = sortHeader.dataset.sort;
-            renderRuns();
+            page = 0;
+            showPage();
             return;
         }
 
@@ -355,17 +379,41 @@ function buildRunCard(run)
 function renderRuns()
 {
     const container = document.getElementById('list');
+    const runs = visibleRuns();
 
     container.innerHTML = '';
     document.getElementById('loadError').style.display = 'none';
-    document.getElementById('empty').style.display = runsData.length === 0 ? 'block' : 'none';
+    document.getElementById('empty').style.display = runsTotal === 0 ? 'block' : 'none';
 
-    if (runsData.length > 0) {
-        if (wideLayout.matches) renderRunsTable(container);
-        else runsData.forEach(run => container.appendChild(buildRunCard(run)));
+    if (runs.length > 0) {
+        if (wideLayout.matches) renderRunsTable(container, runs);
+        else runs.forEach(run => container.appendChild(buildRunCard(run)));
     }
 
+    renderPager();
     updateCompareLink();
+}
+
+// "26–50 of 104", with a button either way — only when there is more than
+// one page. The buttons say which way in time they go while the list is in
+// its own order, and just "Previous"/"Next" once it is sorted by something.
+function renderPager(note)
+{
+    const pages = Math.ceil(runsTotal / RUNS_PAGE_SIZE);
+    const from = page * RUNS_PAGE_SIZE;
+
+    document.getElementById('pager').style.display = pages > 1 || note ? 'flex' : 'none';
+    document.getElementById('pagerText').textContent = note
+        || `${from + 1}–${Math.min(runsTotal, from + RUNS_PAGE_SIZE)} of ${runsTotal}`;
+
+    const prev = document.getElementById('pagerPrev');
+    const next = document.getElementById('pagerNext');
+
+    prev.innerHTML = deviceOrder() ? '&lsaquo; Newer' : '&lsaquo; Previous';
+    next.innerHTML = deviceOrder() ? 'Older &rsaquo;' : 'Next &rsaquo;';
+    prev.disabled = !!note || page === 0;
+    next.disabled = !!note || page >= pages - 1;
+    prev.style.visibility = next.style.visibility = pages > 1 ? '' : 'hidden';
 }
 
 wideLayout.addEventListener('change', renderRuns);
@@ -378,23 +426,78 @@ document.addEventListener('click', evt => {
         BikeUI.toast('Preparing the download — the device is busy until it finishes, so other pages will wait.', 8000);
 });
 
-function loadRuns()
+// Fetches the device's page that starts at `offset`, unless it is already
+// here.
+async function ensureLoaded(offset)
 {
-    fetch('/api/runs')
-    .then(r => r.json())
-    .then(runs => {
-        runsData = runs;
+    const end = Math.min(runsTotal, offset + RUNS_PAGE_SIZE);
+    let have = runsTotal > 0;
 
-        // A run that was just deleted can't stay picked for comparison.
-        selected = selected.filter(name => runs.some(r => r.name === name));
+    for (let i = offset; i < end; i++) {
+        if (!loaded[i]) have = false;
+    }
 
-        renderRuns();
-    })
-    .catch(() => {
+    if (have) return;
+
+    const reply = await fetchRunsPage(offset, false);
+
+    runsTotal = reply.total;
+    reply.runs.forEach((run, i) => { loaded[reply.offset + i] = run; });
+}
+
+// Brings in whatever the page on screen needs, then draws it. A call that
+// is overtaken by a later one (another click while it was loading) leaves
+// the drawing to that one.
+let showCount = 0;
+
+async function showPage()
+{
+    const mine = ++showCount;
+
+    try {
+        if (deviceOrder()) {
+            await ensureLoaded(page * RUNS_PAGE_SIZE);
+
+            // The card can hold fewer runs than when this page was asked
+            // for (one was just deleted): step back to the last page there is.
+            const lastPage = Math.max(0, Math.ceil(runsTotal / RUNS_PAGE_SIZE) - 1);
+            if (page > lastPage) {
+                page = lastPage;
+                await ensureLoaded(page * RUNS_PAGE_SIZE);
+            }
+        } else {
+            await ensureLoaded(0);
+
+            for (let offset = RUNS_PAGE_SIZE; offset < runsTotal; offset += RUNS_PAGE_SIZE) {
+                if (mine !== showCount) return;
+                if (!loaded[offset]) renderPager(`Loading every run to sort them… ${Math.min(offset, runsTotal)} of ${runsTotal}`);
+                await ensureLoaded(offset);
+            }
+        }
+    } catch (e) {
+        if (mine !== showCount) return;
+
         document.getElementById('list').innerHTML = '';
+        document.getElementById('pager').style.display = 'none';
         document.getElementById('empty').style.display = 'none';
         document.getElementById('loadError').style.display = 'block';
-    });
+        return;
+    }
+
+    if (mine !== showCount) return;
+
+    // The page is part of the address, so that coming back from a run lands
+    // on the page of the list it was opened from, not on the first.
+    history.replaceState(null, '', page > 0 ? `#p${page + 1}` : location.pathname);
+
+    renderRuns();
+}
+
+function changePage(step)
+{
+    page = Math.max(0, page + step);
+    renderPager('Loading…');
+    showPage();
 }
 
 async function deleteRun(name)
@@ -414,10 +517,18 @@ async function deleteRun(name)
         },
         body: JSON.stringify({ name })
     })
-    .then(() => loadRuns());
+    .then(() => {
+        // A run that was just deleted can't stay picked for comparison, and
+        // every run after it has moved up a place: start the list again.
+        selected = selected.filter(n => n !== name);
+        loaded = [];
+        runsTotal = 0;
+        showPage();
+    });
 }
 
-loadRuns();
+page = Math.max(0, (parseInt(location.hash.replace('#p', ''), 10) || 1) - 1);
+showPage();
 
 </script>
 </body></html>

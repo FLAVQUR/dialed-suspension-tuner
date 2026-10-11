@@ -921,19 +921,40 @@ bool RunService::ensureCompactCsv(const String& name) {
 // RUN0004 present (RUN0003 deleted), the next run must be RUN0005, not a
 // resurrected RUN0003 that could get confused with — or, worse, silently
 // overwrite remnants of — the run that used to have that number.
+// The names of the files in the card's root ("RUN0047.CSV"), read from the
+// directory and nothing else.
+//
+// Everything that walks the card goes through this, because the obvious way —
+// File::openNextFile() — opens each entry, and on FAT opening a file means
+// searching the directory for it. Listing N files that way reads the
+// directory N times over, and that is before any of them is read. With 104
+// runs on the card (2026-10-11) starting a run, which only wants the highest
+// run number, took longer than the 8s task watchdog allows and reset the
+// device.
+static std::vector<String> rootFileNames() {
+    std::vector<String> names;
+
+    File root = SD.open("/");
+    if (!root)
+        return names;
+
+    while (true) {
+        String path = root.getNextFileName();
+        if (path.length() == 0) break;
+
+        names.push_back(path.startsWith("/") ? path.substring(1) : path);
+    }
+
+    root.close();
+
+    return names;
+}
+
 static int nextRunNumber() {
     int maxSeen = 0;
 
-    File root = SD.open("/");
-
-    while (true)
+    for (const String& name : rootFileNames())
     {
-        File f = root.openNextFile();
-        if (!f) break;
-
-        String name = f.name();
-        f.close();
-
         if (!name.startsWith("RUN"))
             continue;
 
@@ -945,8 +966,6 @@ static int nextRunNumber() {
         if (num > maxSeen)
             maxSeen = num;
     }
-
-    root.close();
 
     return maxSeen + 1;
 }
@@ -1157,6 +1176,7 @@ static bool loadRunMeta(const String& runName, RunInfo& run) {
     run.frontTravelMM = doc["bike"]["front_travel"] | 0.0f;
     run.rearTravelMM = doc["bike"]["rear_travel"] | 0.0f;
     run.fullSuspension = doc["bike"]["full_suspension"] | true;
+    run.sizeBytes = doc["csv_size"] | 0U;
     loadRunSetup(doc["bike"]["front_suspension"], run.frontSetup);
     loadRunSetup(doc["bike"]["rear_suspension"], run.rearSetup);
     run.duration_s = doc["duration_s"] | 0.0f;
@@ -1369,33 +1389,28 @@ static void recoverOrphanedRun(const String& runName) {
 }
 
 void RunService::recoverOrphanedRuns() {
-    File root = SD.open("/");
-    if (!root)
-        return;
+    std::vector<String> files = rootFileNames();
 
-    std::vector<String> orphans;
-
-    while (true) {
-        File f = root.openNextFile();
-        if (!f) break;
-
-        String name = f.name();
-        f.close();
-
+    // A .CSV with no .JSON next to it, both looked for in the names just
+    // read rather than on the card (see rootFileNames()).
+    for (const String& name : files) {
         if (!name.endsWith(".CSV"))
             continue;
 
-        String base = name;
-        base.replace(".CSV", "");
+        String base = name.substring(0, name.length() - 4);
+        String json = base + ".JSON";
 
-        if (!storageExists(jsonPath(base).c_str()))
-            orphans.push_back(base);
+        bool hasJson = false;
+        for (const String& other : files) {
+            if (other == json) {
+                hasJson = true;
+                break;
+            }
+        }
+
+        if (!hasJson)
+            recoverOrphanedRun(base);
     }
-
-    root.close();
-
-    for (const auto& base : orphans)
-        recoverOrphanedRun(base);
 }
 
 // See startTimed(). Cleared by every start and every stop, so only a run
@@ -1689,45 +1704,37 @@ void RunService::log(
         rowsDropped++;
 }
 
-std::vector<RunInfo> RunService::list() {
-    std::vector<RunInfo> runs;
+std::vector<String> RunService::names() {
+    std::vector<String> runs;
 
-    File root = SD.open("/");
-
-    while (true)
-    {
-        File f = root.openNextFile();
-        if (!f) break;
-
-        String name = f.name();
-
-        if (!name.endsWith(".CSV")) {
-            f.close();
-            continue;
-        }
-
-        RunInfo run;
-
-        String baseName = name;
-        baseName.replace(".CSV", "");
-
-        run.name = baseName;
-        run.sizeBytes = f.size();
-
-        loadRunMeta(baseName, run);
-
-        runs.push_back(run);
-
-        f.close();
+    for (const String& name : rootFileNames()) {
+        if (name.endsWith(".CSV"))
+            runs.push_back(name.substring(0, name.length() - 4));
     }
 
-    root.close();
-
-    std::sort(runs.begin(), runs.end(), [](const RunInfo& a, const RunInfo& b) {
-        return a.name > b.name;
+    std::sort(runs.begin(), runs.end(), [](const String& a, const String& b) {
+        return a > b;
     });
 
     return runs;
+}
+
+RunInfo RunService::info(const String& name) {
+    RunInfo run;
+    run.name = name;
+
+    loadRunMeta(name, run);
+
+    // The .CSV's size is in the run's .JSON. Asking the card for it is a
+    // second search of the directory, which is most of what a run costs
+    // here: only for a run whose .JSON does not say.
+    if (run.sizeBytes == 0) {
+        struct stat st;
+        if (stat((String("/sd") + csvPath(name)).c_str(), &st) == 0)
+            run.sizeBytes = (size_t)st.st_size;
+    }
+
+    return run;
 }
 
 bool RunService::remove(const String& name) {
@@ -1753,12 +1760,10 @@ bool RunService::remove(const String& name) {
 }
 
 bool RunService::removeAll() {
-    auto runs = list();
-
     bool allOk = true;
 
-    for (const auto& run : runs) {
-        if (!remove(run.name))
+    for (const String& name : names()) {
+        if (!remove(name))
             allOk = false;
     }
 

@@ -48,6 +48,47 @@ function formatRunDate(epochSeconds)
         + `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`;
 }
 
+// ── The runs list ──────────────────────────────────────────────────────────
+// The device hands the list out a page at a time (see handleApiRuns() in
+// server.cpp): each run in it is a file read off the SD card, and a list of
+// all of them in one reply was more than the device could survive once the
+// card held a hundred runs.
+
+const RUNS_PAGE_SIZE = 25;
+
+// One page — { total, offset, runs } — newest run first. `withSetup` adds
+// each run's suspension setup, which only the setup history needs.
+function fetchRunsPage(offset, withSetup, limit = RUNS_PAGE_SIZE)
+{
+    return fetch(`/api/runs?offset=${offset}&limit=${limit}${withSetup ? '&setup=1' : ''}`)
+        .then(r => {
+            if (!r.ok) throw new Error('runs list failed');
+            return r.json();
+        });
+}
+
+// Every run on the card, newest first, a page after another. For the pages
+// that have to see them all (the setup history, the Compare pickers); the
+// Runs list itself only asks for what it shows. `onProgress(loaded, total)`
+// is called after each page.
+async function fetchAllRuns(withSetup, onProgress)
+{
+    const runs = [];
+    let total = Infinity;
+
+    while (runs.length < total) {
+        const page = await fetchRunsPage(runs.length, withSetup);
+
+        total = page.total;
+        if (page.runs.length === 0) break;
+
+        page.runs.forEach(r => runs.push(r));
+        if (onProgress) onProgress(runs.length, total);
+    }
+
+    return runs;
+}
+
 // ── Dialogs ────────────────────────────────────────────────────────────────
 // In place of the browser's confirm()/prompt()/alert(): those can't say what
 // the button will actually do ("OK"?), can't mark a destructive choice as

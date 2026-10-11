@@ -589,7 +589,7 @@ async function deleteAllRuns() {
 
     let count;
     try {
-        count = (await (await fetch('/api/runs')).json()).length;
+        count = (await fetchRunsPage(0, false, 1)).total;
     } catch (e) {
         status.innerText = 'Could not reach the device';
         status.style.color = 'var(--bad)';

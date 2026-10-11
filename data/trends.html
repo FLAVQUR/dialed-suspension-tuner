@@ -465,7 +465,7 @@ async function loadBikeOptions()
 {
     const [bikesData, runsData, cfg] = await Promise.all([
         fetch('/api/bikes').then(r => r.json()),
-        fetch('/api/runs?setup=1').then(r => r.json()),
+        fetchAllRuns(true),
         fetch('/api/config').then(r => r.json())
     ]);
 
