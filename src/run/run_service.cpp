@@ -84,6 +84,24 @@ static uint32_t sdRecoveries = 0;     // reopen + replay succeeded
 static int sdLastErrno = 0;
 static uint32_t sdLastGapBytes = 0;   // accepted - on disk at the last failure
 
+// How the recoveries went, for the run's .JSON. The field test of 2026-10-10
+// had two that outlasted the `pending` buffer and nothing on record to say
+// how long they took or what kept failing: the attempts print to serial, and
+// there is no serial cable on a trail.
+static uint32_t recoveryStartMs = 0;  // when the sync that started this one failed
+static uint32_t sdRecoverMaxMs = 0;   // the longest, from failed sync to rows on the card
+static uint32_t sdReopenFailed = 0;   // attempts that could not reopen the file
+static uint32_t sdStatFailed = 0;     // ... reopened it, but could not stat it
+static uint32_t sdReplayFailed = 0;   // ... replayed the rows, and they did not reach the card
+
+// Rows the writer took and never got onto the card: `pending` was already
+// full when they arrived, or the card was still away when the run ended.
+// With rowsDropped (below) this is everything a run is missing.
+static volatile uint32_t rowsLost = 0;
+
+// Set by stop() while it waits for the writer to finish. See sdWriterTask().
+static volatile bool stopping = false;
+
 // A 3.3V rail monitor on GPIO36 (its own 1kHz task, a divider at the SD card,
 // and rail_min_v / rail_min_v_at_failure / rail_failures[] in the run .JSON)
 // was fitted here on 2026-09-26 to test whether these sync failures coincided
@@ -232,11 +250,13 @@ struct LogRow {
 };
 
 // How far the SD writer may fall behind before rows are dropped (and counted,
-// see rowsDropped). At 500 rows/s this is 0.51s; the longest single stall
-// seen so far is a 0.29s flush. It was 0.66s at the ~387 rows/s the loop
-// used to deliver — if rows_dropped ever shows up in a run's .JSON, this is
-// the number to raise (64 bytes a row, from the same heap WiFi needs).
-static constexpr int LOG_QUEUE_DEPTH = 256;
+// see rowsDropped): 0.9s at 500 rows/s. It was 256 rows, 0.51s, until a bench
+// run on 2026-10-11 dropped 24: the card took 290ms over one write and 357ms
+// over the next, with nothing wrong — it does that at the start of a file
+// and every megabyte or so. The rows came from `pending` below, which no
+// longer needs them (see sdWriterTask()): the two are 640 rows, 40KB, as
+// before, from the same heap WiFi needs.
+static constexpr int LOG_QUEUE_DEPTH = 448;
 static QueueHandle_t logQueue = nullptr;
 static SemaphoreHandle_t drainSem = nullptr;
 static TaskHandle_t sdWriterTaskHandle = nullptr;
@@ -250,14 +270,16 @@ static String csvPath(const String& run);
 // replays. If it ever overflows (card gone for seconds) the excess is a real,
 // permanent gap and the run is flagged.
 //
-// Sized for RUN_FLUSH_INTERVAL_MS with room for several rate-limited
-// tryRecover() retries on top: at 500 rows/s a flush window is 50 rows and a
-// retry interval 75, against 384. (It was sized when the loop managed
-// 200-300 rows/s; the same buffer covers 500 with less to spare.) start()
-// warns if the configured suspensionSampleRateHz could outrun it.
+// Sized for RUN_FLUSH_INTERVAL_MS with room for a rate-limited tryRecover()
+// retry on top: at 500 rows/s a flush window is 50 rows and a retry interval
+// 75, against 192. It need not cover a long outage by itself any more — once
+// it is full the rows wait in the queue (see sdWriterTask()), so what a
+// recovery has to play with is both together, 640 rows. start() warns if the
+// configured suspensionSampleRateHz could outrun it.
 //
-// On the heap, not a static array: at 64 bytes per row even this is 24KB and
-// the static .bss segment has nowhere near that left (a static array overflowed
+// On the heap, not a static array: at 64 bytes per row this is 12KB (24KB
+// when it held 384 rows) and the static .bss segment had nowhere near that
+// left (a static array overflowed
 // dram0_0_seg at link time, even though the firmware's total RAM figure looks
 // comfortable — most of that segment is already spoken for and what remains is
 // runtime heap). Allocated once in init(), which runs before WiFi comes up, so
@@ -267,16 +289,18 @@ static String csvPath(const String& run);
 // left so little that every WiFi socket write failed with EAGAIN and the
 // dashboard stopped loading — init() now logs the free heap either side of
 // this allocation so the margin is visible instead of guessed at.
-static constexpr int PENDING_MAX = 384;
+static constexpr int PENDING_MAX = 192;
 static LogRow* pending = nullptr;
 static int pendingCapacity = 0;
 static int pendingCount = 0;
 
 static void pendingPush(const LogRow& r) {
-    if (pendingCount < pendingCapacity)
+    if (pendingCount < pendingCapacity) {
         pending[pendingCount++] = r;
-    else
+    } else {
         writeFailedThisRun = true;
+        rowsLost = rowsLost + 1;
+    }
 }
 
 // First 15 columns of a row (everything up to and including the comma
@@ -429,6 +453,7 @@ static bool tryRecover() {
     csvFile = SD.open(csvPath(currentRun).c_str(), FILE_APPEND);
 
     if (!csvFile) {
+        sdReopenFailed++;
         Serial.println("RunService: reopen failed, will retry");
         return false;
     }
@@ -437,6 +462,7 @@ static bool tryRecover() {
     // deliberately the same stat() the checks above use, not csvFile.size().
     size_t reopenedSize = 0;
     if (!onDiskSize(reopenedSize)) {
+        sdStatFailed++;
         Serial.println("RunService: cannot stat the CSV after reopen, will retry");
         return false;
     }
@@ -452,9 +478,14 @@ static bool tryRecover() {
     storageFlush(csvFile);
 
     if (!syncedToDisk()) {
+        sdReplayFailed++;
         Serial.println("RunService: replay after reopen did not stick, will retry");
         return false;
     }
+
+    uint32_t took = millis() - recoveryStartMs;
+    if (took > sdRecoverMaxMs)
+        sdRecoverMaxMs = took;
 
     Serial.printf("RunService: SD recovered, %d rows replayed\n", pendingCount);
     pendingCount = 0;
@@ -473,7 +504,16 @@ static void writeLogRow(const LogRow& row) {
     bool flushConfirmed = false;   // this row's prefix is safely on the card
     bool recoveryTookRow = false;  // failure path already owns this row
 
-    if (millis() - lastFlush > RUN_FLUSH_INTERVAL_MS)
+    // By the clock — and early, when `pending` has room for only this row.
+    // After the card has kept the writer waiting, the rows that queued up
+    // behind it are written in one burst, far more of them than a flush
+    // window holds; without a flush to confirm them and empty `pending`, the
+    // burst overflowed it and the run was flagged for rows that were in fact
+    // on their way to the card (found on the bench, 2026-10-11, the moment
+    // the queue was made deeper than `pending`).
+    bool pendingNearlyFull = pendingCapacity > 0 && pendingCount >= pendingCapacity - 1;
+
+    if (millis() - lastFlush > RUN_FLUSH_INTERVAL_MS || pendingNearlyFull)
     {
         uint32_t flushStartUs = micros();
         errno = 0;
@@ -522,6 +562,7 @@ static void writeLogRow(const LogRow& row) {
                           currentRun.c_str(), flushErrno, (unsigned)sdLastGapBytes);
 
             needsRecovery = true;
+            recoveryStartMs = millis();
             // The whole row is replayed from `pending`, so the diagnostic
             // columns below are skipped rather than left as a stub line.
             pendingPush(row);
@@ -549,6 +590,24 @@ static void sdWriterTask(void*) {
     LogRow row;
 
     for (;;) {
+        // The card is away and `pending` has no room left. Taking more rows
+        // off the queue now would only be to throw them away, which is what
+        // this used to do: on 2026-10-10 two runs lost 0.4-0.5s that way while
+        // the queue behind sat empty. Left where they are, the rows have the
+        // queue's places on top of `pending`'s — 640 rows, 1.28s at 500Hz,
+        // where `pending` alone was 0.77s — and whatever arrives once the
+        // queue is full too is turned away in log() and counted in
+        // rowsDropped.
+        // Not while the run is being stopped: stop() is waiting for its
+        // marker to come through, so the queue has to be emptied whatever
+        // becomes of the rows.
+        if (needsRecovery && pendingCount >= pendingCapacity && !stopping) {
+            if (!tryRecover())
+                vTaskDelay(pdMS_TO_TICKS(5));
+
+            continue;
+        }
+
         if (xQueueReceive(logQueue, &row, portMAX_DELAY) != pdTRUE)
             continue;
 
@@ -560,8 +619,15 @@ static void sdWriterTask(void*) {
                 tryRecover();
             }
 
-            if (needsRecovery)
-                writeFailedThisRun = true;  // still broken: those rows never landed
+            if (needsRecovery) {
+                // Still broken: those rows never landed.
+                writeFailedThisRun = true;
+                rowsLost = rowsLost + pendingCount;
+
+                uint32_t took = millis() - recoveryStartMs;
+                if (took > sdRecoverMaxMs)
+                    sdRecoverMaxMs = took;
+            }
 
             xSemaphoreGive(drainSem);
             continue;
@@ -957,16 +1023,26 @@ static void writeRunMeta(float durationSeconds) {
     doc["sd_last_errno"] = sdLastErrno;
     doc["sd_last_gap_bytes"] = sdLastGapBytes;
 
+    // How the recoveries went: the longest one, and how many attempts failed
+    // at each step (see tryRecover()). An ordinary recovery works first time
+    // and takes a few ms.
+    doc["sd_recover_max_ms"] = sdRecoverMaxMs;
+    doc["sd_reopen_failed"] = sdReopenFailed;
+    doc["sd_stat_failed"] = sdStatFailed;
+    doc["sd_replay_failed"] = sdReplayFailed;
+
     // BNO08x link health during this run: how many times the sensor reset
     // (each one blanks the IMU columns for ~200ms) and whether it was still
     // streaming when the run ended.
     ImuHealth imuHealth = imuGetHealth();
     // Samples that never reached the writer (queue full during an SD
-    // recovery). Unlike the sd_* counters these are gone for good, so this is
-    // the number to judge a run's completeness by — `incomplete` above does
-    // not include them.
+    // recovery), and samples the writer took but never got onto the card (see
+    // rowsLost). Unlike the sd_* counters these are gone for good: together
+    // they are what the run is missing. `incomplete` above covers rows_lost
+    // and not rows_dropped.
     doc["rows_dropped"] = rowsDropped;
-    doc["rows_written"] = runStats.count - rowsDropped;
+    doc["rows_lost"] = rowsLost;
+    doc["rows_written"] = runStats.count - rowsDropped - rowsLost;
 
     doc["imu_resets"] = imuHealth.resets - imuResetsAtStart;
     doc["imu_streaming"] = imuHealth.streaming;
@@ -1434,6 +1510,11 @@ bool RunService::start() {
     sdRecoveries = 0;
     sdLastErrno = 0;
     sdLastGapBytes = 0;
+    sdRecoverMaxMs = 0;
+    sdReopenFailed = 0;
+    sdStatFailed = 0;
+    sdReplayFailed = 0;
+    rowsLost = 0;
     imuResetsAtStart = imuGetHealth().resets;
     rowsDropped = 0;
 
@@ -1473,8 +1554,10 @@ void RunService::stop() {
     // writer's own printf()/flush() on the same File object.
     LogRow marker{};
     marker.isDrainMarker = true;
+    stopping = true;
     xQueueSend(logQueue, &marker, portMAX_DELAY);
     xSemaphoreTake(drainSem, pdMS_TO_TICKS(3000));
+    stopping = false;
 
     storageClose(csvFile);
 

@@ -49,7 +49,7 @@ GPIO36 is free (it briefly held the 3.3V rail monitor). Any future analog input 
 
 **Recovery playbook**: a device that looks completely dead after a flash or rewire (no LED, no Wi-Fi, no serial) is most likely a blank flash, not a hardware fault — serial shows `invalid header: 0xffffffff` looping. Fix: force download mode (hold BOOT, tap EN) and reflash over USB.
 
-## The sampling loop (rewritten 2026-10-07 — bench-measured, not ridden yet)
+## The sampling loop (rewritten 2026-10-07 — ridden on 2026-10-10: 500 rows/s, none dropped)
 
 The rider's brief: optimise what runs inside `loop()` and get closer to the configured 500Hz; 1000Hz stays parked.
 
@@ -111,7 +111,7 @@ A 60s run: 29,939 rows, 29,936 of them exactly 2ms after the previous one, none 
   - `GET /api/bikes/profile?name=` returns a saved profile as it is on the card. Nothing could read one back before.
   - With no profile under the bike's name (fresh device), nothing is written and the list says "(current setup — not saved as a profile)"; the first profile is still created by "Save As…".
   - `activate()` reads values back at the precision the profile stores (sag and travel to 0.1, pressure to 1 psi), which is also the precision everything else prints them at.
-  - Checked on the device through the API (18 checks, 2026-10-07), with the config, the Tyee 5 profile and the profile list byte-identical afterwards. Not yet driven from the page's own buttons.
+  - Checked on the device through the API (18 checks, 2026-10-07), with the config, the Tyee 5 profile and the profile list byte-identical afterwards. Driven from the page's own buttons by the rider since (confirmed 2026-10-11).
 - The max calibration point auto-extends if a deeper compression is seen, but only when it beats the old max by more than 1mm for 15ms continuously (a sample-count gate once corrupted a calibration at high sample rates). The declared mm never drifts.
 - **The rear is calibrated directly in shock-stroke mm (55mm)**, not wheel travel — no leverage-curve conversion. `rearWheelTravelMM` is informational only.
 - Logged travel is the unsmoothed instantaneous reading; the EMA-filtered value is only for the live display.
@@ -143,6 +143,28 @@ A 60s run: 29,939 rows, 29,936 of them exactly 2ms after the previous one, none 
 
 **Rear genuinely bottoms out**: 2-3 real events per aggressive run (>97% travel, 50-85ms, 9-11.6g peaks nearby). RUN0045 still bottomed once on Threshold, confirming the lever only raises blow-through force rather than locking the shock.
 
+## Field test 2026-10-10 (first ride at 500Hz, SD at 20MHz, rear at 235 psi)
+
+4 runs on firmware `v0.1.0-2-g078cd85`: RUN0047 on the warm-up track (the one RUN0042 was on), RUN0048/49 on the aggressive track of the 2026-09-28 test, RUN0050 on a track not ridden before, in bad condition and ridden carefully.
+
+**The warm-up track and the aggressive one share their start and their end**; in between, the warm-up track replaces the aggressive one's technical jumps with a run of turns. Their GPS traces lie within GPS error of each other, and both bottom the rear out at the same two points of the shared start (about 25s and 38s in) — so neither tells them apart. Compare warm-up with warm-up (RUN0042, RUN0047) and aggressive with aggressive (RUN0044/46, RUN0048/49).
+
+**500Hz holds on a ride.** 497–500 rows/s over all four, every row 2ms after the one before, `rows_dropped: 0` — the sampling loop and the queue never fell behind.
+
+**Two runs lost about half a second each, and their `incomplete` flag is right.** RUN0049 has a 494ms hole (246 rows) 0.77s into the run, RUN0050 a 398ms hole (198 rows) at 59.5s. Neither shows on a chart of a 97s run, which is why they looked complete. Both are the same thing: an SD recovery that took longer than the `pending` buffer can cover — 384 rows, **0.77s at 500Hz** (it was 1.0s at 385Hz) — after which `pendingPush()` drops every new row until the card is back. The two outages lasted about 1.26s and 1.17s.
+- Meanwhile the 256-row queue in front of the writer sat empty: the writer keeps draining it into a buffer that is already full. Leaving the rows in the queue once `pending` is full would have covered both outages (630 and 582 rows against 640), with little to spare. Not changed yet.
+- `rows_written` does not know about these rows — it is the sample count minus `rows_dropped` — so it over-reports by about the size of the hole (48489 against 48244 lines in RUN0049).
+
+**SD recoveries at 20MHz: 0 / 8 / 2 / 11 per run**, against 2 / 0 / 3 / 1 at 10MHz and 385Hz on 2026-09-28. More, but not separable: the clock, a third more data per second and a rougher track (RUN0050) all changed at once. An ordinary recovery is still instant — 55 rows replayed, one flush window.
+
+**New: the first second and a half of a run is a weak spot, with the bike standing still.** RUN0049 failed from its very first flush and took 1.26s to recover; RUN0050 failed from its first flush (0.71s) and again at 1.25s (0.42s); RUN0048 failed at 1.22s (0.42s), after a first flush that took 442ms. Front travel moved 0–1.6mm in the second before each. These are also the slow recoveries — three of the five in the whole test. RUN0046, on the old firmware, had one at 0.22s too, but a quick one. Explained the next day: see "What the failures are" under "SD card write path".
+
+**Each recovery also leaves one line short of its last two columns** (`write_us`, `flush_us`): the row whose first part the last good flush committed. Its data is intact; a strict parser skips it.
+
+**Rear at 235 psi: not enough.** Bottom-outs per run, 225 psi against 235 psi: on the warm-up track 3 (RUN0042) against 2 (RUN0047); on the aggressive track 3 and 4 (RUN0044/46) against 3 and 3 (RUN0048/49). They are at the same points of the track and last as long as before (52–76ms above 95% travel, against 40–85ms). Average travel went from 28.5–29.1% to 27.3–28.0%. The front is unchanged: no bottom-outs, 26–27% average, 87% peak. Both static sags were recaptured before riding (front 22.3%, rear 26.1%), and **the front sensor was recalibrated** with the guided Zero → Max → Sag steps — so front figures from before and after this ride sit on two calibrations.
+
+**The setup history did its job on a changed setup**: RUN0047 reads "Changed since RUN0046: rear pressure 225 → 235 psi" with "First run since…" under its rear suggestion, RUN0048 "Same setup for 2 runs, since RUN0047" with "Last changed 1 run before this one", and Trends starts a new stretch at RUN0047.
+
 ## Rear shock — spec decoded and tuning ladder
 
 From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Linear, Compression Tune L, Lockout Force 320N, Volume Reducer **0 Neg / 1 Pos**, Check Tune 0-Light. All fixed factory valving except the volume reducer.
@@ -152,8 +174,8 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 - Context: Propain's general sag guidance is 25-30%; the Tyee's PR010 kinematics give ~27% progression (moderate) and ~113% anti-squat at sag. The rider is at 26-27% rear sag — in range but on the firm end, which with moderate frame progression explains why hard hits still reach full stroke.
 
 **Ladder, cheapest and most reversible first**:
-1. **+10 psi rear** — in progress: Settings read 235 psi on 2026-10-06, up from the 225 psi recorded in the 2026-09-28 runs. No run data at the new pressure yet.
-2. **+1-2 more positive tokens** (the stock can holds up to 4, currently 1).
+1. **+10 psi rear** — done, and not enough: ridden at 235 psi on 2026-10-10, 2-3 bottom-outs a run against 3-4 at 225 psi, at the same points of the track (see the field test above).
+2. **+1-2 more positive tokens** (the stock can holds up to 4, currently 1) — the next step.
 3. Only if both are exhausted, the **RockShox Linear XL air can kit, p/n 11.4118.117.001** (47.5-55mm stroke, compatible with Select+/Ultimate C1) — takes 8 tokens instead of 4, and at 0 tokens rides like the stock can. **Deliberately not purchased**: a bigger lever than 2-3 short, HBO-cushioned events per run justifies.
 
 **Decided against**: splitting `volume_tokens` into separate pos/neg fields. Single-user tool, YAGNI — positive tokens have a clear telemetry signal (bottom-outs → add one), negative ones don't, since their symptom (early-stroke/top-out firmness) isn't distinguishable from low pressure or bad sag with the current sensors. Revisit only if something like rebound-velocity spikes near 0% travel makes the negative side diagnosable.
@@ -182,9 +204,26 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 
 ## SD card write path
 
-**Current state: reliable, no longer blocks anything.** Sync failures still happen 0-3 times per run and every one is absorbed with `rows_dropped: 0`.
+**Current state (2026-10-11): the cause of the sync failures is found and fixed in a project copy of the SD driver — on the bench; not ridden yet.** Before that: 0-3 failures a run, all absorbed, at 385Hz and 10MHz (2026-09-28); 0-11 a run at 500Hz and 20MHz, two of four runs losing half a second each (2026-10-10).
 
-**How to read a run**: check **`rows_dropped`** in the `.JSON` first — it is the only number that means samples were lost at the queue (`incomplete` does not cover it). `incomplete` means rows were lost on the card side. `sd_recovered` > 0 just means the card hiccuped and the firmware caught it.
+**What the failures are (found 2026-10-11).** Not a failed write. After every write the framework's SD driver asks the card for its status (CMD13) and fails the write unless the answer is zero. On this card the answer now and then contains a stray `0x03` — as the second status byte, or as the first, where the driver logs it as `token error [13] 0x3` — after a write whose every data block the card had accepted, CRC included. The driver returns an error, FatFS latches it on the open file, and from there on it is the "failed sync" that `run_service.cpp` recovers from by reopening the file and replaying the rows.
+- **How it was found.** The field failures of 2026-10-10 line up with the file growing into a new 64KB cluster: of 32 failures (field and bench), 19 fall within 8KB of a cluster boundary, where chance would put 8 — and the first two clusters of a new file are the worst, which is the "first second and a half". Short timed runs on the bench reproduce it (about one start in four). None of those failures left a line in the driver's log, because the paths they take are silent upstream; a copy of the driver with log lines on them (`lib/SD`) showed `status r1 0x0 r2 0x3` on every one, and no data-token or CRC error on any.
+- **The fix**: `sdWriteStatusOk()` in `lib/SD/src/sd_diskio.cpp` asks for the status again (up to four times) and only fails the write if the card repeats itself. `0x03` is not one of that byte's error bits (0x04 error, 0x08 CC error, 0x10 card ECC failed), and its bit 0, "card is locked", cannot be true of a card nothing ever locked. On every occurrence so far the second answer was clean.
+- **Measured** (bench, bike still, WiFi off, 500Hz, 20MHz): before, 16 runs of 4s gave 4 recoveries and one run that lost its last 1.3s; after, 30 runs of 4s and 3 of 100s gave **no recovery at all**, with 10 stray statuses absorbed (7 of them in one run, 6 inside its first 2 seconds — what used to be a long outage). Every line of every file checked against the row format and the 2ms spacing.
+- **Why the first clusters of a file, and why `0x03`**: not established. It reads like the tail of the card's busy signal being taken for a status byte (the line low, then released), which would fit the driver deselecting the card straight after the stop token; it was not put on a scope.
+- **Still genuine, and still there**: command-phase bit errors on the link (`sdCommand(): crc error`), which the driver retries by itself — two in 100s on the bench. Those are what "rate ∝ time the bus is busy" was measuring on 2026-10-07, along with the stray status.
+- **Upstream also never retries a data block the card rejects**: it compares the data response token with `0x0A` and `0x0C`, and a card answers `0x0B` (CRC error) or `0x0D` (write error). Left as it is — no such token has been seen — but it is where to look if `data token` lines ever appear in the log.
+- `lib/SD` is the framework's SD library 2.0.0 with those changes marked `PROJECT CHANGE (Dialed)`; PlatformIO picks it over the framework's own. It has to be re-derived if the platform is ever moved to a newer core.
+
+**Buffers, rebalanced the same day.** The writer used to keep taking rows off the queue while the card was away, into a `pending` buffer that was already full — which is how RUN0049 and RUN0050 lost rows with the queue empty. It now leaves them in the queue once `pending` is full. With that, `pending` no longer has to cover an outage alone, so it went from 384 rows to 192 and the queue from 256 to 448: the same 40KB, 1.28s of cover for a recovery (it was 0.77s), and 0.9s for a writer that is merely slow (it was 0.51s — with the driver fixed, a bench run still dropped 24 rows when the card took 290ms and then 357ms over two writes in a row, with nothing wrong). The card does that at the start of a file and about every megabyte.
+- **`pending` is now also flushed when it is about to fill**, not only by the clock. Rows that queue up behind a slow write are written in one burst, far more than a flush window, and with the queue deeper than `pending` that burst overflowed it: three 100s bench runs came back `incomplete` with every one of their 50000 rows in the file. A flush confirms the rows and empties `pending`, so outside a recovery it can no longer overflow.
+- **The firmware as it now is, on the bench**: 11 runs of 4s and 3 of 100s, no recovery, nothing dropped, nothing lost, every line valid. Not ridden.
+
+**Too many runs on the card resets the device (found by accident, 2026-10-11).** The bench test left 104 runs on the card. Starting a run then took long enough for the 8s task watchdog to reset the device (`nextRunNumber()` opens every file in the root directory, and is called twice per start from the dashboard), and asking for the runs list reset it every time (`RunService::list()` reads every run's `.JSON` inside one request; one reset was a watchdog, one a panic, most likely out of memory). Deleting the test runs one by one — `DELETE /api/runs` does not list — brought it back; the rider's eight runs were untouched. Where the limit is was not measured: somewhere under 100 runs. Not fixed.
+
+**New in the run's `.JSON`**: `rows_lost` (rows the writer took and never got onto the card; `rows_written` now subtracts them), `sd_recover_max_ms`, and how many recovery attempts failed at each step (`sd_reopen_failed`, `sd_stat_failed`, `sd_replay_failed`).
+
+**How to read a run**: check **`rows_dropped`** in the `.JSON` first — it is the only number that means samples were lost at the queue (`incomplete` does not cover it). `incomplete` means rows were lost on the card side — believe it even when the charts look whole, a hole of half a second does not show in a 97s run. `sd_recovered` > 0 just means the card hiccuped and the firmware caught it.
 
 **What was wrong, in order of how much it mattered:**
 
@@ -234,7 +273,7 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 - A loop-stall reporter in `loop()`: any iteration over 50ms prints which call blocked. The two per run that remain are `system+button+led` at 230-340ms — suspect the Wi-Fi teardown when `wifiOffWhileRecording` fires.
 - Orphaned-run recovery at boot: a `.CSV` with no `.JSON` gets one reconstructed, marked `"recovered": true` and badged in the runs list.
 
-## Run dates and names (added 2026-10-06/07 — not field-validated yet)
+## Run dates and names (added 2026-10-06/07 — field-validated 2026-10-10)
 
 **The device has no RTC**, so after every power-up it does not know the date until something tells it. `src/system/clock.cpp` takes the time from whichever source shows up first and then lets the system clock run:
 
@@ -248,7 +287,7 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 - Nothing is timed with it — durations and `timestamp_ms` stay on `millis()`.
 - Each run's `.JSON` gets **`start_utc`** (epoch seconds, UTC), computed at `stop()` as *now − duration*, so a run that only learned the time mid-ride is still dated. It is absent when the clock was never set, and on every run recorded before this (RUN0042-RUN0046). The browser shows it in local time, always as `dd/mm/yyyy hh:mm:ss` — `formatRunDate()` in `common.js`, used by the runs list and the run page. That format is the rider's choice (2026-10-07), written out field by field on purpose: don't go back to `toLocaleString()`, which changes shape with the browser's language.
 - `/api/status` reports `clock: { set, source, epoch }`; Settings → System → Device shows it.
-- Checked on the device: NTP set the clock within seconds of boot and matched the PC; the browser's offer was then refused, as designed. **`start_utc` lands in a run** (RUN0047, 2026-10-07, clock from NTP): 11:42:56 local, which is where the device's uptime and the download time put it, and the date shows in the runs list and on the run page. **The GPS path works** (2026-10-07, bike on a balcony with a fix and 12 satellites): the source went from `ntp` to `gps` and the device's time matched the PC's to the second. **Still not exercised**: an *accepted* browser time (AP mode, no sky).
+- Checked on the device: NTP set the clock within seconds of boot and matched the PC; the browser's offer was then refused, as designed. **`start_utc` lands in a run** (RUN0047, 2026-10-07, clock from NTP): 11:42:56 local, which is where the device's uptime and the download time put it, and the date shows in the runs list and on the run page. **The GPS path works** (2026-10-07, bike on a balcony with a fix and 12 satellites): the source went from `ntp` to `gps` and the device's time matched the PC's to the second. **An accepted browser time** (AP mode, no sky) was the last path left, and it worked at the trail on 2026-10-10: the rider's phone set the clock, and GPS took over once it had a fix. RUN0047–50 are dated.
 - `gpsUpdate()` runs in the sampling loop, but the clock sync is only looked at when a new NMEA sentence has just arrived (a few times a second), and costs one `settimeofday()` per sync. RUN0047's lower rate (~375Hz against ~385) was first suspected of being this; it was not — see *The sampling loop*.
 
 **Run names**: a run can be given an optional `title` (click the title on `run.html`). It is stored in the run's `.JSON` through the same endpoint as the notes — `POST /api/runs/notes`, which now touches only the fields it is sent, so renaming does not blank the notes (verified on RUN0045). Files on the card are never renamed and every URL still uses the RUN number.
@@ -486,6 +525,8 @@ src/run/run_service.cpp  — recording (incl. timed runs), SD writer task (detec
                            run .JSON (stats, start_utc, title, notes), compact .CSVB,
                            orphaned-run recovery
 src/storage/storage.cpp  — SD init (SD_SPI_HZ), open/flush/close wrappers
+lib/SD/                  — the framework's SD library 2.0.0 with the write-status fix (sdWriteStatusOk()
+                           in src/sd_diskio.cpp) and log lines on its silent failure paths
 src/system/settings.h    — SystemConfig (live settings, mirrors the active profile)
 src/bikes/bikes.cpp      — bike profiles (/bikes/*.json on the SD): save/activate/rename/delete, and
                            syncActive(), which keeps the active one equal to the live settings
