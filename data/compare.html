@@ -793,7 +793,7 @@ async function init()
 
     try {
         // Both pickers offer every run, read off the device once.
-        const runs = await fetchAllRuns(false);
+        const runs = await fetchAllRuns();
         populateSelect(selectA, runs, presetA, true);
         populateSelect(selectB, runs, presetB, true);
         selectA.addEventListener('change', runComparison);

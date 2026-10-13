@@ -31,6 +31,16 @@ struct RunSetup {
     bool hasHSR = true;
 };
 
+// A run and a stamp that changes whenever its .JSON does: the file's size,
+// modification date and modification time as the card's directory has them
+// ("1143.23882.36582"). Empty for a run that has no .JSON yet. The dashboard
+// keeps what it has read of a run for as long as the stamp stays the same
+// (fetchAllRuns() in common.js).
+struct RunStamp {
+    String name;
+    String stamp;
+};
+
 struct RunInfo {
     String name;
     String bikeName;

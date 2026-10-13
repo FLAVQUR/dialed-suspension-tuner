@@ -565,7 +565,6 @@ static void addRunSetup(JsonObject run, const char* key, const RunSetup& setup) 
 //     runs with their setups is 16KB of JSON, and building that next to the
 //     document it is made from left the WiFi stack too little memory to send
 //     it: replies took 10-40s and the watchdog fired anyway.
-// The pages go through fetchRunsPage() / fetchAllRuns() in common.js.
 constexpr size_t RUNS_PAGE_DEFAULT = 25;
 constexpr size_t RUNS_PAGE_MAX = 50;
 
@@ -609,34 +608,99 @@ static String runJson(const RunInfo& run, bool withSetup) {
     return json;
 }
 
+// Sends the runs named in names[from, to) as the elements of a JSON array
+// that the caller has opened and will close.
+static void sendRuns(const std::vector<String>& names, size_t from, size_t to, bool withSetup) {
+    for (size_t i = from; i < to && i < names.size(); i++) {
+        String json = runJson(RunService::info(names[i]), withSetup);
+
+        server.sendContent(i == from ? json : "," + json);
+
+        // Opening a file takes longer the further down the card's directory
+        // it is, so a run takes longer to read the more runs there are:
+        // bounded per run, then, not per request.
+        esp_task_wdt_reset();
+    }
+}
+
+// GET /api/runs, three ways:
+//   ?index=1            every run's name and stamp, nothing read off any file:
+//                       { fw, total, runs: [[name, stamp], ...] }, newest first
+//   ?names=RUN1,RUN2    those runs (RUNS_PAGE_MAX at most): { runs: [...] }
+//   ?offset=&limit=     a page of the list: { total, offset, runs: [...] }
+// The dashboard asks for the index, then by name for the runs whose stamp it
+// has not seen (common.js). The page form is what the list was before that,
+// and stays for anything that just wants to look.
 void handleApiRuns() {
+    bool withSetup = server.hasArg("setup");
+
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+
+    if (server.hasArg("index")) {
+        std::vector<RunStamp> runs = RunService::stamps();
+
+        server.send(200, "application/json", "");
+
+        // `fw` because what a run's entry holds can change with the
+        // firmware: the dashboard drops what it kept when this does.
+        String piece = "{\"fw\":\"" + String(FIRMWARE_VERSION) + "\",\"total\":" + String(runs.size()) + ",\"runs\":[";
+
+        for (size_t i = 0; i < runs.size(); i++) {
+            piece += String(i == 0 ? "" : ",") + "[\"" + runs[i].name + "\",\"" + runs[i].stamp + "\"]";
+
+            // In pieces: even this grows with the card, and a reply held
+            // whole is what the WiFi stack could not send (see above).
+            if (piece.length() > 1024) {
+                server.sendContent(piece);
+                piece = "";
+            }
+        }
+
+        server.sendContent(piece + "]}");
+        server.sendContent("");
+        return;
+    }
+
+    if (server.hasArg("names")) {
+        // Split on commas, keeping only what can be a run's name: these go
+        // into file paths.
+        std::vector<String> names;
+        String list = server.arg("names");
+
+        for (int start = 0; start <= (int)list.length() && names.size() < RUNS_PAGE_MAX; ) {
+            int comma = list.indexOf(',', start);
+            if (comma < 0) comma = list.length();
+
+            String name = list.substring(start, comma);
+            bool plain = name.length() > 0 && name.length() <= 16;
+
+            for (size_t c = 0; plain && c < name.length(); c++)
+                plain = isalnum((unsigned char)name[c]);
+
+            if (plain) names.push_back(name);
+
+            start = comma + 1;
+        }
+
+        server.send(200, "application/json", "");
+        server.sendContent("{\"runs\":[");
+        sendRuns(names, 0, names.size(), withSetup);
+        server.sendContent("]}");
+        server.sendContent("");
+        return;
+    }
+
     size_t offset = server.hasArg("offset") ? (size_t)max(0L, server.arg("offset").toInt()) : 0;
     size_t limit = server.hasArg("limit") ? (size_t)max(0L, server.arg("limit").toInt()) : RUNS_PAGE_DEFAULT;
 
     if (limit > RUNS_PAGE_MAX)
         limit = RUNS_PAGE_MAX;
 
-    bool withSetup = server.hasArg("setup");
-
     std::vector<String> names = RunService::names();
 
-    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
     server.send(200, "application/json", "");
     server.sendContent("{\"total\":" + String(names.size()) + ",\"offset\":" + String(offset) + ",\"runs\":[");
-
-    size_t sent = 0;
-
-    for (size_t i = offset; i < names.size() && sent < limit; i++, sent++) {
-        String json = runJson(RunService::info(names[i]), withSetup);
-
-        server.sendContent(sent == 0 ? json : "," + json);
-
-        // Opening a file takes longer the further down the card's directory
-        // it is, so a page takes longer the more runs there are: bounded per
-        // run, then, not per page.
-        esp_task_wdt_reset();
-    }
-
+    sendRuns(names, offset, offset + limit, withSetup);
     server.sendContent("]}");
     server.sendContent("");
 }

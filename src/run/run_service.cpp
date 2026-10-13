@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cerrno>
 #include <sys/stat.h>
+#include <ff.h>
 #include <SD.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
@@ -1714,6 +1715,62 @@ std::vector<String> RunService::names() {
 
     std::sort(runs.begin(), runs.end(), [](const String& a, const String& b) {
         return a > b;
+    });
+
+    return runs;
+}
+
+std::vector<RunStamp> RunService::stamps() {
+    std::vector<RunStamp> runs;
+
+    // Through FatFS itself rather than the Arduino File API or readdir():
+    // those give a directory entry's name and nothing else, and the entry
+    // also holds the file's size and when it was last written — which is the
+    // whole stamp, at no cost beyond the pass names() already makes (25ms for
+    // the 26 files of 8 runs, 2026-10-13). "0:" is the SD card: the only
+    // FatFS volume there is, the dashboard's own files being on LittleFS.
+    // FatFS takes its own lock per volume, so this is safe next to the
+    // writer task.
+    FF_DIR dir;
+    FILINFO entry;
+
+    if (f_opendir(&dir, "0:/") != FR_OK) {
+        // The names, then, with no stamps: the dashboard reads those runs
+        // every time instead of keeping them, which is slower and not wrong.
+        for (const String& name : names())
+            runs.push_back({ name, "" });
+
+        return runs;
+    }
+
+    std::vector<RunStamp> jsons;
+
+    while (f_readdir(&dir, &entry) == FR_OK && entry.fname[0]) {
+        String name = entry.fname;
+
+        if (name.endsWith(".CSV")) {
+            runs.push_back({ name.substring(0, name.length() - 4), "" });
+        } else if (name.endsWith(".JSON")) {
+            jsons.push_back({
+                name.substring(0, name.length() - 5),
+                String((unsigned long)entry.fsize) + "." + String(entry.fdate) + "." + String(entry.ftime)
+            });
+        }
+    }
+
+    f_closedir(&dir);
+
+    for (RunStamp& run : runs) {
+        for (const RunStamp& json : jsons) {
+            if (json.name == run.name) {
+                run.stamp = json.stamp;
+                break;
+            }
+        }
+    }
+
+    std::sort(runs.begin(), runs.end(), [](const RunStamp& a, const RunStamp& b) {
+        return a.name > b.name;
     });
 
     return runs;

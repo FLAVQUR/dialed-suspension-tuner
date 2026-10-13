@@ -49,44 +49,132 @@ function formatRunDate(epochSeconds)
 }
 
 // ── The runs list ──────────────────────────────────────────────────────────
-// The device hands the list out a page at a time (see handleApiRuns() in
-// server.cpp): each run in it is a file read off the SD card, and a list of
-// all of them in one reply was more than the device could survive once the
-// card held a hundred runs.
+// What the dashboard knows about a run — its entry in the list — costs the
+// device a file read off the SD card, and the further down the card's
+// directory the file is, the longer that takes: reading all of 120 runs took
+// 9.4s. Several pages need them all (the setup history, Trends, the Compare
+// pickers), and used to read them all on every visit.
+//
+// So what has been read is kept, in localStorage, and only what is new or
+// has changed is asked for. The device says which that is without opening a
+// file: GET /api/runs?index=1 gives every run's name and a stamp taken from
+// the card's directory — the size and modification time of the run's .JSON —
+// in about 0.1s whatever the card holds. An entry is good for as long as its
+// stamp is the one it was read with. That covers a run edited or deleted
+// from another browser, and one replaced on the card by another of the same
+// name, on a computer or on the device.
+//
+// Without localStorage (private window, storage full) nothing is kept and
+// every run is read every time: slower, and otherwise the same.
 
 const RUNS_PAGE_SIZE = 25;
+const RUNS_CACHE_KEY = 'dialed-runs';
 
-// One page — { total, offset, runs } — newest run first. `withSetup` adds
-// each run's suspension setup, which only the setup history needs.
-function fetchRunsPage(offset, withSetup, limit = RUNS_PAGE_SIZE)
+// name → { stamp, run }, as last saved — and the firmware it was read from,
+// because what an entry holds can change from one firmware to the next.
+function readRunsCache(fw)
 {
-    return fetch(`/api/runs?offset=${offset}&limit=${limit}${withSetup ? '&setup=1' : ''}`)
-        .then(r => {
-            if (!r.ok) throw new Error('runs list failed');
-            return r.json();
-        });
+    try {
+        const kept = JSON.parse(localStorage.getItem(RUNS_CACHE_KEY));
+        if (kept && kept.fw === fw && kept.runs) return kept.runs;
+    } catch (e) {}
+
+    return {};
 }
 
-// Every run on the card, newest first, a page after another. For the pages
-// that have to see them all (the setup history, the Compare pickers); the
-// Runs list itself only asks for what it shows. `onProgress(loaded, total)`
-// is called after each page.
-async function fetchAllRuns(withSetup, onProgress)
+function writeRunsCache(fw, runs)
 {
-    const runs = [];
-    let total = Infinity;
+    try { localStorage.setItem(RUNS_CACHE_KEY, JSON.stringify({ fw, runs })); } catch (e) {}
+}
 
-    while (runs.length < total) {
-        const page = await fetchRunsPage(runs.length, withSetup);
+// The index — { fw, total, runs: [[name, stamp], ...] }, newest first — asked
+// for once per page view. forgetRunsIndex() after anything that changes the
+// list (a run deleted), so the next call asks again.
+let runsIndexPromise = null;
 
-        total = page.total;
-        if (page.runs.length === 0) break;
+function fetchRunsIndex()
+{
+    if (!runsIndexPromise) {
+        runsIndexPromise = fetch('/api/runs?index=1').then(r => {
+            if (!r.ok) throw new Error('runs index failed');
+            return r.json();
+        });
 
-        page.runs.forEach(r => runs.push(r));
-        if (onProgress) onProgress(runs.length, total);
+        // A failed request is not an answer to keep.
+        runsIndexPromise.catch(() => { runsIndexPromise = null; });
     }
 
-    return runs;
+    return runsIndexPromise;
+}
+
+function forgetRunsIndex()
+{
+    runsIndexPromise = null;
+}
+
+// The entries of index.runs[from, to), in that order: from what is kept
+// where the stamp still matches, from the device for the rest (asked for by
+// name, a page's worth at a time). Always with each run's setup — one kept
+// entry serves the pages that want it and the ones that don't.
+// `onProgress(read, toRead)` is called as the device's answers come in.
+async function runsFromIndex(index, from, to, onProgress)
+{
+    const wanted = index.runs.slice(from, to);
+    const kept = readRunsCache(index.fw);
+
+    const missing = wanted.filter(([name, stamp]) => !stamp || !kept[name] || kept[name].stamp !== stamp);
+
+    for (let i = 0; i < missing.length; i += RUNS_PAGE_SIZE) {
+        const batch = missing.slice(i, i + RUNS_PAGE_SIZE);
+        const r = await fetch(`/api/runs?setup=1&names=${batch.map(([name]) => name).join(',')}`);
+
+        if (!r.ok) throw new Error('runs list failed');
+
+        (await r.json()).runs.forEach(run => {
+            const entry = batch.find(([name]) => name === run.name);
+            if (entry) kept[run.name] = { stamp: entry[1], run };
+        });
+
+        if (onProgress) onProgress(Math.min(i + RUNS_PAGE_SIZE, missing.length), missing.length);
+    }
+
+    if (missing.length > 0) {
+        // What is kept is what the card holds: a run that is no longer in
+        // the index goes, and so does one with no stamp to check it by (a
+        // run still being recorded has no .JSON yet).
+        const current = {};
+
+        index.runs.forEach(([name, stamp]) => {
+            if (stamp && kept[name]) current[name] = kept[name];
+        });
+
+        writeRunsCache(index.fw, current);
+    }
+
+    return wanted.map(([name]) => kept[name] ? kept[name].run : null).filter(Boolean);
+}
+
+// One page of the list — { total, offset, runs } — newest run first.
+async function fetchRunsPage(offset, limit = RUNS_PAGE_SIZE)
+{
+    const index = await fetchRunsIndex();
+
+    return { total: index.total, offset, runs: await runsFromIndex(index, offset, offset + limit) };
+}
+
+// Every run on the card, newest first. For the pages that have to see them
+// all; the Runs list itself only asks for what it shows.
+async function fetchAllRuns(onProgress)
+{
+    const index = await fetchRunsIndex();
+
+    return runsFromIndex(index, 0, index.runs.length, onProgress);
+}
+
+// How many runs the card holds, without reading any of them.
+async function fetchRunsCount()
+{
+    return (await fetchRunsIndex()).total;
 }
 
 // The back arrow of a page that was opened from the Runs list (a run,

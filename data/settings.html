@@ -589,7 +589,10 @@ async function deleteAllRuns() {
 
     let count;
     try {
-        count = (await fetchRunsPage(0, false, 1)).total;
+        // Counted afresh each time: the button can be pressed again after
+        // the runs it counted are gone.
+        forgetRunsIndex();
+        count = await fetchRunsCount();
     } catch (e) {
         status.innerText = 'Could not reach the device';
         status.style.color = 'var(--bad)';

@@ -9,7 +9,7 @@ How it is used:
 
 ## Now — without the bike
 
-- [ ] **Reading every run still grows with the card.** A page of the runs list is bounded now, but the pages that need all the runs — the setup history on the run page, Trends, the Compare pickers — read them all: 0.4s with 8 runs, 9.4s with 120, and the run page's Tuning tab waits for it. The plan that fits: keep each run's entry in the browser (`localStorage`) and have the device say cheaply what changed — the names, plus a number it bumps whenever a run is edited or deleted — so only new runs are read. Worth doing before the card gets to 40–50 runs.
+- [ ] **See the kept runs list work in a real browser** (built 2026-10-13, checked against a simulated device and by timing the device's replies). What to look for: the run page and Trends open without the pause they had; a note or a title edited on one device shows on another after a reload; a run deleted and recorded again under the same number shows the new one.
 - [ ] **Show what a run is missing.** The run's `.JSON` now says it (`rows_lost`, `rows_dropped`); the run page and the list still only say "incomplete" or "rows dropped". Half a second missing from 97 is not the same as a run cut short.
 - [ ] *(Small)* **The line each recovery leaves short of its last two columns.** Its data is intact; either finish the line on replay or have the parsers accept it. Matters less now that recoveries should be rare.
 - [ ] *(Idea)* **Correct a run's recorded setup from its page.** The endpoint takes clicks, tokens and pressure (`POST /api/runs/setup`), but only the lockout has a control. Worth one if a run is again recorded with Settings that were not what was on the bike.
@@ -41,6 +41,7 @@ How it is used:
 
 ## Done
 
+- 2026-10-13 — **The browser keeps what it has read of each run.** The device gives every run's name and a stamp from the card's directory in 0.1s; only runs that are new or whose stamp changed are read. With 38 runs: 0.1s when nothing changed, where every visit used to cost 2.2s. See "Too many runs on the card" in `summary.md`.
 - 2026-10-13 — **The paged Runs list, clicked through by the rider, and "Delete N".** Previous / page numbers / Next, sorting across pages, the back arrow of a run returning to the page and order the list was left in, ticking any number of runs across pages and deleting them in one go (30 test runs, twice). Not seen on a real card: the pager with more than seven pages, where it leaves numbers out.
 - 2026-10-11 — **Too many runs on the card no longer resets the device.** Starting a run does not open every file to find its number (0.1s whatever the card holds), and the runs list is read and sent a page at a time — 25 runs, a pager on the Runs page. Held with 120 runs on the card. See "Too many runs on the card" in `summary.md`.
 - 2026-10-11 — **The changes of 6–7 October are all validated** (the last two confirmed by the rider). Bike profiles work from the page itself: setup edits, switching bikes, renaming, Save As…. And in AP mode with no sky the clock is set from the browser — a phone, at the trail on 2026-10-10 — and taken over by GPS once it has a fix.

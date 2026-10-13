@@ -488,7 +488,7 @@ async function ensureLoaded(offset)
 
     if (have) return;
 
-    const reply = await fetchRunsPage(offset, false);
+    const reply = await fetchRunsPage(offset);
 
     runsTotal = reply.total;
     reply.runs.forEach((run, i) => { loaded[reply.offset + i] = run; });
@@ -576,6 +576,7 @@ async function deleteRun(name)
         selected = selected.filter(n => n !== name);
         loaded = [];
         runsTotal = 0;
+        forgetRunsIndex();
         showPage();
     });
 }
@@ -620,6 +621,7 @@ async function deleteSelected()
     selected = failed;
     loaded = [];
     runsTotal = 0;
+    forgetRunsIndex();
     await showPage();
 
     if (failed.length > 0) {

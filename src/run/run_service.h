@@ -64,6 +64,11 @@ namespace RunService
     // from the directory without opening a file.
     std::vector<String> names();
 
+    // The same runs, each with the stamp of its .JSON (see RunStamp). Also
+    // one pass over the directory and no file opened: the directory holds
+    // each file's size and when it was last written.
+    std::vector<RunStamp> stamps();
+
     // What one of those runs' .JSON says about it. A file read off the card
     // each time: callers ask for a page of runs, never the whole card (see
     // handleApiRuns() in server.cpp).
