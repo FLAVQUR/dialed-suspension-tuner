@@ -9,7 +9,6 @@ How it is used:
 
 ## Now — without the bike
 
-- [ ] **Click through the paged Runs list** (2026-10-11): Newer / Older, a sort on a list of more than one page, Back from a run. Loading each page was checked with 120 runs on the card; the clicks were not. Needs more than 25 runs on the card, or a temporary smaller page size.
 - [ ] **Reading every run still grows with the card.** A page of the runs list is bounded now, but the pages that need all the runs — the setup history on the run page, Trends, the Compare pickers — read them all: 0.4s with 8 runs, 9.4s with 120, and the run page's Tuning tab waits for it. The plan that fits: keep each run's entry in the browser (`localStorage`) and have the device say cheaply what changed — the names, plus a number it bumps whenever a run is edited or deleted — so only new runs are read. Worth doing before the card gets to 40–50 runs.
 - [ ] **Show what a run is missing.** The run's `.JSON` now says it (`rows_lost`, `rows_dropped`); the run page and the list still only say "incomplete" or "rows dropped". Half a second missing from 97 is not the same as a run cut short.
 - [ ] *(Small)* **The line each recovery leaves short of its last two columns.** Its data is intact; either finish the line on replay or have the parsers accept it. Matters less now that recoveries should be rare.
@@ -35,12 +34,14 @@ How it is used:
 ## Parked by decision — don't pick up unless asked
 
 - **Sampling at 1000Hz.** 500Hz was taken off this list and done on 2026-10-07; 1000Hz stays here for now. The loop has the headroom for it on paper (it is busy for about a quarter of a 500Hz period), but it doubles what the SD write path has to take, and that path lost rows on its first ride at 500Hz (2026-10-10; fixed on the bench the next day, not ridden since). The option stays selectable in Settings, labelled "1000 Hz (Beta)"; what is parked is the work of testing it and making it dependable.
+- **Recording in binary instead of CSV.** Asked about and turned down for now on 2026-10-13. A row is about 100 bytes of text against 30 in the `.CSVB` the device already makes after a run, so recording straight to binary would put a third of the data on the card. It stays CSV because the recovery from a failed write leans on lines of text, the file is what the SD investigation was read from, and a card pulled out of the device opens in a spreadsheet. The two things that would reopen it: 1000Hz, or run size and download time becoming a nuisance.
 - **IMU at 3MHz.** Already confirmed to break again; it stays at 400kHz.
 - **Checking for internet on the ESP32 itself.**
 - **A warning when firmware and dashboard don't match.** Turned down on 2026-10-08: the two are always uploaded together instead (`pio run -t upload` does both).
 
 ## Done
 
+- 2026-10-13 — **The paged Runs list, clicked through by the rider, and "Delete N".** Previous / page numbers / Next, sorting across pages, the back arrow of a run returning to the page and order the list was left in, ticking any number of runs across pages and deleting them in one go (30 test runs, twice). Not seen on a real card: the pager with more than seven pages, where it leaves numbers out.
 - 2026-10-11 — **Too many runs on the card no longer resets the device.** Starting a run does not open every file to find its number (0.1s whatever the card holds), and the runs list is read and sent a page at a time — 25 runs, a pager on the Runs page. Held with 120 runs on the card. See "Too many runs on the card" in `summary.md`.
 - 2026-10-11 — **The changes of 6–7 October are all validated** (the last two confirmed by the rider). Bike profiles work from the page itself: setup edits, switching bikes, renaming, Save As…. And in AP mode with no sky the clock is set from the browser — a phone, at the trail on 2026-10-10 — and taken over by GPS once it has a fix.
 - 2026-10-11 — **Guided calibration works with real captures** (confirmed by the rider): Zero → Max → Sag, used to recalibrate the front and recapture the static sag before the ride of 2026-10-10.

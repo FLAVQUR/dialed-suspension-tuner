@@ -1490,6 +1490,39 @@ main.run-layout > .seg-tabs {
 
 .runs-table-hint { margin: 6px 10px 8px; }
 
+/* The Runs list's pager: Previous, the page numbers, Next, and how many
+   runs there are. Smaller than the app's ordinary buttons — it sits above
+   the list on every visit and is not what the page is for. */
+.runs-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.runs-pager button {
+    min-height: 36px;
+    padding: 0 14px;
+    font-size: 13px;
+}
+
+.runs-pager button:disabled { opacity: 0.4; cursor: default; }
+
+.pager-pages { display: flex; align-items: center; gap: 4px; }
+.pager-gap { color: var(--text-muted); padding: 0 2px; }
+
+.runs-pager button.pager-page { min-width: 36px; padding: 0 8px; }
+
+.runs-pager button.pager-page.current {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+}
+
+.runs-pager .stat-sub { margin: 0 0 0 8px; }
+
 .runs-table {
     width: 100%;
     border-collapse: collapse;
@@ -1571,7 +1604,8 @@ main.run-layout > .seg-tabs {
     vertical-align: middle;
 }
 
-.run-pick {
+.run-pick,
+.run-pick-all {
     width: 18px;
     height: 18px;
     accent-color: var(--accent);
@@ -1584,6 +1618,14 @@ main.run-layout > .seg-tabs {
     color: var(--accent-text);
     background: var(--accent);
     border-color: var(--accent);
+}
+
+/* A page action that destroys something — Delete, once a run is ticked. The
+   same tint as a row's own delete button, not the solid red of a dialog's. */
+.fab-btn.danger {
+    color: var(--bad);
+    background: rgba(239, 68, 68, 0.12);
+    border-color: transparent;
 }
 
 /* ── Wide screens (laptop / desktop / landscape tablet) ─────────────────────

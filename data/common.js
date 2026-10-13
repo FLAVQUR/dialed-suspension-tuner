@@ -89,6 +89,14 @@ async function fetchAllRuns(withSetup, onProgress)
     return runs;
 }
 
+// The back arrow of a page that was opened from the Runs list (a run,
+// Compare, Trends) is a link to /runs. It goes back to the page and order
+// the list was left in, which runs.html keeps in sessionStorage — the same
+// place the browser's own Back would land.
+document.querySelectorAll('a.back-link[href="/runs"]').forEach(link => {
+    try { link.href = '/runs' + (sessionStorage.getItem('runsView') || ''); } catch (e) {}
+});
+
 // ── Dialogs ────────────────────────────────────────────────────────────────
 // In place of the browser's confirm()/prompt()/alert(): those can't say what
 // the button will actually do ("OK"?), can't mark a destructive choice as

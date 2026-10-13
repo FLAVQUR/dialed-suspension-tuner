@@ -22,10 +22,11 @@
 <main class="runs-main">
     <!-- Above the list, not under it: a page is 25 rows, and under them the
          pager would be a scroll away every time. -->
-    <div id="pager" style="display:none; align-items:center; justify-content:center; gap:14px; margin-bottom:12px;">
-        <button class="ghost" id="pagerPrev" onclick="changePage(-1)">&lsaquo; Newer</button>
-        <span class="stat-sub" id="pagerText" style="margin:0;"></span>
-        <button class="ghost" id="pagerNext" onclick="changePage(1)">Older &rsaquo;</button>
+    <div id="pager" class="runs-pager" style="display:none;">
+        <button class="ghost" id="pagerPrev" onclick="changePage(-1)">&lsaquo; Previous</button>
+        <span id="pagerPages" class="pager-pages"></span>
+        <button class="ghost" id="pagerNext" onclick="changePage(1)">Next &rsaquo;</button>
+        <span class="stat-sub" id="pagerText"></span>
     </div>
     <!-- Placeholder cards until /api/runs answers — the device reads the
          .JSON of every run on the page off the SD card, which takes long
@@ -40,6 +41,10 @@
 </main>
 
 <div class="fab-stack">
+    <button class="fab-btn danger" id="deleteSelectedBtn" style="display:none;" onclick="deleteSelected()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>
+        <span id="deleteSelectedLabel">Delete</span>
+    </button>
     <a href="/compare" class="fab-btn" id="compareLink">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/></svg>
         <span id="compareLabel">Compare</span>
@@ -145,10 +150,10 @@ const wideLayout = window.matchMedia('(min-width: 1024px)');
 // placed, so picking one loads the rest — once.
 let loaded = [];        // loaded[i]: the run at place i of the device's order, once fetched
 let runsTotal = 0;      // how many runs the card holds, as of the last page fetched
-let page = 0;           // the page on screen, counted from 0 — kept in the address (#p3)
+let page = 0;           // the page on screen, counted from 0 — kept in the address, see rememberView()
 let sortKey = 'name';
 let sortDir = -1;       // newest first — the order the device lists them in
-let selected = [];      // names of the runs ticked for comparison, two at most
+let selected = [];      // names of the ticked runs, on whichever page: two to compare, any number to delete
 
 function deviceOrder()
 {
@@ -207,7 +212,7 @@ function renderRunsTable(container, runs)
 
         return `
             <tr data-run="${run.name}"${picked ? ' class="selected"' : ''}>
-                <td><input type="checkbox" class="run-pick" aria-label="Select ${run.name} to compare"${picked ? ' checked' : ''}></td>
+                <td><input type="checkbox" class="run-pick" aria-label="Select ${run.name}"${picked ? ' checked' : ''}></td>
                 <td class="run-name"><a href="/run?name=${encodeURIComponent(run.name)}">${runLabel(run)}</a>${runBadges(run)}</td>
                 <td>${run.start_utc > 0 ? formatRunDate(run.start_utc) : dash}</td>
                 <td>${run.bike_name ? escapeHtml(run.bike_name) + ' ' : ''}<span class="muted">${travel}</span></td>
@@ -227,9 +232,9 @@ function renderRunsTable(container, runs)
     const card = document.createElement('div');
     card.className = 'card glass runs-table-card';
     card.innerHTML = `
-        <p class="stat-sub runs-table-hint">Tick two runs to compare them &middot; click a column to sort &middot; amber peak = that end bottomed out</p>
+        <p class="stat-sub runs-table-hint">Tick two runs to compare them, or any number to delete them &middot; click a column to sort &middot; amber peak = that end bottomed out</p>
         <table class="runs-table">
-            <thead><tr><th></th>${head}<th></th></tr></thead>
+            <thead><tr><th><input type="checkbox" class="run-pick-all" title="Select every run on this page" aria-label="Select every run on this page"${runs.every(r => selected.includes(r.name)) ? ' checked' : ''}></th>${head}<th></th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
 
@@ -262,16 +267,29 @@ function renderRunsTable(container, runs)
             location.href = '/run?name=' + encodeURIComponent(row.dataset.run);
     });
 
+    // Any number of runs can be ticked, and they stay ticked from one page
+    // to the next. What the ticks are for depends on how many there are:
+    // exactly two can be compared, one or more can be deleted (see
+    // updateSelectionActions()).
     card.addEventListener('change', evt => {
+        if (evt.target.classList.contains('run-pick-all')) {
+            // The box in the header ticks or clears the page on screen,
+            // leaving the other pages' ticks as they are.
+            const onPage = runs.map(r => r.name);
+
+            selected = selected.filter(n => !onPage.includes(n));
+            if (evt.target.checked) selected = selected.concat(onPage);
+
+            renderRuns();
+            return;
+        }
+
         if (!evt.target.classList.contains('run-pick')) return;
 
         const name = evt.target.closest('tr').dataset.run;
 
-        // A comparison is between two runs: ticking a third lets go of the
-        // one that was picked first.
         selected = selected.filter(n => n !== name);
         if (evt.target.checked) selected.push(name);
-        if (selected.length > 2) selected.shift();
 
         renderRuns();
     });
@@ -279,9 +297,12 @@ function renderRunsTable(container, runs)
     container.appendChild(card);
 }
 
-// Older run as A (the baseline), newer as B — the Compare page reads its
-// time-gained chart as "B relative to A".
-function updateCompareLink()
+// What the ticked runs can be used for, in the page's action buttons.
+// Compare: with exactly two, older run as A (the baseline) and newer as B —
+// the Compare page reads its time-gained chart as "B relative to A"; with
+// any other number it is the plain link it always was. Delete: there as
+// soon as one run is ticked.
+function updateSelectionActions()
 {
     const link = document.getElementById('compareLink');
     const picked = selected.slice().sort();
@@ -292,6 +313,11 @@ function updateCompareLink()
 
     link.classList.toggle('primary', picked.length === 2);
     document.getElementById('compareLabel').textContent = picked.length === 2 ? 'Compare selected' : 'Compare';
+
+    document.getElementById('deleteSelectedBtn').style.display = picked.length > 0 ? '' : 'none';
+    document.getElementById('deleteSelectedLabel').textContent = `Delete ${picked.length}`;
+    document.getElementById('deleteSelectedBtn').title =
+        picked.length === 1 ? `Delete ${picked[0]}` : `Delete the ${picked.length} selected runs`;
 }
 
 // ── Narrow screens: one card per run ───────────────────────────────────────
@@ -391,12 +417,31 @@ function renderRuns()
     }
 
     renderPager();
-    updateCompareLink();
+    updateSelectionActions();
 }
 
-// "26–50 of 104", with a button either way — only when there is more than
-// one page. The buttons say which way in time they go while the list is in
-// its own order, and just "Previous"/"Next" once it is sorted by something.
+// Which page numbers the pager offers: all of them up to seven pages, and
+// past that the first, the last and the one on screen with its neighbours,
+// with null where numbers were left out.
+function pagerNumbers(pages)
+{
+    const all = Array.from({ length: pages }, (_, i) => i);
+    if (pages <= 7) return all;
+
+    const shown = all.filter(i => i === 0 || i === pages - 1 || Math.abs(i - page) <= 1);
+    const withGaps = [];
+
+    shown.forEach((n, i) => {
+        if (i > 0 && n - shown[i - 1] > 1) withGaps.push(null);
+        withGaps.push(n);
+    });
+
+    return withGaps;
+}
+
+// Previous, the page numbers, Next, and "26–50 of 104" — only when there is
+// more than one page. With a `note` (loading, deleting) the note stands in
+// for the numbers and nothing can be clicked until it is over.
 function renderPager(note)
 {
     const pages = Math.ceil(runsTotal / RUNS_PAGE_SIZE);
@@ -406,11 +451,15 @@ function renderPager(note)
     document.getElementById('pagerText').textContent = note
         || `${from + 1}–${Math.min(runsTotal, from + RUNS_PAGE_SIZE)} of ${runsTotal}`;
 
+    document.getElementById('pagerPages').innerHTML = note ? '' : pagerNumbers(pages).map(n =>
+        n === null ? '<span class="pager-gap">…</span>'
+            : `<button class="ghost pager-page${n === page ? ' current' : ''}" onclick="goToPage(${n})"`
+                + `${n === page ? ' aria-current="page"' : ''} aria-label="Page ${n + 1}">${n + 1}</button>`
+    ).join('');
+
     const prev = document.getElementById('pagerPrev');
     const next = document.getElementById('pagerNext');
 
-    prev.innerHTML = deviceOrder() ? '&lsaquo; Newer' : '&lsaquo; Previous';
-    next.innerHTML = deviceOrder() ? 'Older &rsaquo;' : 'Next &rsaquo;';
     prev.disabled = !!note || page === 0;
     next.disabled = !!note || page >= pages - 1;
     prev.style.visibility = next.style.visibility = pages > 1 ? '' : 'hidden';
@@ -486,18 +535,22 @@ async function showPage()
 
     if (mine !== showCount) return;
 
-    // The page is part of the address, so that coming back from a run lands
-    // on the page of the list it was opened from, not on the first.
-    history.replaceState(null, '', page > 0 ? `#p${page + 1}` : location.pathname);
-
+    rememberView();
     renderRuns();
+}
+
+function goToPage(n)
+{
+    if (n === page) return;
+
+    page = Math.max(0, n);
+    renderPager('Loading…');
+    showPage();
 }
 
 function changePage(step)
 {
-    page = Math.max(0, page + step);
-    renderPager('Loading…');
-    showPage();
+    goToPage(page + step);
 }
 
 async function deleteRun(name)
@@ -527,7 +580,85 @@ async function deleteRun(name)
     });
 }
 
-page = Math.max(0, (parseInt(location.hash.replace('#p', ''), 10) || 1) - 1);
+// Every ticked run, whichever page it was ticked on. One request per run,
+// one after the other: the device serves one at a time anyway, and a run
+// that could not be deleted stays ticked so it is plain which those were.
+async function deleteSelected()
+{
+    const names = selected.slice().sort();
+    if (names.length === 0) return;
+
+    const which = names.length <= 6 ? names.join(', ')
+        : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more, up to ${names[names.length - 1]}`;
+
+    const ok = await BikeUI.confirm({
+        title: names.length === 1 ? `Delete ${names[0]}?` : `Delete ${names.length} runs?`,
+        message: `${which}. The recordings and their notes are removed from the SD card. This can't be undone.`,
+        confirmLabel: 'Delete',
+        danger: true
+    });
+    if (!ok) return;
+
+    const failed = [];
+
+    for (let i = 0; i < names.length; i++) {
+        renderPager(`Deleting ${i + 1} of ${names.length}…`);
+
+        try {
+            const r = await fetch('/api/runs', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: names[i] })
+            });
+
+            if (!r.ok) failed.push(names[i]);
+        } catch (e) {
+            failed.push(names[i]);
+        }
+    }
+
+    selected = failed;
+    loaded = [];
+    runsTotal = 0;
+    await showPage();
+
+    if (failed.length > 0) {
+        BikeUI.alert({
+            title: 'Not everything was deleted',
+            message: `The device did not confirm deleting ${failed.join(', ')}. Still ticked, if they are still in the list — check the connection and try again.`
+        });
+    }
+}
+
+// The page and the order of the list are part of the address — "#p2", or
+// "#p2-duration-asc" when it is sorted by something — so that coming back
+// from a run lands where the list was left. The browser's Back does that by
+// itself; the arrow in the topbar of a run, of Compare and of Trends is a
+// plain link to /runs, so the same string is also left in sessionStorage,
+// where common.js picks it up and adds it to that link.
+function rememberView()
+{
+    const order = deviceOrder() ? '' : `-${sortKey}-${sortDir > 0 ? 'asc' : 'desc'}`;
+    const hash = page > 0 || order ? `#p${page + 1}${order}` : '';
+
+    history.replaceState(null, '', hash || location.pathname);
+
+    try { sessionStorage.setItem('runsView', hash); } catch (e) {}
+}
+
+function restoreView()
+{
+    const parts = location.hash.replace('#p', '').split('-');
+
+    page = Math.max(0, (parseInt(parts[0], 10) || 1) - 1);
+
+    if (RUN_COLUMNS.some(c => c.key === parts[1])) {
+        sortKey = parts[1];
+        sortDir = parts[2] === 'desc' ? -1 : 1;
+    }
+}
+
+restoreView();
 showPage();
 
 </script>
