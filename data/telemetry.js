@@ -225,6 +225,34 @@ async function fetchRun(name)
     return { name, rows, meta, bike };
 }
 
+// Where a run's samples stop and start again, from the samples themselves:
+// [{ at, s }] — `at` in seconds from the first sample, `s` the time nothing
+// was recorded (the step less one ordinary step). A gap is a step more than
+// two and a half times the run's usual one, which leaves out the jitter of
+// the runs recorded before the sampling loop kept time (2026-10-07) and the
+// one line a recovered write leaves short, which the .CSVB skips.
+//
+// This is what the run page shows, rather than its .JSON's counts: it works
+// for every run, and it found holes nothing had flagged — 0.75s in RUN0042,
+// at the start, from when the WiFi went down half a second into a run.
+function findGaps(rows)
+{
+    if (rows.length < 3) return [];
+
+    const steps = [];
+    for (let i = 1; i < rows.length; i++) steps.push(rows[i].t - rows[i - 1].t);
+
+    const sample = steps.slice(0, 5000).sort((a, b) => a - b);
+    const usual = sample[Math.floor(sample.length / 2)];
+    const gaps = [];
+
+    steps.forEach((step, i) => {
+        if (step > usual * 2.5) gaps.push({ at: (rows[i].t - rows[0].t) / 1000, s: (step - usual) / 1000 });
+    });
+
+    return gaps;
+}
+
 // ── Numbers ────────────────────────────────────────────────────────────────
 
 function niceStep(range, ticks)

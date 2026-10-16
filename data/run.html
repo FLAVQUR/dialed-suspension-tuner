@@ -89,6 +89,7 @@
                 <p class="stat-sub" id="setupFront" style="margin:0;"></p>
                 <p class="stat-sub" id="setupRear" style="margin:0;"></p>
                 <p class="stat-sub" id="setupChange" style="margin:0;"></p>
+                <p class="stat-sub" id="missingNote" style="display:none; margin:2px 0 0; color:var(--warn);"></p>
                 <label class="stat-sub" id="rearLockoutRow" style="display:none; align-items:center; gap:6px; margin:2px 0 0; cursor:pointer;">
                     <input id="rearLockout" type="checkbox" style="width:14px; height:14px; min-height:auto; margin:0;" onchange="saveRearLockout()">
                     Rear shock was locked out
@@ -1318,6 +1319,21 @@ function drawLineChart(svg, series, opts)
         yLine(v, Y(v) - Y(yMax) >= Y_LABEL_GAP && Y(yMin) - Y(v) >= Y_LABEL_GAP);
     }
 
+    // Stretches with no samples (findGaps() in telemetry.js), shaded in the
+    // warning colour under the traces: a line drawn straight across one is
+    // not data. Never thinner than 2px — half a second of a whole run is a
+    // pixel or two wide, and it should still be seen.
+    (opts.gaps || []).forEach(g => {
+        const x1 = Math.max(padL, X(g.at));
+        const x2 = Math.min(W - padR, X(g.at + g.s));
+        if (x2 < padL || x1 > W - padR) return;
+
+        svg.appendChild(el('rect', {
+            x: x1.toFixed(1), y: padT, width: Math.max(2, x2 - x1).toFixed(1), height: plotH,
+            fill: cssVar('--warn'), opacity: 0.35
+        }));
+    });
+
     // A reference trace (`secondary`) goes down first, so the series the
     // chart is actually about is drawn over it rather than buried under it.
     series.slice().sort((a, b) => (b.secondary ? 1 : 0) - (a.secondary ? 1 : 0)).forEach(s => {
@@ -1927,6 +1943,34 @@ function setupContextFor(runs, name, bikeName)
     const index = entries.findIndex(e => e.run.name === name);
 
     return index >= 0 ? { entries, index } : null;
+}
+
+// Under the setup, when samples are missing: how much and where, from the
+// gaps in the data itself (findGaps() in telemetry.js) — "0.49 s missing, at
+// 0:00". The list can only say what the run's .JSON counted; this also finds
+// the gaps of runs recorded before anything was counted.
+function renderMissing(gaps)
+{
+    const note = document.getElementById('missingNote');
+
+    if (gaps.length === 0) {
+        note.style.display = 'none';
+        return;
+    }
+
+    // To a tenth of a second: gaps at the start of a run are all at "0:00".
+    const at = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+
+    const total = gaps.reduce((sum, g) => sum + g.s, 0);
+    const where = gaps.slice().sort((a, b) => b.s - a.s).slice(0, 3).sort((a, b) => a.at - b.at)
+        .map(g => gaps.length === 1 ? `at ${at(g.at)}` : `${at(g.at)} (${formatShortSeconds(g.s)})`);
+
+    note.textContent = gaps.length === 1
+        ? `${formatShortSeconds(total)} missing, ${where[0]}`
+        : `${formatShortSeconds(total)} missing in ${gaps.length} gaps: ${where.join(', ')}${gaps.length > 3 ? ', …' : ''}`;
+    note.title = 'Samples that never reached the SD card. The charts draw straight across a gap.';
+    note.style.display = '';
+    document.getElementById('setupInfo').style.display = '';
 }
 
 // The line under the setup: what was changed for this run, or how long the
@@ -3431,6 +3475,10 @@ async function load()
         const rows = parseCompactTelemetry(telemetry, imuBasis);
         if (rows.length === 0) throw new Error('empty run');
 
+        // Shown under the setup, and shaded on every time chart.
+        const runGaps = findGaps(rows);
+        renderMissing(runGaps);
+
         if (!stats) {
             stats = computeStats(rows);
             renderStats(stats, bike, isFullSusp, frontMaxMM, rearMaxMM);
@@ -3480,7 +3528,7 @@ async function load()
             const to = range ? range.to : totalS;
             const axisWidth = document.getElementById('timeAxis').getBoundingClientRect().width;
             const ticks = timeTicks(from, to, axisWidth - TIME_PAD_L - TIME_PAD_R);
-            const shared = { from, to, ticks: ticks.values, height };
+            const shared = { from, to, ticks: ticks.values, height, gaps: runGaps };
 
             drawTimeAxis(from, to, ticks);
 

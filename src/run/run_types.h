@@ -100,6 +100,16 @@ struct RunInfo {
     // run recorded before the count was kept.
     uint32_t rowsDropped = 0;
 
+    // Samples the writer took and never got onto the card (see rowsLost in
+    // run_service.cpp), and the samples that did get there. Only runs
+    // recorded since 2026-10-11 have a rows_lost; hasRowsLost tells those
+    // apart from a run that simply lost nothing. With rowsDropped and the
+    // duration they say how much of a run is missing (runMissingSeconds()
+    // in telemetry.js).
+    bool hasRowsLost = false;
+    uint32_t rowsLost = 0;
+    uint32_t rowsWritten = 0;
+
     // Free-text field a rider can fill in after the ride (run.html) — e.g.
     // "rear bottomed out ~1:30, felt harsh over roots" — so what actually
     // happened is on record instead of relying on memory once it's time to

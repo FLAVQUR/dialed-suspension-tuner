@@ -171,6 +171,35 @@ async function fetchAllRuns(onProgress)
     return runsFromIndex(index, 0, index.runs.length, onProgress);
 }
 
+// How many seconds of a run never reached the card, from what its list
+// entry says: the samples lost on the card side (rows_lost) and the ones
+// turned away before it (rows_dropped), against all the samples taken over
+// the run's duration. 0 for a run that is whole. null when the entry cannot
+// say: a run recorded before rows_lost was counted (2026-10-11) that is
+// flagged incomplete — something is missing, but not how much. Its own page
+// can tell, from the gaps in its samples (findGaps() in telemetry.js).
+function runMissingSeconds(run)
+{
+    const dropped = run.rows_dropped || 0;
+    const lost = typeof run.rows_lost === 'number' ? run.rows_lost : (run.incomplete ? null : 0);
+
+    if (lost === null) return null;
+
+    const missing = lost + dropped;
+    const taken = (run.rows_written || 0) + missing;
+
+    if (missing === 0) return 0;
+    if (!(run.duration_s > 0) || taken === 0) return null;
+
+    return run.duration_s * missing / taken;
+}
+
+// "0.49 s", "1.2 s", "12 s".
+function formatShortSeconds(s)
+{
+    return `${s < 1 ? s.toFixed(2) : s < 10 ? s.toFixed(1) : s.toFixed(0)} s`;
+}
+
 // How many runs the card holds, without reading any of them.
 async function fetchRunsCount()
 {

@@ -113,10 +113,29 @@ function formatSize(kb)
 // than title: the explanation has to be reachable by tapping, too.
 const RUN_FLAGS = [
     { key: 'recovered', cls: 'warn', label: 'Recovered', info: 'Power was lost mid-recording — duration is accurate, but bike/setup info reflects current Settings, not necessarily what was configured during this ride.' },
-    { key: 'incomplete', cls: 'bad', label: 'Incomplete', info: 'The SD card stopped responding partway through this recording — the data is real up to some point, but likely ends well before the reported duration.' },
-    { key: 'rows_dropped', cls: 'bad', label: 'Rows dropped', info: 'Some samples never reached the SD card: it could not take them as fast as they were recorded. The run covers its whole duration, but with gaps. If it was recorded at 1000 Hz, record at 500 Hz instead.' },
     { key: 'no_gps', cls: 'warn', label: 'No GPS', info: 'No GPS fix was acquired during this recording — the map, distance, speed and elevation figures will be empty, but suspension travel is unaffected.' }
 ];
+
+// A run with something missing says how much, where it can: "0.49 s
+// missing" rather than "Incomplete" — half a second gone from a 97s ride is
+// not a run cut short (runMissingSeconds() in common.js). A run recorded
+// before the device counted it only knows that something is missing.
+function missingBadge(run)
+{
+    const missing = runMissingSeconds(run);
+
+    if (missing === 0) return null;
+
+    if (missing === null) return {
+        label: 'Incomplete',
+        info: 'Part of this run never reached the SD card. It was recorded before the device counted how much — open the run: its page finds the gaps in the data and says how long and where they are.'
+    };
+
+    return {
+        label: `${formatShortSeconds(missing)} missing`,
+        info: `${formatShortSeconds(missing)} of this ${formatDuration(run.duration_s)} run never reached the SD card, in one or more gaps; the rest of it is whole. Its page says where the gaps are.`
+    };
+}
 
 // A run the rider has named (on its own page) shows that name, with the
 // RUN number kept next to it — it's still what the files are called.
@@ -129,7 +148,12 @@ function runLabel(run)
 
 function runBadges(run)
 {
-    return RUN_FLAGS.filter(flag => run[flag.key]).map(flag =>
+    const missing = missingBadge(run);
+    const flags = RUN_FLAGS.filter(flag => run[flag.key]);
+
+    if (missing) flags.splice(1, 0, { cls: 'bad', label: missing.label, info: missing.info });
+
+    return flags.map(flag =>
         `<span class="badge ${flag.cls}" data-info="${flag.info}" style="margin-left:8px;"><span class="dot"></span>${flag.label}</span>`
     ).join('');
 }

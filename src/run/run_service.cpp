@@ -72,6 +72,8 @@ constexpr uint32_t WRITE_STALL_THRESHOLD_MS = 3000;
 static volatile bool writeFailedThisRun = false;  // rows were genuinely lost
 static bool needsRecovery = false;    // a sync failed; file must be reopened
 static size_t csvBytesAccepted = 0;   // what the file should hold once synced
+static size_t confirmedBytes = 0;     // what it held at the last flush known to have reached the card
+static bool confirmedMidRow = false;  // ... and whether that flush ended in the middle of a row (see tryRecover())
 static uint32_t nextReopenAttemptMs = 0;
 // Was 1000ms on the reasoning that there is nothing useful to do faster than
 // that. There is: rows keep arriving into `pending` the whole time a recovery
@@ -468,8 +470,21 @@ static bool tryRecover() {
         return false;
     }
 
+    // The last good flush always lands mid-row — it is taken right after a
+    // row's first 15 columns, and the row's write_us,flush_us follow it in
+    // the buffer that the failed sync just lost. That line used to be left
+    // short and the replay started on a new one. It is finished now, with
+    // the same "0,0" as every replayed row: its data is whole, and a line
+    // short of two columns is one a spreadsheet or a strict parser stumbles
+    // on (the dashboard's own .CSVB conversion reads it either way). Only
+    // when the card holds exactly what that flush left; otherwise where the
+    // file ends is not known, and the replay starts on a line of its own.
     csvBytesAccepted = reopenedSize;
-    csvBytesAccepted += csvFile.print('\n');
+
+    if (reopenedSize == confirmedBytes)
+        csvBytesAccepted += csvFile.print(confirmedMidRow ? "0,0\n" : "");
+    else
+        csvBytesAccepted += csvFile.print('\n');
 
     for (int i = 0; i < pendingCount; i++) {
         csvBytesAccepted += printRowPrefix(pending[i]);
@@ -492,6 +507,10 @@ static bool tryRecover() {
     pendingCount = 0;
     needsRecovery = false;
     sdRecoveries++;
+
+    // The replay ends with a whole row.
+    confirmedBytes = csvBytesAccepted;
+    confirmedMidRow = false;
     lastFlush = millis();
     return true;
 }
@@ -550,6 +569,8 @@ static void writeLogRow(const LogRow& row) {
         if (onDisk >= csvBytesAccepted) {
             flushConfirmed = true;
             pendingCount = 0;
+            confirmedBytes = csvBytesAccepted;
+            confirmedMidRow = true;
 
             if (retried) {
                 sdFlushRetryOk++;
@@ -1186,6 +1207,9 @@ static bool loadRunMeta(const String& runName, RunInfo& run) {
     run.incomplete = doc["incomplete"] | false;
     run.noGpsFix = doc["no_gps"] | false;
     run.rowsDropped = doc["rows_dropped"] | 0U;
+    run.hasRowsLost = doc["rows_lost"].is<unsigned int>();
+    run.rowsLost = doc["rows_lost"] | 0U;
+    run.rowsWritten = doc["rows_written"] | 0U;
     run.notes = doc["notes"] | "";
     run.title = doc["title"] | "";
 
@@ -1517,6 +1541,8 @@ bool RunService::start() {
 
     csvBytesAccepted = csvFile.println(CSV_HEADER);
     storageFlush(csvFile);
+    confirmedBytes = csvBytesAccepted;
+    confirmedMidRow = false;
 
     writeFailedThisRun = false;
     needsRecovery = false;

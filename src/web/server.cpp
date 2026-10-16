@@ -583,6 +583,8 @@ static String runJson(const RunInfo& run, bool withSetup) {
     obj["incomplete"] = run.incomplete;
     obj["no_gps"] = run.noGpsFix;
     obj["rows_dropped"] = run.rowsDropped;
+    obj["rows_written"] = run.rowsWritten;
+    if (run.hasRowsLost) obj["rows_lost"] = run.rowsLost;
     obj["notes"] = run.notes;
     obj["title"] = run.title;
 
