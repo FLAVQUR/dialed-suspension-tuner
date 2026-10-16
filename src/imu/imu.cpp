@@ -5,6 +5,7 @@
 #include <esp_task_wdt.h>
 #include <math.h>
 #include <SparkFun_BNO08x_Arduino_Library.h>
+#include <ArduinoJson.h>
 #include "imu.h"
 #include "config/pins.h"
 
@@ -71,6 +72,57 @@ static volatile uint32_t resetCount = 0;
 static volatile uint32_t lastEventMs = 0;
 static volatile bool gotFirstEvent = false;
 
+// ─── How sure the sensor is of its orientation, second by second ───────────
+// On rough ground the fused orientation goes wrong for seconds at a time
+// (found 2026-10-16, see summary.md), and the accelerometer hitting its ±8g
+// ceiling is the likeliest reason, not a proven one. These record, for each
+// second of a run, what would tell: the worst accuracy status the rotation
+// vector gave itself that second (0 unreliable … 3 high), the largest
+// accuracy estimate it gave (in degrees), and how many accelerometer
+// reports had an axis at the ceiling. Written by imuTask, cleared and read
+// by RunService at the start and end of a run.
+constexpr int DIAG_SECONDS = 900;   // 15 minutes; a run longer than that keeps its first 15
+constexpr float ACCEL_CEILING_MS2 = 78.0f;
+
+static uint8_t diagStatus[DIAG_SECONDS];      // 255: no rotation-vector report that second
+static uint8_t diagAccuracyDeg[DIAG_SECONDS];
+static uint8_t diagClipped[DIAG_SECONDS];
+static volatile bool diagActive = false;
+static volatile uint32_t diagStartMs = 0;
+static volatile int diagSeconds = 0;
+
+static int diagSecond() {
+    int s = (int)((millis() - diagStartMs) / 1000);
+    if (s >= DIAG_SECONDS) return -1;
+    if (s + 1 > diagSeconds) diagSeconds = s + 1;
+    return s;
+}
+
+void imuDiagStart() {
+    memset(diagStatus, 255, sizeof(diagStatus));
+    memset(diagAccuracyDeg, 0, sizeof(diagAccuracyDeg));
+    memset(diagClipped, 0, sizeof(diagClipped));
+    diagSeconds = 0;
+    diagStartMs = millis();
+    diagActive = true;
+}
+
+void imuDiagStop() {
+    diagActive = false;
+}
+
+void imuDiagToJson(JsonObject out) {
+    JsonArray status = out["status"].to<JsonArray>();
+    JsonArray accuracy = out["accuracy_deg"].to<JsonArray>();
+    JsonArray clipped = out["accel_clipped"].to<JsonArray>();
+
+    for (int s = 0; s < diagSeconds && s < DIAG_SECONDS; s++) {
+        status.add(diagStatus[s] == 255 ? -1 : (int)diagStatus[s]);
+        accuracy.add(diagAccuracyDeg[s]);
+        clipped.add(diagClipped[s]);
+    }
+}
+
 ImuHealth imuGetHealth() {
     ImuHealth h;
     h.resets = resetCount;
@@ -133,12 +185,30 @@ static void imuTask(void*) {
                     cachedPitch = imu.getPitch();
                     cachedRoll = imu.getRoll();
                     cachedYaw = imu.getYaw();
+
+                    if (diagActive) {
+                        int s = diagSecond();
+                        if (s >= 0) {
+                            uint8_t status = imu.getQuatAccuracy();
+                            float deg = imu.getQuatRadianAccuracy() * 57.29578f;
+                            uint8_t degByte = deg >= 255.0f ? 255 : (deg <= 0.0f ? 0 : (uint8_t)deg);
+
+                            if (diagStatus[s] == 255 || status < diagStatus[s]) diagStatus[s] = status;
+                            if (degByte > diagAccuracyDeg[s]) diagAccuracyDeg[s] = degByte;
+                        }
+                    }
                     break;
 
                 case SENSOR_REPORTID_ACCELEROMETER:
                     cachedAccelX = imu.getAccelX();
                     cachedAccelY = imu.getAccelY();
                     cachedAccelZ = imu.getAccelZ();
+
+                    if (diagActive &&
+                        (fabsf(cachedAccelX) >= ACCEL_CEILING_MS2 || fabsf(cachedAccelY) >= ACCEL_CEILING_MS2 || fabsf(cachedAccelZ) >= ACCEL_CEILING_MS2)) {
+                        int s = diagSecond();
+                        if (s >= 0 && diagClipped[s] < 255) diagClipped[s]++;
+                    }
                     break;
             }
         }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 
 // Polling happens internally on its own FreeRTOS task started here — see
 // imu.cpp for why (a stuck INT line can stall the BNO08x's SPI HAL for
@@ -18,6 +19,14 @@ struct ImuHealth {
     uint32_t msSinceEvent;   // UINT32_MAX if no report ever arrived
 };
 ImuHealth imuGetHealth();
+
+// How sure the sensor was of its orientation, second by second over a run
+// (see imu.cpp): started and stopped with the run, written into its .JSON
+// as "imu_diag" — { status: [...], accuracy_deg: [...], accel_clipped: [...] },
+// one entry per second.
+void imuDiagStart();
+void imuDiagStop();
+void imuDiagToJson(JsonObject out);
 
 // Orientation in RADIANS, straight from the BNO08x library's
 // getPitch()/getRoll()/getYaw() — not converted to degrees anywhere on the

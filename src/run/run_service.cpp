@@ -1056,6 +1056,10 @@ static void writeRunMeta(float durationSeconds) {
     doc["no_gps"] = !runStats.gpsFixSeen;
     addImuReference(doc);
 
+    // How sure the IMU was of its own orientation, second by second (see
+    // imuDiagStart()) — recorded to find out why it loses it on rough ground.
+    imuDiagToJson(doc["imu_diag"].to<JsonObject>());
+
     // SD link health for this run — nonzero means the card hiccuped even
     // if nothing was lost (retry_ok: a second flush fixed it; recovered:
     // file reopened and buffered rows replayed).
@@ -1579,6 +1583,7 @@ bool RunService::start() {
     lastWriteSuccessMs = runStartMs;
     writeEverStalledThisRun = false;
     runStats = RunStatsAccumulator{};
+    imuDiagStart();
 
     Serial.println("Run started: " + currentRun);
     return true;
@@ -1600,6 +1605,7 @@ void RunService::stop() {
     xQueueSend(logQueue, &marker, portMAX_DELAY);
     xSemaphoreTake(drainSem, pdMS_TO_TICKS(3000));
     stopping = false;
+    imuDiagStop();
 
     storageClose(csvFile);
 

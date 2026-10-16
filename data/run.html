@@ -90,6 +90,7 @@
                 <p class="stat-sub" id="setupRear" style="margin:0;"></p>
                 <p class="stat-sub" id="setupChange" style="margin:0;"></p>
                 <p class="stat-sub" id="missingNote" style="display:none; margin:2px 0 0; color:var(--warn);"></p>
+                <p class="stat-sub" id="orientationNote" style="display:none; margin:2px 0 0; color:var(--warn);"></p>
                 <label class="stat-sub" id="rearLockoutRow" style="display:none; align-items:center; gap:6px; margin:2px 0 0; cursor:pointer;">
                     <input id="rearLockout" type="checkbox" style="width:14px; height:14px; min-height:auto; margin:0;" onchange="saveRearLockout()">
                     Rear shock was locked out
@@ -677,17 +678,20 @@ function minMaxPoints(rows, t0, values, buckets)
         const picked = new Set();
 
         values.forEach(value => {
-            let lo = from, hi = from;
-            let loV = value(rows[from]), hiV = loV;
+            // A value can be null (lean, pitch and vertical G where the
+            // sensor's orientation was lost): skipped for the extremes, and
+            // one null row kept so the line breaks there.
+            let lo = -1, hi = -1, loV = 0, hiV = 0, firstNull = -1;
 
-            for (let i = from + 1; i < to; i++) {
+            for (let i = from; i < to; i++) {
                 const v = value(rows[i]);
-                if (v < loV) { loV = v; lo = i; }
-                if (v > hiV) { hiV = v; hi = i; }
+                if (v === null) { if (firstNull < 0) firstNull = i; continue; }
+                if (lo < 0 || v < loV) { loV = v; lo = i; }
+                if (hi < 0 || v > hiV) { hiV = v; hi = i; }
             }
 
-            picked.add(lo);
-            picked.add(hi);
+            if (lo >= 0) { picked.add(lo); picked.add(hi); }
+            if (firstNull >= 0) picked.add(firstNull);
         });
 
         Array.from(picked).sort((a, b) => a - b).forEach(i => kept.push(rows[i]));
@@ -731,7 +735,7 @@ function computeStats(rows)
 {
     let maxFront = 0, maxRear = 0, maxSpeed = 0;
     let sumSpeed = 0, sumFront = 0, sumRear = 0, sumGForce = 0, distance = 0;
-    let maxLean = 0, maxPitch = 0, maxGForce = 0;
+    let maxLean = 0, maxPitch = 0, maxGForce = 0, maxGClipped = false;
     let minAlt = Infinity, maxAlt = -Infinity;
     let prev = null;
 
@@ -746,11 +750,12 @@ function computeStats(rows)
         if (r.alt < minAlt) minAlt = r.alt;
         if (r.alt > maxAlt) maxAlt = r.alt;
 
-        if (Math.abs(r.roll) > maxLean) maxLean = Math.abs(r.roll);
-        if (Math.abs(r.pitch) > maxPitch) maxPitch = Math.abs(r.pitch);
+        // null where the sensor's orientation was lost (findOrientationLoss()).
+        if (r.roll !== null && Math.abs(r.roll) > maxLean) maxLean = Math.abs(r.roll);
+        if (r.pitch !== null && Math.abs(r.pitch) > maxPitch) maxPitch = Math.abs(r.pitch);
 
         const gForce = Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2;
-        if (gForce > maxGForce) maxGForce = gForce;
+        if (gForce > maxGForce) { maxGForce = gForce; maxGClipped = accelClipped(r); }
         sumGForce += gForce;
 
         if (r.lat !== 0 && r.lon !== 0) {
@@ -762,7 +767,7 @@ function computeStats(rows)
     const n = rows.length || 1;
 
     return {
-        maxFront, maxRear, maxSpeed, maxLean, maxPitch, maxGForce,
+        maxFront, maxRear, maxSpeed, maxLean, maxPitch, maxGForce, maxGClipped,
         avgFront: sumFront / n,
         avgRear: sumRear / n,
         avgSpeed: sumSpeed / n,
@@ -923,6 +928,17 @@ function peakGNear(rows, gVals, t)
         if (Math.abs(rows[i].t - t) <= PEAK_G_WINDOW_MS && gVals[i] > peak) peak = gVals[i];
     }
     return peak;
+}
+
+// The same peak as text, "≥" in front when the reading it came from hit the
+// accelerometer's ceiling (see accelClipped() in telemetry.js).
+function peakGNearText(rows, gVals, t)
+{
+    let peak = 0, clipped = false;
+    for (let i = 0; i < rows.length; i++) {
+        if (Math.abs(rows[i].t - t) <= PEAK_G_WINDOW_MS && gVals[i] > peak) { peak = gVals[i]; clipped = accelClipped(rows[i]); }
+    }
+    return formatPeakG(peak, clipped);
 }
 
 // Play button: animates the shared linked-view crosshair from start to end
@@ -1248,9 +1264,13 @@ function drawLineChart(svg, series, opts)
     let yMin = includeZero ? 0 : Infinity;
     let yMax = includeZero ? 0 : -Infinity;
     series.forEach(s => s.points.forEach(p => {
+        if (p.y === null) return;
         if (p.y < yMin) yMin = p.y;
         if (p.y > yMax) yMax = p.y;
     }));
+
+    // A chart whose values are all missing still needs an axis.
+    if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
 
     if (typeof opts.yMax === 'number' && opts.yMax > yMax) yMax = opts.yMax;
 
@@ -1334,11 +1354,30 @@ function drawLineChart(svg, series, opts)
         }));
     });
 
+    // Stretches where the sensor's orientation was lost
+    // (findOrientationLoss() in telemetry.js), on the charts drawn from it:
+    // shaded in the neutral colour, and the trace breaks across them.
+    (opts.lost || []).forEach(g => {
+        const x1 = Math.max(padL, X(g.at));
+        const x2 = Math.min(W - padR, X(g.at + g.s));
+        if (x2 < padL || x1 > W - padR) return;
+
+        svg.appendChild(el('rect', {
+            x: x1.toFixed(1), y: padT, width: Math.max(2, x2 - x1).toFixed(1), height: plotH,
+            fill: COLOR_NEUTRAL, opacity: 0.22
+        }));
+    });
+
     // A reference trace (`secondary`) goes down first, so the series the
     // chart is actually about is drawn over it rather than buried under it.
     series.slice().sort((a, b) => (b.secondary ? 1 : 0) - (a.secondary ? 1 : 0)).forEach(s => {
         let d = '';
-        s.points.forEach((p, i) => { d += (i === 0 ? 'M' : 'L') + X(p.x).toFixed(1) + ',' + Y(p.y).toFixed(1) + ' '; });
+        let pen = false;   // false: the next point starts a new line (first one, or after a null)
+        s.points.forEach(p => {
+            if (p.y === null) { pen = false; return; }
+            d += (pen ? 'L' : 'M') + X(p.x).toFixed(1) + ',' + Y(p.y).toFixed(1) + ' ';
+            pen = true;
+        });
 
         svg.appendChild(el('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 1.25, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
     });
@@ -1425,14 +1464,15 @@ function drawLineChart(svg, series, opts)
             crosshair.setAttribute('opacity', 1);
 
             dot.setAttribute('cx', cx);
-            dot.setAttribute('cy', Y(p.y).toFixed(1));
-            dot.setAttribute('opacity', 1);
+            dot.setAttribute('cy', p.y === null ? 0 : Y(p.y).toFixed(1));
+            dot.setAttribute('opacity', p.y === null ? 0 : 1);
 
-            readout.textContent = readFormat(p.y);
+            readout.textContent = p.y === null ? '–' : readFormat(p.y);
 
             subValues.forEach((value, i) => {
                 const points = series[i + 1].points;
-                value.textContent = points.length ? readFormat(points[nearestPoint(p.x, points)].y) : '';
+                const q = points.length ? points[nearestPoint(p.x, points)] : null;
+                value.textContent = q && q.y !== null ? readFormat(q.y) : (q ? '–' : '');
             });
         },
         onClear: clearHover
@@ -1973,6 +2013,29 @@ function renderMissing(gaps)
     document.getElementById('setupInfo').style.display = '';
 }
 
+// Under the setup, when the sensor lost its orientation somewhere in the
+// run (findOrientationLoss() in telemetry.js): for how long, and that lean,
+// pitch and vertical G are not shown there.
+function renderOrientationLoss(spans)
+{
+    const note = document.getElementById('orientationNote');
+
+    if (!spans || spans.length === 0) {
+        note.style.display = 'none';
+        return;
+    }
+
+    const total = spans.reduce((sum, g) => sum + g.s, 0);
+
+    note.textContent = `Orientation lost for ${formatShortSeconds(total)}`
+        + (spans.length > 1 ? ` in ${spans.length} stretches` : '')
+        + ' — lean, pitch and vertical G are not shown there';
+    note.title = 'The IMU\'s own idea of which way is up was wrong there: it disagreed with the accelerometer, averaged over a second, by more than '
+        + `${ORIENT_LOST_DEG}°. Its accelerometer tops out at 8g on hard hits, which is the likeliest reason. The grey bands on the charts are those stretches.`;
+    note.style.display = '';
+    document.getElementById('setupInfo').style.display = '';
+}
+
 // The line under the setup: what was changed for this run, or how long the
 // setup has been the same. Nothing for the first run on record — there is
 // no earlier one to compare it with.
@@ -2121,7 +2184,7 @@ function renderTelemetryMinis(stats, frontMaxMM, rearMaxMM)
     document.getElementById('leanMaxMini').textContent = stats.maxLean == null ? '--' : stats.maxLean.toFixed(0) + '°';
     document.getElementById('pitchMaxMini').textContent = stats.maxPitch == null ? '--' : stats.maxPitch.toFixed(0) + '°';
     document.getElementById('gforceAvgMini').textContent = stats.avgGForce.toFixed(1) + 'G';
-    document.getElementById('gforceMaxMini').textContent = stats.maxGForce.toFixed(1) + 'G';
+    document.getElementById('gforceMaxMini').textContent = formatPeakG(stats.maxGForce, !!stats.maxGClipped);
 }
 
 // ── Analysis tab: histograms, segments, tuning, notable events ─────────────
@@ -3478,6 +3541,7 @@ async function load()
         // Shown under the setup, and shaded on every time chart.
         const runGaps = findGaps(rows);
         renderMissing(runGaps);
+        renderOrientationLoss(rows.orientationLost);
 
         if (!stats) {
             stats = computeStats(rows);
@@ -3486,8 +3550,9 @@ async function load()
             // The .JSON's lean/pitch peaks are too coarse to show as-is
             // (see statsFromMeta) — the decoded rows have 0.01rad
             // resolution, so use those and refresh the two stat tiles.
-            stats.maxLean = arrayMax(rows.map(r => Math.abs(r.roll)));
-            stats.maxPitch = arrayMax(rows.map(r => Math.abs(r.pitch)));
+            stats.maxLean = arrayMax(rows.filter(r => r.roll !== null).map(r => Math.abs(r.roll)));
+            stats.maxPitch = arrayMax(rows.filter(r => r.pitch !== null).map(r => Math.abs(r.pitch)));
+            stats.maxGClipped = computeStats(rows).maxGClipped;
             renderStats(stats, bike, isFullSusp, frontMaxMM, rearMaxMM);
         }
 
@@ -3571,7 +3636,7 @@ async function load()
                 [
                     { name: 'Lean', color: COLOR_LEAN, points: plot(r => r.roll) }
                 ],
-                { ...shared, yFormat: v => v.toFixed(0) + '°', minSpan: 10 }
+                { ...shared, yFormat: v => v.toFixed(0) + '°', minSpan: 10, lost: rows.orientationLost }
             );
 
             drawLineChart(
@@ -3579,7 +3644,7 @@ async function load()
                 [
                     { name: 'Pitch', color: COLOR_PITCH, points: plot(r => r.pitch) }
                 ],
-                { ...shared, yFormat: v => v.toFixed(0) + '°', minSpan: 10 }
+                { ...shared, yFormat: v => v.toFixed(0) + '°', minSpan: 10, lost: rows.orientationLost }
             );
 
             drawLineChart(
@@ -3595,7 +3660,7 @@ async function load()
                     // versus a hard corner.
                     { name: 'Vertical', color: COLOR_NEUTRAL, points: gVertical, secondary: true }
                 ],
-                { ...shared, yFormat: v => v.toFixed(1) + 'G', minSpan: 2 }
+                { ...shared, yFormat: v => v.toFixed(1) + 'G', minSpan: 2, lost: rows.orientationLost }
             );
 
             drawLineChart(
@@ -3746,7 +3811,7 @@ async function load()
         // generateSuggestions() for now: the thresholds above are a first
         // estimate and haven't been checked against a ride the rider
         // remembers as harsh, so they shouldn't be driving tuning advice yet.
-        const harshHigh = Math.max(HARSH_G_FLOOR, percentile(rows.map(r => r.vertG), HARSH_G_PERCENTILE));
+        const harshHigh = Math.max(HARSH_G_FLOOR, percentile(rows.filter(r => r.vertG !== null).map(r => r.vertG), HARSH_G_PERCENTILE));
         const harshLow = harshHigh * 0.7;
 
         const frontHarsh = detectHarshEvents(rows, 'front', frontMaxMM, harshHigh, harshLow);
@@ -3904,7 +3969,7 @@ async function load()
         );
 
         // Lean angle distribution
-        const leanVals = rows.map(r => Math.abs(r.roll));
+        const leanVals = rows.filter(r => r.roll !== null).map(r => Math.abs(r.roll));
         const leanHist = computeHistogram(leanVals, 8);
         document.getElementById('leanAvgMini').textContent = average(leanVals).toFixed(0) + '°';
         document.getElementById('leanMaxMiniHist').textContent = arrayMax(leanVals).toFixed(0) + '°';
@@ -3924,7 +3989,7 @@ async function load()
         // use them too; this just draws the histogram.
         const gHist = computeHistogram(gVals, 8);
         document.getElementById('gforceAvgMiniHist').textContent = average(gVals).toFixed(1) + 'G';
-        document.getElementById('gforceMaxMiniHist').textContent = arrayMax(gVals).toFixed(1) + 'G';
+        document.getElementById('gforceMaxMiniHist').textContent = formatPeakG(arrayMax(gVals), computeStats(rows).maxGClipped);
         drawHistogram(
             document.getElementById('gforceHistChart'), document.getElementById('gforceHistTooltip'),
             gHist.counts,
@@ -3952,13 +4017,13 @@ async function load()
             `. "Harsh" marks a vertical hit of ≥${harshHigh.toFixed(1)}G that moved that end ≤${HARSH_TRAVEL_PP}pp of its travel — the impact went through the bike rather than into the damper.`;
 
         renderEvents([
-            ...frontBOTimes.map(t => ({ t, label: `Front bottom-out (${peakGNear(rows, gVals, t).toFixed(1)}G)`, color: COLOR_FRONT })),
-            ...rearBOTimes.map(t => ({ t, label: `Rear bottom-out (${peakGNear(rows, gVals, t).toFixed(1)}G)`, color: COLOR_REAR })),
+            ...frontBOTimes.map(t => ({ t, label: `Front bottom-out (${peakGNearText(rows, gVals, t)})`, color: COLOR_FRONT })),
+            ...rearBOTimes.map(t => ({ t, label: `Rear bottom-out (${peakGNearText(rows, gVals, t)})`, color: COLOR_REAR })),
             ...frontHarsh.map(ev => ({ t: ev.t, label: `Harsh front (${ev.peak.toFixed(1)}G vertical, only ${ev.usedPp.toFixed(0)}pp travel)`, color: COLOR_FRONT })),
             ...rearHarsh.map(ev => ({ t: ev.t, label: `Harsh rear (${ev.peak.toFixed(1)}G vertical, only ${ev.usedPp.toFixed(0)}pp travel)`, color: COLOR_REAR })),
             ...airEvents.map(ev => {
                 const landingT = ev.startT + ev.durationS * 1000;
-                return { t: ev.startT, label: `Jump (${ev.durationS.toFixed(2)}s air, ${peakGNear(rows, gVals, landingT).toFixed(1)}G landing)`, color: COLOR_SPEED };
+                return { t: ev.startT, label: `Jump (${ev.durationS.toFixed(2)}s air, ${peakGNearText(rows, gVals, landingT)} landing)`, color: COLOR_SPEED };
             }),
             ...balanceEvents
         ], t0, totalS);

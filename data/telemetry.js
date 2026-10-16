@@ -178,6 +178,9 @@ function parseCompactTelemetry(buffer, basis)
         const az = view.getInt16(off + 24, true) / 10;
 
         rows[i] = {
+            // The sensor's own angles, kept for findOrientationLoss() below.
+            rawPitch: pitchRad,
+            rawRoll: rollRad,
             t: view.getUint32(off, true),
             lat: view.getInt32(off + 4, true) / 1e6,
             lon: view.getInt32(off + 8, true) / 1e6,
@@ -199,7 +202,109 @@ function parseCompactTelemetry(buffer, basis)
         off += ROW_BYTES;
     }
 
+    rows.orientationLost = findOrientationLoss(rows);
+
     return rows;
+}
+
+// ── Where the sensor's orientation cannot be trusted ───────────────────────
+// The BNO08x's fused orientation goes wrong for seconds at a time on rough
+// ground (found 2026-10-16): in RUN0049 it reported a sensor lying upside
+// down, at 25 km/h, for seven seconds. Its accelerometer saturates at ±8g on
+// hard hits, which is the likeliest reason; see summary.md. Everything taken
+// from that orientation goes wrong with it — lean, pitch, and vertical G.
+//
+// It is caught by setting the sensor's "up" (from its own pitch and roll)
+// against the accelerometer averaged over a second, which over that long is
+// mostly gravity. On a normal ride the two differ by 15–22° (the median) —
+// braking and cornering pull the average off vertical — and in a hard
+// corner by about as much as the lean. A stretch counts as lost where they
+// differ by more than ORIENT_LOST_DEG, and runs on either side for as long
+// as they still differ by more than ORIENT_EDGE_DEG: the sensor is already
+// wrong on the way in and still wrong on the way out.
+//
+// In those rows pitch, roll (lean) and vertG are set to null: not drawn, not
+// counted. Returns the stretches as [{ at, s }] — seconds from the first
+// sample, and how long — and leaves the rows' orientationLost flag set.
+
+const ORIENT_LOST_DEG = 60;
+const ORIENT_EDGE_DEG = 35;
+const ORIENT_WINDOW_MS = 1000;
+
+function findOrientationLoss(rows)
+{
+    const n = rows.length;
+    if (n < 10) return [];
+
+    // Running sums of the accelerometer, for a centred one-second average.
+    const sum = [new Float64Array(n + 1), new Float64Array(n + 1), new Float64Array(n + 1)];
+    rows.forEach((r, i) => {
+        sum[0][i + 1] = sum[0][i] + r.ax;
+        sum[1][i + 1] = sum[1][i] + r.ay;
+        sum[2][i + 1] = sum[2][i] + r.az;
+    });
+
+    const angle = new Float32Array(n);
+    let lo = 0, hi = 0;
+
+    for (let i = 0; i < n; i++) {
+        const t = rows[i].t;
+        while (rows[lo].t < t - ORIENT_WINDOW_MS / 2) lo++;
+        while (hi + 1 < n && rows[hi + 1].t <= t + ORIENT_WINDOW_MS / 2) hi++;
+
+        const a = [0, 1, 2].map(k => sum[k][hi + 1] - sum[k][lo]);
+        const len = Math.hypot(a[0], a[1], a[2]);
+        const up = gravityUpInSensorAxes(rows[i].rawPitch, rows[i].rawRoll);
+
+        angle[i] = len > 0
+            ? Math.acos(Math.max(-1, Math.min(1, (up[0] * a[0] + up[1] * a[1] + up[2] * a[2]) / len))) * RAD_TO_DEG
+            : 0;
+    }
+
+    const lost = new Uint8Array(n);
+
+    for (let i = 0; i < n; i++) {
+        if (angle[i] <= ORIENT_LOST_DEG || lost[i]) continue;
+
+        let a = i, b = i;
+        while (a > 0 && angle[a - 1] > ORIENT_EDGE_DEG) a--;
+        while (b + 1 < n && angle[b + 1] > ORIENT_EDGE_DEG) b++;
+        lost.fill(1, a, b + 1);
+    }
+
+    const spans = [];
+
+    for (let i = 0; i < n; i++) {
+        if (!lost[i]) continue;
+
+        rows[i].orientationLost = true;
+        rows[i].pitch = null;
+        rows[i].roll = null;
+        rows[i].vertG = null;
+
+        if (i === 0 || !lost[i - 1]) spans.push({ at: (rows[i].t - rows[0].t) / 1000, s: 0 });
+        spans[spans.length - 1].s = (rows[i].t - rows[0].t) / 1000 - spans[spans.length - 1].at;
+    }
+
+    return spans;
+}
+
+// ── Peak G at the sensor's ceiling ─────────────────────────────────────────
+// The accelerometer reads up to ±8g on each axis (±78.7 m/s² as logged), and
+// hard hits reach it. A peak taken from a row with an axis at the ceiling is
+// a floor, not a measurement — the hit was bigger. 78.0 rather than the
+// exact ceiling, to allow for the 0.1 m/s² the .CSVB stores it to.
+const ACCEL_CEILING_MS2 = 78.0;
+
+function accelClipped(r)
+{
+    return Math.abs(r.ax) >= ACCEL_CEILING_MS2 || Math.abs(r.ay) >= ACCEL_CEILING_MS2 || Math.abs(r.az) >= ACCEL_CEILING_MS2;
+}
+
+// "11.7G", or "≥11.7G" when the peak came off a clipped reading.
+function formatPeakG(g, clipped)
+{
+    return `${clipped ? '≥' : ''}${g.toFixed(1)}G`;
 }
 
 // A finished run as compare.html and trends.html need it: the decoded
