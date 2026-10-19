@@ -1281,7 +1281,7 @@ bool RunService::setTitle(const String& name, const String& title) {
     return setRunMetaString(name, "title", title);
 }
 
-bool RunService::setSetupField(const String& name, bool rear, const char* field, float value) {
+bool RunService::setSetupFields(const String& name, bool rear, const std::vector<SetupCorrection>& fields) {
     File f = storageGet(jsonPath(name).c_str());
     if (!f)
         return false;
@@ -1294,22 +1294,48 @@ bool RunService::setSetupField(const String& name, bool rear, const char* field,
         return false;
 
     // Only a setup that was recorded can be corrected — a run without one
-    // doesn't get a block made of this one field.
+    // doesn't get a block made of these fields.
     JsonObject setup = doc["bike"][rear ? "rear_suspension" : "front_suspension"];
     if (setup.isNull())
         return false;
 
-    // Each in the form writeRunMeta() gives it. "lockout" is only ever there
-    // when it is true.
-    if (strcmp(field, "lockout") == 0) {
-        if (value != 0)
-            setup[field] = true;
+    for (const SetupCorrection& c : fields) {
+        const char* field = c.field;
+        bool pressure = strcmp(field, "pressure_psi") == 0;
+
+        // Each in the form writeRunMeta() gives it. "lockout" is only ever
+        // there when it is true.
+        if (strcmp(field, "lockout") == 0) {
+            if (c.value != 0)
+                setup[field] = true;
+            else
+                setup.remove(field);
+            continue;
+        }
+
+        float value = pressure ? roundf(c.value) : (float)(uint8_t)c.value;
+
+        // What the run was recorded with, kept the first time it changes —
+        // and dropped again once the field is back to it.
+        JsonObject recorded = setup["recorded"];
+        bool hadOriginal = !recorded.isNull() && recorded[field].is<float>();
+        float original = hadOriginal ? recorded[field].as<float>() : (setup[field] | 0.0f);
+
+        if (pressure)
+            setup[field] = serialized(String(value, 0));
         else
-            setup.remove(field);
-    } else if (strcmp(field, "pressure_psi") == 0) {
-        setup[field] = serialized(String(value, 0));
-    } else {
-        setup[field] = (uint8_t)value;
+            setup[field] = (uint8_t)value;
+
+        if (value == original) {
+            if (hadOriginal) recorded.remove(field);
+        } else if (!hadOriginal) {
+            if (recorded.isNull()) recorded = setup["recorded"].to<JsonObject>();
+            if (pressure) recorded[field] = serialized(String(original, 0));
+            else recorded[field] = (uint8_t)original;
+        }
+
+        if (!setup["recorded"].isNull() && setup["recorded"].size() == 0)
+            setup.remove("recorded");
     }
 
     File out = storageOpen(jsonPath(name).c_str());

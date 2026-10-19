@@ -901,9 +901,49 @@ void handleApiRunNotes() {
     server.send(200, "text/plain", "OK");
 }
 
-// Corrects one field of the setup a run was recorded with, in that run's
-// .JSON only — Settings and the bike's profile are not touched.
-// Body: { name, end: "front"|"rear", field, value }.
+// The fields a run's recorded setup can be corrected in, and the most each
+// may be. The names are the ones the run's .JSON uses — and the pointers are
+// what RunService::setSetupFields() is given, so they outlive the request.
+struct SetupFieldSpec {
+    const char* name;
+    float max;          // 0: a true/false field
+};
+
+static const SetupFieldSpec SETUP_FIELDS[] = {
+    { "lsc", 255 }, { "hsc", 255 }, { "lsr", 255 }, { "hsr", 255 },
+    { "volume_tokens", 255 }, { "pressure_psi", 1000 }, { "lockout", 0 }
+};
+
+// One field and its value, checked against the table: false if either is
+// not acceptable.
+static bool setupCorrection(const char* name, JsonVariantConst value, RunService::SetupCorrection& out) {
+    for (const SetupFieldSpec& spec : SETUP_FIELDS) {
+        if (strcmp(spec.name, name) != 0) continue;
+
+        if (spec.max == 0) {
+            if (!value.is<bool>()) return false;
+            out = { spec.name, value.as<bool>() ? 1.0f : 0.0f };
+            return true;
+        }
+
+        if (!value.is<float>()) return false;
+
+        float v = value.as<float>();
+        if (v < 0 || v > spec.max) return false;
+
+        out = { spec.name, v };
+        return true;
+    }
+
+    return false;
+}
+
+// Corrects the setup a run was recorded with, in that run's .JSON only —
+// Settings and the bike's profile are not touched. Body: { name, end:
+// "front"|"rear", fields: { lsc: 3, pressure_psi: 235, ... } }, applied
+// together or not at all (one unknown field or out-of-range value refuses
+// the lot). The older { name, end, field, value } form, one field, still
+// works.
 void handleApiRunSetup() {
     if (!server.hasArg("plain")) {
         server.send(400, "text/plain", "Missing body");
@@ -919,41 +959,38 @@ void handleApiRunSetup() {
     }
 
     String end = doc["end"] | "";
-    String field = doc["field"] | "";
 
     if (end != "front" && end != "rear") {
         server.send(400, "text/plain", "Unknown end");
         return;
     }
 
-    bool isLockout = field == "lockout";
-    bool isPressure = field == "pressure_psi";
-    bool isCount = field == "lsc" || field == "hsc" || field == "lsr" || field == "hsr" || field == "volume_tokens";
+    std::vector<RunService::SetupCorrection> corrections;
 
-    if (!isLockout && !isPressure && !isCount) {
-        server.send(400, "text/plain", "Unknown field");
+    if (doc["fields"].is<JsonObjectConst>()) {
+        for (JsonPairConst kv : doc["fields"].as<JsonObjectConst>()) {
+            RunService::SetupCorrection c;
+            if (!setupCorrection(kv.key().c_str(), kv.value(), c)) {
+                server.send(400, "text/plain", String("Invalid field or value: ") + kv.key().c_str());
+                return;
+            }
+            corrections.push_back(c);
+        }
+    } else {
+        RunService::SetupCorrection c;
+        if (!setupCorrection(doc["field"] | "", doc["value"], c)) {
+            server.send(400, "text/plain", "Invalid field or value");
+            return;
+        }
+        corrections.push_back(c);
+    }
+
+    if (corrections.empty()) {
+        server.send(400, "text/plain", "Nothing to correct");
         return;
     }
 
-    float value;
-
-    if (isLockout) {
-        if (!doc["value"].is<bool>()) {
-            server.send(400, "text/plain", "Invalid value");
-            return;
-        }
-
-        value = doc["value"].as<bool>() ? 1 : 0;
-    } else {
-        value = doc["value"] | -1.0f;
-
-        if (value < 0 || value > (isPressure ? 1000 : 255)) {
-            server.send(400, "text/plain", "Invalid value");
-            return;
-        }
-    }
-
-    if (!RunService::setSetupField(doc["name"].as<String>(), end == "rear", field.c_str(), value)) {
+    if (!RunService::setSetupFields(doc["name"].as<String>(), end == "rear", corrections)) {
         server.send(404, "text/plain", "Run or its setup not found");
         return;
     }

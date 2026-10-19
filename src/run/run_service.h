@@ -94,13 +94,27 @@ namespace RunService
     // Same, for the optional name a rider gives a run (see RunInfo::title).
     bool setTitle(const String& name, const String& title);
 
-    // Corrects one field of the setup a finished run was recorded with: a
-    // click count, "volume_tokens", "pressure_psi", or "lockout" (see
-    // RunSetup). The snapshot is whatever Settings held when the run ended,
-    // which is not always what was on the bike. The caller checks the field
-    // name and the value's range. Returns false if the run's .JSON doesn't
-    // exist, can't be parsed, or has no setup for that end.
-    bool setSetupField(const String& name, bool rear, const char* field, float value);
+    // Corrects fields of the setup a finished run was recorded with: click
+    // counts, "volume_tokens", "pressure_psi", or "lockout" (see RunSetup).
+    // The snapshot is whatever Settings held when the run ended, which is not
+    // always what was on the bike. All of them in one rewrite of the .JSON.
+    //
+    // The first time a field other than "lockout" is corrected, the value
+    // the run was recorded with is kept under the setup's "recorded", so a
+    // correction never loses what was really written down; correcting it
+    // back to that value takes it out again. The lockout is a mark on the
+    // run, not a correction of a setting, and keeps no original.
+    //
+    // `field` must point at a string that outlives the call (the caller's
+    // table of known names). The caller checks the names and the values'
+    // ranges. Returns false if the run's .JSON doesn't exist, can't be
+    // parsed, or has no setup for that end.
+    struct SetupCorrection {
+        const char* field;
+        float value;
+    };
+
+    bool setSetupFields(const String& name, bool rear, const std::vector<SetupCorrection>& fields);
 
     String currentName();
     uint32_t elapsedSeconds();

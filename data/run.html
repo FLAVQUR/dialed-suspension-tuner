@@ -9,6 +9,21 @@
 <style>
     #playBtn:disabled, #notesSaveBtn:disabled { opacity: 0.4; cursor: default; }
 
+    /* "Edit setup" under the setup lines: a link-like button, not a control
+       that competes with the stats. */
+    button.link-btn {
+        min-height: auto; padding: 0; background: none; border: none;
+        color: var(--text-muted); font-size: 13px; font-weight: 500;
+        text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+    }
+    button.link-btn:hover { color: var(--text); }
+
+    /* The dialog that corrects a run's recorded setup: an end per column. */
+    .setup-dialog { width: min(440px, calc(100% - 32px)); }
+    .setup-edit-grid { display: grid; gap: 8px 12px; align-items: center; margin-top: 14px; }
+    .setup-edit-grid input { margin-top: 0; min-height: 36px; padding: 0 10px; }
+    .setup-dialog .dialog-actions button { padding: 0 8px; font-size: 14px; }
+
     /* The run's name in the topbar doubles as the way to change it. */
     .topbar h1.editable { cursor: pointer; }
     .topbar h1.editable::after { content: '✎'; margin-left: 8px; font-size: 13px; font-weight: 400; opacity: 0.55; }
@@ -91,6 +106,9 @@
                 <p class="stat-sub" id="setupChange" style="margin:0;"></p>
                 <p class="stat-sub" id="missingNote" style="display:none; margin:2px 0 0; color:var(--warn);"></p>
                 <p class="stat-sub" id="orientationNote" style="display:none; margin:2px 0 0; color:var(--warn);"></p>
+                <p class="stat-sub" id="setupEditRow" style="margin:2px 0 0;">
+                    <span id="setupCorrected" style="display:none;">Corrected after the ride · </span><button type="button" class="link-btn" onclick="editRecordedSetup()">Edit setup</button>
+                </p>
                 <label class="stat-sub" id="rearLockoutRow" style="display:none; align-items:center; gap:6px; margin:2px 0 0; cursor:pointer;">
                     <input id="rearLockout" type="checkbox" style="width:14px; height:14px; min-height:auto; margin:0;" onchange="saveRearLockout()">
                     Rear shock was locked out
@@ -1940,6 +1958,158 @@ function renderSetupInfo(bike, isFullSusp)
     const hasRearSetup = isFullSusp && !!bike.rear_suspension;
     document.getElementById('rearLockoutRow').style.display = hasRearSetup ? 'flex' : 'none';
     document.getElementById('rearLockout').checked = hasRearSetup && bike.rear_suspension.lockout === true;
+
+    loadedBike = bike;
+    loadedFullSusp = isFullSusp;
+    document.getElementById('setupEditRow').style.display = bike.front_suspension ? '' : 'none';
+
+    // A setup corrected after the ride says so, and what it was recorded
+    // with (the setup's "recorded", kept by the device the first time a
+    // field is corrected).
+    const corrections = [];
+    [['Front', bike.front_suspension], ['Rear', hasRearSetup ? bike.rear_suspension : null]].forEach(([label, s]) => {
+        if (!s || !s.recorded) return;
+        Object.keys(s.recorded).forEach(key => {
+            const f = SETUP_EDIT_FIELDS.find(x => x.key === key);
+            corrections.push(`${label} ${f ? f.name : key}: recorded ${s.recorded[key]}, corrected to ${s[key]}`);
+        });
+    });
+
+    const marker = document.getElementById('setupCorrected');
+    marker.style.display = corrections.length ? '' : 'none';
+    marker.title = corrections.join('\n');
+}
+
+// ── Correcting the recorded setup ──────────────────────────────────────────
+// A run records whatever Settings held when it ended, which is not always
+// what was on the bike — Settings updated only after the ride, say. "Edit
+// setup" corrects that in the run's own .JSON (POST /api/runs/setup), and
+// nothing else: not Settings, not the bike's profile. The device keeps what
+// the run was recorded with, which the line above shows as "Corrected after
+// the ride". The setup history, the tuning context and the browser's kept
+// runs list all follow, from the corrected values.
+
+let loadedBike = null;          // the run's bike/setup as loaded, for the dialog
+let loadedFullSusp = true;
+
+// What can be corrected, in the run .JSON's names, with the matching key in
+// /api/config (for "Use current Settings").
+const SETUP_EDIT_FIELDS = [
+    { key: 'lsc', label: 'LSC', name: 'LSC', config: 'LSC', dial: true },
+    { key: 'hsc', label: 'HSC', name: 'HSC', config: 'HSC', dial: true },
+    { key: 'lsr', label: 'LSR', name: 'LSR', config: 'LSR', dial: true },
+    { key: 'hsr', label: 'HSR', name: 'HSR', config: 'HSR', dial: true },
+    { key: 'volume_tokens', label: 'Tokens', name: 'tokens', config: 'VolumeTokens', max: 255 },
+    { key: 'pressure_psi', label: 'Pressure (psi)', name: 'pressure', config: 'PressurePsi', max: 1000 }
+];
+
+function editRecordedSetup()
+{
+    if (!loadedBike || !loadedBike.front_suspension) return;
+
+    const ends = [{ end: 'front', label: 'Front', setup: loadedBike.front_suspension }];
+    if (loadedFullSusp && loadedBike.rear_suspension) ends.push({ end: 'rear', label: 'Rear', setup: loadedBike.rear_suspension });
+
+    // A dial is offered for the ends that have it (adjusterAvailability());
+    // a row only when at least one end does.
+    const has = (e, f) => !f.dial || adjusterAvailability(e.setup)[f.key];
+    const rows = SETUP_EDIT_FIELDS.filter(f => ends.some(e => has(e, f)));
+
+    const dlg = document.createElement('dialog');
+    dlg.className = 'dialog setup-dialog';
+    dlg.innerHTML = `
+        <h3>Correct this run's setup</h3>
+        <p>What was really on the bike for ${escapeHtml(runTitle || runName)}. Only this run changes — not Settings, not the bike's profile — and what it was recorded with is kept.</p>
+        <div class="setup-edit-grid" style="grid-template-columns: auto repeat(${ends.length}, 1fr);">
+            <span></span>${ends.map(e => `<span class="stat-label">${e.label}</span>`).join('')}
+            ${rows.map(f => `<span class="stat-sub" style="margin:0;">${f.label}</span>` + ends.map(e => has(e, f)
+                ? `<input type="number" min="0" max="${f.max || 255}" step="1" data-end="${e.end}" data-key="${f.key}" value="${typeof e.setup[f.key] === 'number' ? e.setup[f.key] : ''}">`
+                : '<span class="stat-sub" style="margin:0;">—</span>').join('')).join('')}
+        </div>
+        <p class="stat-sub" id="setupEditStatus" style="margin-top:10px; min-height:1.4em;"></p>
+        <div class="dialog-actions">
+            <button type="button" class="ghost" data-act="settings">Use current Settings</button>
+            <button type="button" class="ghost" data-act="cancel">Cancel</button>
+            <button type="button" data-act="save">Save</button>
+        </div>`;
+
+    const status = dlg.querySelector('#setupEditStatus');
+    const inputs = Array.from(dlg.querySelectorAll('input[data-key]'));
+
+    // Fills in what Settings hold now — the usual case being Settings that
+    // were only brought up to date after the ride.
+    async function useSettings()
+    {
+        status.textContent = 'Reading Settings…';
+
+        try {
+            const cfg = await (await fetch('/api/config')).json();
+
+            inputs.forEach(input => {
+                const f = SETUP_EDIT_FIELDS.find(x => x.key === input.dataset.key);
+                const value = cfg[input.dataset.end + f.config];
+                if (typeof value === 'number') input.value = Math.round(value);
+            });
+
+            status.textContent = 'Filled in from Settings — check, then Save.';
+        } catch (e) {
+            status.textContent = 'Could not read Settings from the device.';
+        }
+    }
+
+    async function save()
+    {
+        const changes = {};
+
+        for (const input of inputs) {
+            const f = SETUP_EDIT_FIELDS.find(x => x.key === input.dataset.key);
+            const setup = ends.find(e => e.end === input.dataset.end).setup;
+            const value = Number(input.value);
+
+            if (input.value === '' || !Number.isInteger(value) || value < 0 || value > (f.max || 255)) {
+                status.textContent = `${input.dataset.end === 'front' ? 'Front' : 'Rear'} ${f.label}: a whole number from 0 to ${f.max || 255}.`;
+                input.focus();
+                return;
+            }
+
+            if (value !== setup[f.key]) (changes[input.dataset.end] = changes[input.dataset.end] || {})[f.key] = value;
+        }
+
+        if (Object.keys(changes).length === 0) { dlg.close(); return; }
+
+        status.textContent = 'Saving…';
+        dlg.querySelectorAll('button').forEach(b => { b.disabled = true; });
+
+        try {
+            for (const end of Object.keys(changes)) {
+                const r = await fetch('/api/runs/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: runName, end, fields: changes[end] })
+                });
+                if (!r.ok) throw new Error(await r.text());
+            }
+
+            // Like the lockout: nearly everything on the page was worked out
+            // from the setup as it was loaded.
+            location.reload();
+        } catch (e) {
+            status.textContent = 'The device did not accept the correction — check the connection and try again.';
+            dlg.querySelectorAll('button').forEach(b => { b.disabled = false; });
+        }
+    }
+
+    dlg.addEventListener('click', evt => {
+        const act = evt.target.closest('button[data-act]');
+        if (!act) return;
+        if (act.dataset.act === 'cancel') dlg.close();
+        if (act.dataset.act === 'settings') useSettings();
+        if (act.dataset.act === 'save') save();
+    });
+
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.appendChild(dlg);
+    dlg.showModal();
 }
 
 // Marks this run as ridden with the rear shock locked out (its Threshold

@@ -9,7 +9,7 @@ How it is used:
 
 ## Now — without the bike
 
-- [ ] *(Idea)* **Correct a run's recorded setup from its page.** The endpoint takes clicks, tokens and pressure (`POST /api/runs/setup`), but only the lockout has a control. Worth one if a run is again recorded with Settings that were not what was on the bike.
+- [ ] **Click through "Edit setup"** on a run page (built 2026-10-19; the endpoint and the page were checked, the dialog was not clicked). RUN0054 is a 3-second bench run left on the card for it, its rear pressure already corrected 235 → 245: try the dialog, "Use current Settings", correcting a value back, then delete the run.
 - [ ] *(Idea)* **Sleep instead of spinning between samples.** The loop now idles for 79% of every sample period, in a busy wait. Sleeping through most of it would cut the current draw on a ride. Not done with the rewrite, to keep the timing change small.
 
 ## With the bike or on a real screen
@@ -39,6 +39,7 @@ How it is used:
 
 ## Done
 
+- 2026-10-19 — **A run's recorded setup can be corrected from its page** ("Edit setup"), with "Use current Settings" to fill it in; the device keeps what the run was recorded with, and the page says when a setup was corrected. Also "≥" on every peak G read off a clipped reading. See "Corrections to a run's recorded setup" in `summary.md`.
 - 2026-10-18 — **The SD fix holds on a ride.** RUN0051–53: no recovery at all, nothing dropped or lost, every row well formed and 2ms apart (it was 0–11 recoveries a run on 2026-10-10). See "Field test 2026-10-18" in `summary.md`.
 - 2026-10-16 — **The run page stops showing an orientation it cannot trust, and the device records why it is lost.** Where the IMU's "up" and the accelerometer disagree by over 60°, lean, pitch and vertical G are not drawn or counted, the stretch is shaded grey and a line says for how long (RUN0049: 23s in 6 stretches; its peak lean went from 180° to 47°). Peak G taken from a reading at the ±8g ceiling shows as "≥11.7G". Every run's `.JSON` gets `imu_diag`, second by second. See "The IMU's orientation is not always right" in `summary.md`.
 - 2026-10-16 — **Gaps shaded on the run's charts, and recoveries no longer leave a line short.** Every time chart shades the stretches with no samples. The firmware finishes the line a failed sync cut, with `0,0`, instead of leaving it two columns short — checked with a test build faking failures (4 recoveries, 10000 well-formed lines). See "A recovery no longer leaves a line short" in `summary.md`.

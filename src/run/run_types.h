@@ -19,7 +19,7 @@ struct RunSetup {
     // The run was ridden with this end locked out (the shock's Threshold
     // lever). Never part of the snapshot taken from Settings — a lever left
     // closed is only noticed once the run is done — so it is only ever set
-    // afterwards, on the run itself (RunService::setSetupField()).
+    // afterwards, on the run itself (RunService::setSetupFields()).
     bool lockout = false;
 
     // Runs recorded before the has_* flags existed have none, and count as
