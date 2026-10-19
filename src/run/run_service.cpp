@@ -19,6 +19,7 @@
 #include "system/version.h"
 #include "suspension/suspension.h"
 #include "imu/imu.h"
+#include "power/battery.h"
 
 static File csvFile;
 static String currentRun;
@@ -101,6 +102,15 @@ static uint32_t sdReplayFailed = 0;   // ... replayed the rows, and they did not
 // full when they arrived, or the card was still away when the run ended.
 // With rowsDropped (below) this is everything a run is missing.
 static volatile uint32_t rowsLost = 0;
+
+// The battery over the run, for its .JSON: whether a low battery makes the
+// SD card or the IMU misbehave (2026-10-18, the rider's question — a ride on a
+// nearly full battery had no SD failure where one at half charge had
+// several). The voltage at the start and the lowest 200ms burst seen while
+// recording (see batteryBurstVoltage()): bursts come every 3s, so a sag of
+// a few milliseconds is out of reach.
+static float batteryAtStart = 0;
+static float batteryLowest = 0;
 
 // Set by stop() while it waits for the writer to finish. See sdWriterTask().
 static volatile bool stopping = false;
@@ -1060,6 +1070,14 @@ static void writeRunMeta(float durationSeconds) {
     // imuDiagStart()) — recorded to find out why it loses it on rough ground.
     imuDiagToJson(doc["imu_diag"].to<JsonObject>());
 
+    // Volts. Only in the .JSON: nothing on the dashboard reads it.
+    if (batteryAtStart > 0) {
+        JsonObject battery = doc["battery_v"].to<JsonObject>();
+        battery["start"] = serialized(String(batteryAtStart, 2));
+        battery["end"] = serialized(String(readBatteryVoltage(), 2));
+        if (batteryLowest > 0) battery["lowest"] = serialized(String(batteryLowest, 2));
+    }
+
     // SD link health for this run — nonzero means the card hiccuped even
     // if nothing was lost (retry_ok: a second flush fixed it; recovered:
     // file reopened and buffered rows replayed).
@@ -1512,6 +1530,11 @@ void RunService::update() {
 
     if (autoStopArmed && (int32_t)(millis() - autoStopAtMs) >= 0)
         stop();
+
+    if (getState() == RECORDING) {
+        float v = batteryBurstVoltage();
+        if (v > 0 && (batteryLowest == 0 || v < batteryLowest)) batteryLowest = v;
+    }
 }
 
 bool RunService::start() {
@@ -1584,6 +1607,8 @@ bool RunService::start() {
     writeEverStalledThisRun = false;
     runStats = RunStatsAccumulator{};
     imuDiagStart();
+    batteryAtStart = readBatteryVoltage();
+    batteryLowest = 0;
 
     Serial.println("Run started: " + currentRun);
     return true;

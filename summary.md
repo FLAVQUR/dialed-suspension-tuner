@@ -165,6 +165,16 @@ A 60s run: 29,939 rows, 29,936 of them exactly 2ms after the previous one, none 
 
 **The setup history did its job on a changed setup**: RUN0047 reads "Changed since RUN0046: rear pressure 225 → 235 psi" with "First run since…" under its rear suggestion, RUN0048 "Same setup for 2 runs, since RUN0047" with "Last changed 1 run before this one", and Trends starts a new stretch at RUN0047.
 
+## Field test 2026-10-18 (the new firmware on a ride)
+
+3 runs on firmware `v0.1.0-8-gcc1ff86`, the setup unchanged from 2026-10-10: RUN0051 on the warm-up track, RUN0052/53 on the aggressive one. The point was the firmware, not the setup: the tracks were covered in leaves and acorns, the bike slid a lot, and the runs were not ridden at the usual pace (peak G 9.8–11.2 against 10.6–11.7 on 2026-10-10).
+
+**The SD fix holds on a ride: no recovery at all.** `sd_recovered` 0 in all three (it was 0 / 8 / 2 / 11 on 2026-10-10), `incomplete` false, `rows_dropped` and `rows_lost` 0, 51212–56657 rows each, every one well formed and 2ms after the one before. What the driver absorbed is not known: the device had been restarted before its log was read.
+
+**The IMU did not lose its orientation**, so `imu_diag` could not say why it does. No stretch reached 60° of disagreement (the worst second: 52°); the median was 13–15°, against 15–22° on 2026-10-10. The rotation vector rated itself 3 (high) in every second of every run, its accuracy estimate rising from 4° at rest to 5–14° while riding. Readings at the ±8g ceiling were rare: 13–28 rows a run, against dozens on one axis alone before. Consistent with saturation being the trigger, but a slower ride is no proof of it.
+
+**The battery was nearly full this time**, and at half charge or less on 2026-10-10, as the rider remembers it. So three things changed at once — the firmware, the pace and the charge — and these runs cannot tell them apart. The firmware fix does not need the battery to explain it (the stray statuses were reproduced and fixed on the bench, on USB power), but a low battery could make them more frequent: the 3.3V rail was only ever checked on USB power. Nothing recorded the battery in any run, so **from 2026-10-19 every run's `.JSON` has `battery_v`**: `start` and `end` (the smoothed voltage the dashboard shows) and `lowest`, the lowest 200ms burst while recording (`batteryBurstVoltage()`; one burst every 3s, so millisecond sags are out of reach). Not shown on the dashboard, by the rider's choice.
+
 ## Rear shock — spec decoded and tuning ladder
 
 From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Linear, Compression Tune L, Lockout Force 320N, Volume Reducer **0 Neg / 1 Pos**, Check Tune 0-Light. All fixed factory valving except the volume reducer.
@@ -216,7 +226,7 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 
 ## SD card write path
 
-**Current state (2026-10-11): the cause of the sync failures is found and fixed in a project copy of the SD driver — on the bench; not ridden yet.** Before that: 0-3 failures a run, all absorbed, at 385Hz and 10MHz (2026-09-28); 0-11 a run at 500Hz and 20MHz, two of four runs losing half a second each (2026-10-10).
+**Current state: the cause of the sync failures was found and fixed in a project copy of the SD driver (2026-10-11), and the first ride on it had no failure at all** (2026-10-18: 3 runs, `sd_recovered` 0 in each — see that field test). Before that: 0-3 failures a run, all absorbed, at 385Hz and 10MHz (2026-09-28); 0-11 a run at 500Hz and 20MHz, two of four runs losing half a second each (2026-10-10).
 
 **What the failures are (found 2026-10-11).** Not a failed write. After every write the framework's SD driver asks the card for its status (CMD13) and fails the write unless the answer is zero. On this card the answer now and then contains a stray `0x03` — as the second status byte, or as the first, where the driver logs it as `token error [13] 0x3` — after a write whose every data block the card had accepted, CRC included. The driver returns an error, FatFS latches it on the open file, and from there on it is the "failed sync" that `run_service.cpp` recovers from by reopening the file and replaying the rows.
 - **How it was found.** The field failures of 2026-10-10 line up with the file growing into a new 64KB cluster: of 32 failures (field and bench), 19 fall within 8KB of a cluster boundary, where chance would put 8 — and the first two clusters of a new file are the worst, which is the "first second and a half". Short timed runs on the bench reproduce it (about one start in four). None of those failures left a line in the driver's log, because the paths they take are silent upstream; a copy of the driver with log lines on them (`lib/SD`) showed `status r1 0x0 r2 0x3` on every one, and no data-token or CRC error on any.

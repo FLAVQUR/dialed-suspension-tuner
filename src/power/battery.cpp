@@ -9,6 +9,7 @@
 #define MEASURE_PERIOD_MS 3000   // start a new burst this often — voltage doesn't move fast
 
 static float filteredVoltage = 0.0f;
+static float burstVoltage = 0.0f;
 static uint32_t lastSampleTime = 0;
 static uint32_t lastBurstTime = 0;
 static long sampleAccum = 0;
@@ -55,6 +56,7 @@ void batteryUpdate() {
 
         // 1:2 voltage divider → ×2, mV → V
         float voltage = (avgMv / 1000.0f) * 2.0f;
+        burstVoltage = voltage;
 
         if (filteredVoltage == 0.0f)
             filteredVoltage = voltage;
@@ -68,6 +70,10 @@ void batteryUpdate() {
 
 float readBatteryVoltage() {
     return filteredVoltage;
+}
+
+float batteryBurstVoltage() {
+    return burstVoltage;
 }
 
 
