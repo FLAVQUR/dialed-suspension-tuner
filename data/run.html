@@ -2396,13 +2396,20 @@ function computeSegmentStats(rows, seg, frontMaxMM, rearMaxMM)
     const frontAvg = average(slice.map(r => r.front));
     const rearAvg = average(slice.map(r => r.rear));
     const speedAvg = average(slice.map(r => r.speed));
-    const peakG = Math.max(0, arrayMax(slice.map(r => Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2)));
+    // The peak, and whether the reading it came from hit the accelerometer's
+    // ceiling (then it is a floor — see accelClipped() in telemetry.js).
+    let peakG = 0, peakClipped = false;
+    for (const r of slice) {
+        const g = Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2;
+        if (g > peakG) { peakG = g; peakClipped = accelClipped(r); }
+    }
 
     return {
         frontAvgPct: frontMaxMM ? frontAvg / frontMaxMM * 100 : null,
         rearAvgPct: rearMaxMM ? rearAvg / rearMaxMM * 100 : null,
         speedAvg,
         peakG,
+        peakClipped,
         frontBO: countBottomOuts(slice, 'front', frontMaxMM, 95, 85).length,
         rearBO: countBottomOuts(slice, 'rear', rearMaxMM, 95, 85).length
     };
@@ -2655,7 +2662,7 @@ function reboundAdjusterLabel(available) {
 
 // Phase 1 — every signal a diagnosis could use, computed once and named,
 // with no decisions made yet.
-function collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, hardImpactCount, maxImpactG) {
+function collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, hardImpactCount, maxImpactG, maxImpactClipped) {
     const boRate = totalMinutes > 0 ? boCount / totalMinutes : 0;
 
     const compVels = vels.filter(v => v > 0);
@@ -2686,7 +2693,10 @@ function collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, 
         // below, never to invent a diagnosis on its own: a hard-hitting
         // but well-controlled ride can rack up plenty of these with zero
         // bottom-outs, which is exactly the "no problem" case.
-        hardImpactCount, maxImpactG
+        hardImpactCount, maxImpactG,
+        // The hardest impact hit the accelerometer's ceiling: maxImpactG is
+        // a floor, not a measurement.
+        maxImpactClipped: !!maxImpactClipped
     };
 }
 
@@ -2794,7 +2804,9 @@ function diagnoseReboundBalance(ev) {
 function describeDiagnosis(d, ev, compLabel, reboundLabel, bothReboundSplit) {
     switch (d.type) {
         case 'bottoming-hard': {
-            const impactNote = ev.maxImpactG >= 4 ? ` (impacts up to ${ev.maxImpactG.toFixed(1)}G this ride)` : '';
+            const impactNote = ev.maxImpactG < 4 ? ''
+                : ev.maxImpactClipped ? ` (impacts of at least ${ev.maxImpactG.toFixed(1)}G this ride — past what the sensor reads)`
+                : ` (impacts up to ${ev.maxImpactG.toFixed(1)}G this ride)`;
             const psi = psiLabel(d.severity);
             return compLabel
                 ? { tag: `Pressure/${compLabel}`, ok: false, text: `Bottomed out ${ev.boCount}x this ride (~${ev.boRate.toFixed(1)}/min)${impactNote} — consider more air pressure (${psi}), more volume tokens, or more ${compLabel} (high-speed compression) to better resist bottoming out.` }
@@ -2854,9 +2866,9 @@ function describeDiagnosis(d, ev, compLabel, reboundLabel, bothReboundSplit) {
     }
 }
 
-function generateSuggestions(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, available, hardImpactCount, maxImpactG)
+function generateSuggestions(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, available, hardImpactCount, maxImpactG, maxImpactClipped)
 {
-    const ev = collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, hardImpactCount, maxImpactG);
+    const ev = collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, hardImpactCount, maxImpactG, maxImpactClipped);
     const compLabel = compressionAdjusterLabel(available);
     const reboundLabel = reboundAdjusterLabel(available);
     const bothReboundSplit = available.lsr && available.hsr;
@@ -3380,7 +3392,7 @@ function renderSegments(rows, segments, frontMaxMM, rearMaxMM, isFullSusp)
         if (isFullSusp && stats.rearAvgPct !== null) detailParts.push(`Rear ${stats.rearAvgPct.toFixed(0)}%`);
         const boCount = stats.frontBO + (isFullSusp ? stats.rearBO : 0);
         if (boCount > 0) detailParts.push(`${boCount} bottom-out${boCount > 1 ? 's' : ''}`);
-        detailParts.push(`peak ${stats.peakG.toFixed(1)}G`);
+        detailParts.push(`peak ${formatPeakG(stats.peakG, stats.peakClipped)}`);
 
         const detail = document.createElement('span');
         detail.className = 'detail';
@@ -3804,7 +3816,10 @@ async function load()
             rows.map(r => ({ t: r.t, g: Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2 })),
             r => r.g, impactHigh, impactLow, IMPACT_MERGE_GAP_S
         );
-        const maxImpactG = impactEvents.length ? arrayMax(impactEvents.map(ev => ev.peak)) : 0;
+        const maxImpact = impactEvents.length ? impactEvents.reduce((a, b) => b.peak > a.peak ? b : a) : null;
+        const maxImpactG = maxImpact ? maxImpact.peak : 0;
+        const maxImpactRow = maxImpact ? rows.find(r => r.t === maxImpact.t) : null;
+        const maxImpactClipped = !!maxImpactRow && accelClipped(maxImpactRow);
 
         // Harsh transmission (see detectHarshEvents) — hard vertical hits
         // that barely moved the suspension. Deliberately kept out of
@@ -3913,7 +3928,7 @@ async function load()
         const setupContext = await setupContextPromise;
 
         const frontToppedOutPct = computeToppedOutPct(frontVals, frontMaxMM, TOPPED_OUT_PCT);
-        const frontSuggestions = generateSuggestions(frontMaxMM ? (frontAvg / frontMaxMM * 100) : 0, frontToppedOutPct, frontBOTimes.length, totalMinutes, frontVels, frontStaticSag, adjusterAvailability(frontSetup), impactEvents.length, maxImpactG);
+        const frontSuggestions = generateSuggestions(frontMaxMM ? (frontAvg / frontMaxMM * 100) : 0, frontToppedOutPct, frontBOTimes.length, totalMinutes, frontVels, frontStaticSag, adjusterAvailability(frontSetup), impactEvents.length, maxImpactG, maxImpactClipped);
         addSetupContext(frontSuggestions, setupContext, 'front', adjusterAvailability(frontSetup), frontStaticSag);
         renderTuningSide('tuningFront', 'Front', COLOR_FRONT, formatSetup(frontSetup), frontSuggestions);
 
@@ -3937,7 +3952,7 @@ async function load()
             );
 
             const rearToppedOutPct = computeToppedOutPct(rearVals, rearMaxMM, TOPPED_OUT_PCT);
-            const rearSuggestions = generateSuggestions(rearMaxMM ? (rearAvg / rearMaxMM * 100) : 0, rearToppedOutPct, rearBOTimes.length, totalMinutes, rearVels, rearStaticSag, adjusterAvailability(rearSetup), impactEvents.length, maxImpactG);
+            const rearSuggestions = generateSuggestions(rearMaxMM ? (rearAvg / rearMaxMM * 100) : 0, rearToppedOutPct, rearBOTimes.length, totalMinutes, rearVels, rearStaticSag, adjusterAvailability(rearSetup), impactEvents.length, maxImpactG, maxImpactClipped);
             addSetupContext(rearSuggestions, setupContext, 'rear', adjusterAvailability(rearSetup), rearStaticSag);
 
             // Said first: everything under it describes the shock with its
