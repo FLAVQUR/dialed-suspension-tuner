@@ -1,6 +1,6 @@
 # Dialed — Session Context
 
-Technical summary of the project so far, to start a new session without losing context. Last full revision: 2026-10-06; the dashboard, run-metadata and tooling parts were brought up to date on 2026-10-07 (including the run page's time-series stack and the rewrite of the sampling loop, both done that day).
+Technical summary of the project so far, to start a new session without losing context. Last full revision: 2026-10-06; brought up to date section by section since, with every change and finding up to 2026-10-19 (the field tests of 2026-10-10 and 2026-10-18, the SD driver fix, the paged and kept runs list, the IMU's lost orientation, the battery record, run-setup corrections).
 
 ## Project
 
@@ -9,6 +9,8 @@ Technical summary of the project so far, to start a new session without losing c
 The original idea of two rotary potentiometers used as string-pots was abandoned; the KPM12J sensors bolt alongside the fork/shock and their rod follows the travel directly.
 
 **Phase**: the infrastructure phase ended with the 2026-09-28 field test. Work is now data interpretation and suspension tuning from real trail runs, not firmware plumbing.
+
+**Known gap — air springs only** (noted 2026-10-19): the setup, the tuning suggestions and the setup history all assume an air fork and shock (pressure, volume tokens). A coil spring's rate and preload have nowhere to go, and the suggestions' spring-side advice is all pressure and tokens. Not built: no coil-sprung bike to test on. What would change is listed in `todo.md`.
 
 **Bike**: Propain Tyee 5 29 (full suspension).
 **Front suspension**: RockShox Domain — 170mm, Motion Control RC damper. Only **LSC + rebound are adjustable**; HSC is fixed at the factory (shim stack), there is no dial. DebonAir with up to 3 volume tokens.
@@ -361,20 +363,26 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
   - *Announced but never happened* (start called off, or failed): the expectation lapses after 5s of the device still answering.
 - The browser-time offer described above.
 
-**Navigation**: below 1024px, a floating pill at the bottom plus floating action buttons. From 1024px both move into the topbar (CSS only: `position: fixed` over the sticky topbar, `:has()` to clear the back arrow), so nothing floats over the charts. Tabs inside a page (Run, Settings) are a labeled segmented control (`.seg-tabs`) pinned under the topbar; the Settings tab is kept in the URL hash (`/settings#sensors`).
+**Navigation**: below 1024px, a sticky topbar (back arrow, page title, status chips) with a floating pill at the bottom plus floating action buttons. **From 1024px a side rail** (2026-10-25, trial — the rider's idea, to give the page the window's whole height): the topbar becomes a 76px column down the left edge — back arrow at the top, then the nav (icon over label), a rule, the page's actions (Compare, Trends, Delete N), and the connection and battery chips at the bottom. Always the same width; deliberately **no expand-on-hover** (a tablet has no hover, and the run page's map and its zoom buttons sit right beside it). CSS only: nav and actions stay `position: fixed` siblings of the topbar, placed at fixed heights (`--rail-nav-top`, `--rail-item-h`; `:has()` moves them down under a back arrow). The page title is not in the rail: the lit nav item says it on Dashboard, Runs and Settings; the run page shows the run's name (click to rename) at the top of its stats card (`#runHeading`, `.wide-only`); Compare and Trends go without. `--sticky-top` drops from 76px to 16px; the offline banner runs across the top beside the rail and pushes the page down. The previous top bar is kept in `backups/data-2026-10-25-before-side-rail/` (the whole `data/` folder, since the run page changed too) for going back. Below 1024px nothing changed. Tabs inside a page (Run, Settings) are a labeled segmented control (`.seg-tabs`) pinned under the topbar; the Settings tab is kept in the URL hash (`/settings#sensors`).
+
+**Base palette (2026-10-25, the rider's choice)**: six blue-grey steps, `#06141B #11212D #253745 #4A5C6A #9BA8AB #CCD0CF`, replacing the slate greys the dashboard had. Every neutral in both themes is one of them or a step between two (marked "between" in `style.css`):
+- Dark: page `#06141B`, cards `#11212D`, inputs and chips a step between `#11212D` and `#253745`, borders `#253745`, text `#CCD0CF`, secondary text `#9BA8AB`, the interaction colour `#CCD0CF` on `#06141B`. The background glow is in the palette's own greys now, not sky, indigo and teal.
+- Light: the same steps the other way up — text `#06141B`, secondary `#4A5C6A`, borders `#CCD0CF`, the interaction colour `#11212D` — with the page and the cards on lighter steps between `#CCD0CF` and white (`#E6E9E8`, `#FAFBFB`), so the data hues keep their contrast; `#CCD0CF` itself as the card colour cost orange and aqua their 3:1.
+- The data and status hues stay: re-validated against the new surfaces, front + rear pass every check in both themes. The neutral series is now the palette's `#9BA8AB` in both themes (it was a darker grey in the light one), which keeps it told apart from aqua and pink in colour-blind vision (ΔE 9.2 and 9.4) — at 2.4:1 on the light card, so it relies on the labels it always has ("Run A", "Vertical", the segment names). Light-theme `--good` went one step darker (`#15803d`, 4.8:1).
+- Seen in both themes on the run, Runs, Dashboard and Trends pages.
 
 **Colour roles — every colour has one job** (commented at the top of `style.css`):
 - `--accent` (interaction: primary buttons, active tab, selection, the map marker) is a **neutral** — light ink on dark, dark ink on light. It never draws data.
 - `--good` / `--warn` / `--bad` are status only. No chart series uses them (Compare's faster/slower colouring *is* status, deliberately).
 - Data: `--series-front` blue, `--series-rear` orange, `--series-motion` violet (GPS: speed, altitude), `--series-imu` aqua (lean, pitch, G-force), `--series-highlight` pink (technical segments, Run B in Compare), `--series-neutral` grey (transition segments, Run A, reference traces), `--map-ink` for lines on the map tiles.
 - Checked with the dataviz palette validator in both themes: front + rear, and any one hue + neutral, pass (colour-blind simulation included). Pink ↔ aqua and violet ↔ blue do **not** pass side by side — keep them out of the same chart.
-- The background blobs are all cool tones on purpose: a warm one tinted the right-hand cards red and cost the orange/red data its contrast.
+- The background glow is all cool tones on purpose (since 2026-10-25, the palette's own greys): a warm one tinted the right-hand cards red and cost the orange/red data its contrast.
 
 **Glass**: `.card.glass` is a frosted blur plus a lit rim in every browser. On Chromium (`html.glass-refract`, set by a UA check) the **topbar, nav, tabs and floating buttons** also bend their backdrop through the inline `#glass-refract` SVG filter (feTurbulence → feDisplacementMap); Safari/iOS and Firefox ignore SVG filters in `backdrop-filter`. That is where it shows, because content scrolls underneath them. **Cards no longer use the filter** (2026-10-07): they sit over a smooth background with nothing to bend, and the rider could not tell the effect from its absence on a tablet or a PC — scrolling was fine either way, so this was not a performance fix. They keep the Chromium tier's lighter, more saturated glass.
 
 **Per page**:
-- **Dashboard** (`index.html`): a Recording card with a **pre-ride checklist** under Start Run (uncalibrated end, IMU not zeroed, no GPS fix, hardware not answering — advisory, never blocking; mid-run only hardware faults are listed) and a one-line GPS status; a Suspension (live) card with a tick at each end's static sag and a rolling 60s trace at the status-poll rate (~5Hz — a liveness check, not data).
-- **Runs** (`runs.html`): from 1024px a sortable table (date, bike, duration, distance, max speed, peak front/rear, notes); any number of rows can be ticked, and stay ticked from page to page (the box in the header ticks or clears the page on screen). Exactly two turn the topbar's Compare into "Compare selected", older run as A; one or more bring up a "Delete N" action next to it, which deletes them one request at a time after a confirmation (added 2026-10-13, the rider's ask — ticking used to be for comparing only, and let go of the first run when a third was ticked). A peak ≥95% of travel is shown in amber — the list knows each run's peak, **not** a bottom-out count. Cards below 1024px. Shown 25 runs to a page, loaded a page at a time (see "Too many runs on the card" under "SD card write path"). "Delete all" lives in Settings → System → Device.
+- **Dashboard** (`index.html`): a Recording card (while a run records, a red dot pulsing a ring at its top right — `.rec-pulse`, pure CSS) with a **pre-ride checklist** under Start Run (uncalibrated end, IMU not zeroed, no GPS fix, hardware not answering — advisory, never blocking; mid-run only hardware faults are listed) and a one-line GPS status; a Suspension (live) card with a tick at each end's static sag and a rolling 60s trace at the status-poll rate (~5Hz — a liveness check, not data).
+- **Runs** (`runs.html`): from 1024px a sortable table (date, bike, duration, distance, max speed, peak front/rear, notes); any number of rows can be ticked, and stay ticked from page to page (the box in the header ticks or clears the page on screen). Exactly two turn the topbar's Compare into "Compare selected", older run as A; one or more bring up a "Delete N" action next to it, which deletes them one request at a time after a confirmation (added 2026-10-13, the rider's ask — ticking used to be for comparing only, and let go of the first run when a third was ticked). A peak ≥95% of travel is shown in amber — the list knows each run's peak, **not** a bottom-out count. Cards below 1024px. The Notes column takes whatever width is left and cuts off with an ellipsis (`width: 100%; max-width: 0` — a table ignores a cell's plain max-width, so one long note used to push the download/delete buttons out of the card); cell padding tightens below 1440px so the table fits beside the side rail at 1280px. Shown 25 runs to a page, loaded a page at a time (see "Too many runs on the card" under "SD card write path"). "Delete all" lives in Settings → System → Device.
 - **Settings**: Bike / Sensors / WiFi / System. Calibration and IMU zero are under **Sensors** (they belong to the device, not the bike). Five cards **save themselves** (0.8s after typing stops, at once for selects and checkboxes, sent with `keepalive` so leaving the page does not lose the edit); the two WiFi cards keep an explicit Save and flag unsaved edits. A dial's field doubles as its `has_*` flag: **blank = no such adjuster, any number including 0 = present** (− from 0 clears it, + from blank starts it at 0). Long explanations are collapsed behind `<details class="help">`.
 - **Compare**: Run A is the neutral baseline, Run B the highlight; the map and the time-gained chart sit side by side from 1024px.
 - **Trends**: every run is labelled on the x axis when it fits. A Setup History card sits above the charts (see "Setup-change history"), capped in height so a long history scrolls instead of pushing the charts down.
@@ -385,7 +393,7 @@ From the shock's factory sticker (**Super Deluxe Select+ C1**): Rebound Tune Lin
 
 ## Dashboard — `run.html`
 
-**Layout**, three breakpoints. From 1024px: the headline stats are a strip across the top that scrolls away, the **route map with the trail segments under it is the only pinned thing** (a left column the height of the window; the segment list scrolls inside it), and the view tabs sit over the chart column — roughly 640px of charts on a 768px-tall laptop. 768-1023px (portrait tablet): one column — tabs, stats strip, map beside segments (pinned only when the viewport is at least 800px tall), then the tab content. Below that everything stacks. `analysis.html` no longer exists; it was merged in as a tab. Hovering an event or segment row with a mouse moves the shared crosshair and the map marker, which is what answers "where did this happen"; clicking or tapping it also zooms the charts to it (see **Zoom**). The topbar title is the run's `title` when it has one (click it to rename); the RUN number then becomes the first line of the stats strip.
+**Layout**, three breakpoints. From 1024px: the headline stats are a strip across the top that scrolls away, the **route map with the trail segments under it is the only pinned thing** (a left column the height of the window; the segment list scrolls inside it), and the view tabs sit over the chart column — roughly 640px of charts on a 768px-tall laptop. 768-1023px (portrait tablet): one column — tabs, stats strip, map beside segments (pinned only when the viewport is at least 800px tall), then the tab content. Below that everything stacks. `analysis.html` no longer exists; it was merged in as a tab. Hovering an event or segment row with a mouse moves the shared crosshair and the map marker, which is what answers "where did this happen"; clicking or tapping it also zooms the charts to it (see **Zoom**). The topbar title (below 1024px) or the heading of the stats strip (from 1024px, beside the side rail) is the run's `title` when it has one (click it to rename); the RUN number then becomes the first line under it. **The stats strip** (from 1024px): the bike and its setup in a first column (date; bike · suspension · wheels; front; rear; setup history line; lockout checkbox and "Edit setup" on one row), the five headline figures beside it, and the data-quality notes (missing data, orientation lost) under the figures, across them — so a run with warnings is no taller than one without (2026-10-25; they used to sit in the first column and doubled the card's height).
 
 **Linked views are addressed by time, not by a shared index** (`broadcastTime(t)` → each view's `onTime(t)`). The map and the playback keep a 400-point whole-run `chartRows`; the time-series charts hold their own points. `broadcastIndex()` survives only as a wrapper for playback.
 
@@ -564,7 +572,10 @@ src/system/fast_adc.cpp  — calibrated ADC1 read without analogReadMilliVolts()
 src/system/loop_profiler.cpp — per-section timing of loop() and row spacing (GET /api/debug/loop)
 src/system/log_capture.cpp — keeps the core's and libraries' warnings in memory (GET /api/debug/log)
 src/imu/imu.cpp          — BNO08x on its own HSPI bus (imuTask, core 0); returns radians;
-                           Zero IMU rest measurement + bike-frame angles
+                           Zero IMU rest measurement + bike-frame angles; imu_diag, the
+                           per-second record of how sure the sensor is of its orientation
+src/power/battery.cpp    — battery voltage (200ms bursts every 3s, smoothed); a run's .JSON
+                           gets battery_v (start, end, lowest burst)
 src/gps/gps.cpp          — NMEA decoding (bounded non-blocking read, values cached as floats);
                            also hands the GPS date/time to the system clock
 src/system/clock.cpp     — wall-clock time from GPS / NTP / browser, most trusted source wins
@@ -594,14 +605,17 @@ data/common.js           — every page: applyTheme/escapeHtml/formatDuration, B
                            the runs list, kept in localStorage and refreshed by stamp (fetchRunsPage(),
                            fetchAllRuns())
 data/telemetry.js        — run/compare/trends: .CSVB decoding + IMU maths (RAD_TO_DEG, bikeBasis(),
-                           bikeAngles(), verticalG()), suspension figures, setupFields(),
+                           bikeAngles(), verticalG()), findOrientationLoss(), findGaps(),
+                           accelClipped()/formatPeakG(), suspension figures, setupFields(),
                            the setup history (setupHistory(), setupEpochs()), SVG chart primitives
 data/index.html          — dashboard: Start Run + pre-ride checklist, live suspension
-data/runs.html           — runs table (wide) / cards (narrow), selection for Compare
+data/runs.html           — runs table (wide) / cards (narrow), paged (25 a page, Previous / numbers /
+                           Next), ticking for Compare (two) and "Delete N" (any number)
 data/run.html            — single-run page: minMaxPoints(), the time-series stack (shared axis,
                            fitTimeCharts(), drawLineChart()), chart zoom, linked views,
                            computeActivitySegments(), detectHarshEvents(), generateSuggestions(),
-                           addSetupContext()
+                           addSetupContext(), renderMissing() / renderOrientationLoss() (the notes
+                           under the setup), editRecordedSetup() (the "Edit setup" dialog)
 data/compare.html        — A/B of two runs: route + time gained, setup diff, histograms
 data/trends.html         — one bike's setup history, and sag and bottom-outs per minute across its runs
 data/settings.html       — bike profiles + setup (autosave), guided calibration + IMU zero

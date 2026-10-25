@@ -1,28 +1,32 @@
 :root {
     color-scheme: dark;
 
-    --bg: #0b1120;
-    --surface: #161f32;
-    --surface-alt: #1e293b;
-    --border: #2a3548;
-    --text: #f1f5f9;
-    --text-muted: #94a3b8;
+    /* The base palette (2026-10-25, the rider's): six blue-grey steps, darkest
+       to lightest — #06141B #11212D #253745 #4A5C6A #9BA8AB #CCD0CF. Every
+       neutral in both themes is one of them, or a step between two of them
+       (marked "between"); the only other colours are status and data, below. */
+    --bg: #06141B;
+    --surface: #11212D;
+    --surface-alt: #1B2D3A;     /* between #11212D and #253745 */
+    --border: #253745;
+    --text: #CCD0CF;
+    --text-muted: #9BA8AB;
     /* The interaction colour — primary buttons, the active tab, a selected
        row, the map marker — is a neutral: the page's own ink, inverted. It
        used to be a sky blue, which sat one step away from the blue the
        front suspension is drawn in; with no hue of its own it can't be
        mistaken for data, and the only colour left on a page is data and
        status. */
-    --accent: #f1f5f9;
-    --accent-text: #0b1120;
-    --selected-tint: rgba(148, 163, 184, 0.16);
+    --accent: #CCD0CF;
+    --accent-text: #06141B;
+    --selected-tint: rgba(155, 168, 171, 0.16);
     --good: #22c55e;
     --warn: #f59e0b;
     --bad: #ef4444;
     --on-good: #062b12;
     --on-warn: #2b1600;
     --on-bad: #2b0a0a;
-    --bg-glass: rgba(11, 17, 32, 0.9);
+    --bg-glass: rgba(6, 20, 27, 0.9);
     /* Data colours. Every colour here has exactly one job, and none of them
        is a status colour (--good/--warn/--bad) or the interaction colour
        (--accent) — those never draw data, so a green line can't be read as
@@ -36,73 +40,82 @@
          neutral        whatever the highlight is being set against, and
                         secondary reference traces
        Within one chart there's only ever front+rear, or one hue + neutral —
-       the combinations the palette validates for, colour-blind included. */
+       the combinations the palette validates for, colour-blind included.
+       Re-validated on 2026-10-25 against the new surfaces (#11212D and
+       #06141B here, #FAFBFB in the light theme): front/rear pass every
+       check; the neutral, now the base palette's #9BA8AB in both themes,
+       stays told apart from every hue in normal and colour-blind vision. */
     --series-front: #3987e5;
     --series-rear: #d95926;
     --series-motion: #9085e9;
     --series-imu: #199e70;
     --series-highlight: #d55181;
-    --series-neutral: #94a3b8;
+    --series-neutral: #9BA8AB;
 
     /* Lines drawn on the map tiles, which are light in both themes. */
-    --map-ink: #334155;
+    --map-ink: #253745;
     --radius: 14px;
     --nav-height: 60px;
     --tabs-height: 44px;
     --sticky-top: 76px;
     --banner-height: 44px;
     --skeleton-sweep: rgba(255, 255, 255, 0.06);
-    --nav-shadow: rgba(0, 0, 0, 0.45);
-    --card-glass: rgba(30, 41, 59, 0.4);
-    --glass-highlight: rgba(255, 255, 255, 0.22);
-    --glass-edge: rgba(255, 255, 255, 0.06);
-    --glass-glow: rgba(255, 255, 255, 0.05);
-    --card-glass-liquid: rgba(30, 41, 59, 0.28);
-    --bg-glass-liquid: rgba(11, 17, 32, 0.55);
+    --nav-shadow: rgba(0, 0, 0, 0.5);
+    --card-glass: rgba(17, 33, 45, 0.45);
+    --glass-highlight: rgba(204, 208, 207, 0.2);
+    --glass-edge: rgba(204, 208, 207, 0.06);
+    --glass-glow: rgba(204, 208, 207, 0.05);
+    --card-glass-liquid: rgba(17, 33, 45, 0.3);
+    --bg-glass-liquid: rgba(6, 20, 27, 0.55);
+    /* The ambient glow behind the glass cards, in the palette's own greys
+       rather than the sky, indigo and teal it used to be. */
     --bg-blobs:
-        radial-gradient(circle at 12% 12%, rgba(56, 189, 248, 0.22), transparent 45%),
-        radial-gradient(circle at 88% 10%, rgba(99, 102, 241, 0.18), transparent 45%),
-        radial-gradient(circle at 70% 92%, rgba(20, 184, 166, 0.12), transparent 45%);
+        radial-gradient(circle at 12% 12%, rgba(74, 92, 106, 0.38), transparent 45%),
+        radial-gradient(circle at 88% 10%, rgba(155, 168, 171, 0.12), transparent 45%),
+        radial-gradient(circle at 70% 92%, rgba(37, 55, 69, 0.55), transparent 45%);
 }
 
 [data-theme="light"] {
     color-scheme: light;
 
-    --bg: #f4f6fb;
-    --surface: #ffffff;
-    --surface-alt: #f1f5f9;
-    --border: #dde3ec;
-    --text: #0f172a;
-    --text-muted: #5b6472;
-    --accent: #0f172a;
-    --accent-text: #ffffff;
-    --selected-tint: rgba(15, 23, 42, 0.07);
-    --good: #16a34a;
+    /* The same six steps, the other way up, with the page and the cards on
+       lighter steps between #CCD0CF and white so the data hues keep their
+       contrast. */
+    --bg: #E6E9E8;              /* between #CCD0CF and white */
+    --surface: #FAFBFB;         /* between #CCD0CF and white */
+    --surface-alt: #EEF0F0;     /* between #CCD0CF and white */
+    --border: #CCD0CF;
+    --text: #06141B;
+    --text-muted: #4A5C6A;
+    --accent: #11212D;
+    --accent-text: #FAFBFB;
+    --selected-tint: rgba(6, 20, 27, 0.07);
+    --good: #15803d;            /* one step darker than before: 4.8:1 on #FAFBFB */
     --warn: #b45309;
     --bad: #dc2626;
     --on-good: #ffffff;
     --on-warn: #ffffff;
     --on-bad: #ffffff;
-    --bg-glass: rgba(244, 246, 251, 0.85);
+    --bg-glass: rgba(230, 233, 232, 0.85);
 
     /* The same data hues, stepped for a light surface (each clears 3:1 on
        white; the dark-theme steps of blue, orange and violet don't). */
     --series-front: #2a78d6;
     --series-rear: #eb6834;
     --series-motion: #4a3aa7;
-    --series-neutral: #64748b;
-    --skeleton-sweep: rgba(0, 0, 0, 0.05);
-    --nav-shadow: rgba(15, 23, 42, 0.18);
-    --card-glass: rgba(255, 255, 255, 0.45);
+    --series-neutral: #9BA8AB;
+    --skeleton-sweep: rgba(6, 20, 27, 0.05);
+    --nav-shadow: rgba(6, 20, 27, 0.18);
+    --card-glass: rgba(250, 251, 251, 0.5);
     --glass-highlight: rgba(255, 255, 255, 0.9);
     --glass-edge: rgba(255, 255, 255, 0.35);
     --glass-glow: rgba(255, 255, 255, 0.25);
-    --card-glass-liquid: rgba(255, 255, 255, 0.3);
-    --bg-glass-liquid: rgba(244, 246, 251, 0.5);
+    --card-glass-liquid: rgba(250, 251, 251, 0.32);
+    --bg-glass-liquid: rgba(230, 233, 232, 0.5);
     --bg-blobs:
-        radial-gradient(circle at 12% 12%, rgba(2, 132, 199, 0.16), transparent 45%),
-        radial-gradient(circle at 88% 10%, rgba(99, 102, 241, 0.12), transparent 45%),
-        radial-gradient(circle at 70% 92%, rgba(20, 184, 166, 0.10), transparent 45%);
+        radial-gradient(circle at 12% 12%, rgba(155, 168, 171, 0.35), transparent 45%),
+        radial-gradient(circle at 88% 10%, rgba(74, 92, 106, 0.12), transparent 45%),
+        radial-gradient(circle at 70% 92%, rgba(204, 208, 207, 0.6), transparent 45%);
 }
 
 * { box-sizing: border-box; }
@@ -554,6 +567,9 @@ body.device-offline .preflight { display: none; }
     border-radius: 50%;
 }
 
+/* Shown only beside the side rail (≥1024px, at the end of this file). */
+.wide-only { display: none; }
+
 main {
     padding: 16px;
     max-width: 480px;
@@ -709,7 +725,7 @@ body.is-loading .chart-wrap::after {
 
 /* Not states — data labels in the data colours (trail segment kinds). */
 .badge.highlight { background: rgba(213, 81, 129, 0.16); color: var(--series-highlight); }
-.badge.neutral   { background: rgba(148, 163, 184, 0.16); color: var(--text-muted); }
+.badge.neutral   { background: rgba(155, 168, 171, 0.16); color: var(--text-muted); }
 
 .badge .dot {
     width: 6px;
@@ -746,13 +762,36 @@ body.is-loading .chart-wrap::after {
     line-height: 1.4;
 }
 
-.badge .dot.pulse {
-    animation: dot-pulse 1.2s ease-in-out infinite;
+/* "Recording", on the Dashboard while a run is being recorded: a red dot
+   with a ring that keeps spreading out from it and fading. Replaced a red
+   "● Recording" badge with a blinking dot (2026-10-25, the rider's ask);
+   the card's own label already says "Recording". */
+.rec-pulse {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--bad);
 }
 
-@keyframes dot-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.25; }
+.rec-pulse::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--bad);
+    animation: rec-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes rec-ping {
+    0% { transform: scale(1); opacity: 0.6; }
+    80%, 100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* Without the motion, a steady dot still says it. */
+@media (prefers-reduced-motion: reduce) {
+    .rec-pulse::after { animation: none; opacity: 0; }
 }
 
 .bar {
@@ -1194,8 +1233,8 @@ main.run-layout > .seg-tabs {
         padding: 14px 16px;
     }
 
-    #statsCard > #bikeInfo,
-    #statsCard > #setupInfo { grid-column: 1 / -1; }
+    #statsCard > #runInfoCol,
+    #statsCard > #qualityNotes { grid-column: 1 / -1; }
 
     #statsCard .stat-label { margin-bottom: 2px; }
     #statsCard .stat-value { font-size: 20px; }
@@ -1560,10 +1599,17 @@ main.run-layout > .seg-tabs {
     border-bottom: 1px solid var(--border);
 }
 
+/* Beside the side rail on a laptop the table is ~25px short of fitting with
+   the roomier padding; a tighter one gives it back. */
+@media (max-width: 1439px) {
+    .runs-table th,
+    .runs-table td { padding-left: 7px; padding-right: 7px; }
+}
+
 .runs-table tbody tr:last-child td { border-bottom: none; }
 
 .runs-table tbody tr { cursor: pointer; }
-.runs-table tbody tr:hover td { background: rgba(148, 163, 184, 0.08); }
+.runs-table tbody tr:hover td { background: rgba(155, 168, 171, 0.08); }
 .runs-table tbody tr.selected td { background: var(--selected-tint); }
 
 .runs-table .num {
@@ -1586,8 +1632,13 @@ main.run-layout > .seg-tabs {
     color: var(--text-muted);
 }
 
+/* Notes take whatever width the other columns leave and cut off with an
+   ellipsis there: a table ignores a cell's max-width, so a long note used
+   to widen the table past its card and push the download/delete buttons
+   out of view (max-width: 0 + width: 100% is what makes it give way). */
 .runs-table td.notes {
-    max-width: 240px;
+    width: 100%;
+    max-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     font-style: italic;
@@ -1651,46 +1702,131 @@ main.run-layout > .seg-tabs {
     .compare-main > #routeMapCard,
     .compare-main > #deltaCard { grid-column: auto; }
 
-    /* Page nav: from a bubble floating over the bottom of the page to a
-       compact row at the left of the topbar (after the back arrow, on the
-       pages that have one). Still position:fixed — the topbar it sits on
-       is pinned to the top anyway — so no page's markup has to change. */
-    .bottom-nav {
-        top: 11px;
-        bottom: auto;
-        left: 20px;
-        transform: none;
-        box-shadow: inset 1px 1px 0 var(--glass-highlight), inset -1px -1px 0 var(--glass-edge);
+    /* ── Side rail ──
+       The topbar becomes a narrow column down the left edge, so the whole
+       height of the window is the page's: the back arrow at the top, then
+       the page nav, then the page's actions (Compare, Trends, Delete), and
+       the connection and battery chips at the bottom. Always the same width
+       and never expanding on hover — a tablet has no hover, and the run
+       page's map (and its zoom buttons) sit right beside it. The page title
+       isn't in it: on Dashboard, Runs and Settings the lit nav item says it,
+       and the run page shows the run's name in its stats card instead.
+       Until 2026-10-25 this was a 69px bar across the top holding the same
+       things; the bar is in backups/data-2026-10-25-before-side-rail/.
+       Nav and actions are still position:fixed siblings of the topbar,
+       placed at fixed heights, so no page's markup has to change. */
+    :root {
+        --rail-w: 76px;
+        --rail-item-h: 58px;
+        /* Below the back arrow, on the pages that have one. */
+        --rail-nav-top: 12px;
+        --sticky-top: 16px;
     }
 
-    .topbar:has(.back-link) ~ .bottom-nav { left: 72px; }
+    body { padding-left: var(--rail-w); }
 
-    .nav-item { padding: 3px; }
+    body:has(.topbar .back-link) { --rail-nav-top: 64px; }
+
+    .topbar {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: var(--rail-w);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: none;
+        border-right: 1px solid var(--border);
+    }
+
+    .topbar h1 { display: none; }
+
+    .topbar-status {
+        margin-top: auto;
+        flex-direction: column;
+    }
+
+    .bottom-nav {
+        top: var(--rail-nav-top);
+        bottom: auto;
+        left: 0;
+        width: var(--rail-w);
+        max-width: none;
+        transform: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        background: none;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    html.glass-refract .bottom-nav { background: none; backdrop-filter: none; }
+
+    .nav-item { padding: 0; height: var(--rail-item-h); }
 
     .nav-pill {
-        flex-direction: row;
-        gap: 7px;
-        height: 38px;
-        padding: 0 14px;
-        font-size: 13px;
+        width: 62px;
+        padding: 8px 0;
+        gap: 4px;
+        border-radius: 14px;
+        font-size: 11px;
     }
 
-    .nav-item svg { width: 18px; height: 18px; }
+    .nav-item:not(.active):hover .nav-pill { background: var(--selected-tint); color: var(--text); }
 
-    /* Page actions (Compare, Trends): same move, to the right of the
-       topbar just before the status chips. */
+    .nav-item svg { width: 20px; height: 20px; }
+
+    /* Under the nav, after a short rule: the three nav items are 3 × 58px
+       plus their gaps. */
     .fab-stack {
-        top: 12px;
+        top: calc(var(--rail-nav-top) + 3 * var(--rail-item-h) + 4px + 14px);
         bottom: auto;
-        right: 124px;
-        flex-direction: row;
-        align-items: center;
+        left: 7px;
+        right: auto;
+        width: 62px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+        align-items: stretch;
+        gap: 6px;
     }
 
     .fab-btn {
-        height: 44px;
+        height: auto;
+        min-height: var(--rail-item-h);
+        padding: 8px 2px;
+        flex-direction: column;
+        gap: 4px;
+        border-radius: 14px;
+        font-size: 11px;
+        line-height: 1.2;
+        white-space: normal;
+        text-align: center;
         box-shadow: inset 1px 1px 0 var(--glass-highlight), inset -1px -1px 0 var(--glass-edge);
     }
+
+    /* The chips' popover opens beside them, at the bottom of the rail. */
+    .conn-popover {
+        top: auto;
+        right: auto;
+        bottom: 12px;
+        left: calc(var(--rail-w) + 8px);
+    }
+
+    /* The offline banner runs across the top of the page, beside the rail,
+       and pushes the page down by its height. */
+    .conn-banner { top: 0; left: var(--rail-w); }
+    body.device-offline { --sticky-top: calc(16px + var(--banner-height)); padding-top: var(--banner-height); }
+    body.device-offline .topbar { margin-bottom: 0; }
+
+    /* The run's name, in place of the topbar title (run.html). */
+    .wide-only { display: block; }
 
     /* Run page. Only what's worth seeing *while* scrolling through charts
        stays pinned: the map (its marker follows the chart crosshair) with
@@ -1718,20 +1854,26 @@ main.run-layout > .seg-tabs {
 
     #statsCard {
         display: grid;
-        grid-template-columns: minmax(200px, 1.5fr) repeat(5, 1fr);
+        grid-template-columns: minmax(240px, 2.2fr) repeat(5, 1fr);
+        /* Any height the bike's column needs beyond the figures and the
+           notes goes under the notes, not between them and the figures. */
+        grid-template-rows: auto 1fr;
         column-gap: 20px;
         row-gap: 2px;
         align-items: start;
         padding: 14px 18px;
     }
 
-    /* Bike + setup lines share the first column; the five stat blocks take
-       one column each and span both of its rows. Columns are spelled out
-       because grid places row-locked items before auto-placed ones, which
-       would otherwise push the bike info to the far right. */
-    #statsCard > #bikeInfo { grid-column: 1; grid-row: 1; }
-    #statsCard > #setupInfo { grid-column: 1; grid-row: 2; }
-    #statsCard > div:nth-of-type(n + 2) { grid-row: 1 / span 2; }
+    /* The bike and its setup take the first column, top to bottom; the five
+       stat blocks one column each along the top; the data-quality notes run
+       under them, across the five. The column used to be 1.5fr and hold the
+       notes too, and on a run with both notes the card stood twice as tall
+       as its figures with nothing under them (2026-10-25). Columns are
+       spelled out because grid places row-locked items before auto-placed
+       ones, which would otherwise push the bike info to the far right. */
+    #statsCard > #runInfoCol { grid-column: 1; grid-row: 1 / span 2; }
+    #statsCard > div:nth-of-type(n + 2) { grid-row: 1; }
+    #statsCard > #qualityNotes { grid-column: 2 / -1; grid-row: 2; margin-top: 8px; }
     #statsCard > div:nth-of-type(2) { grid-column: 2; }
     #statsCard > div:nth-of-type(3) { grid-column: 3; }
     #statsCard > div:nth-of-type(4) { grid-column: 4; }

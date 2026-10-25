@@ -26,6 +26,13 @@ How it is used:
 
 ## Future nice-to-haves
 
+- [ ] *(Gap, noted 2026-10-19 — no coil-sprung bike to test it on)* **Coil springs.** The whole system assumes air springs, so a coil fork or shock cannot make use of it. What assumes air today:
+  - **The setup** (Settings, bike profiles, each run's snapshot, the run-setup corrections): an end has `pressure_psi` and `volume_tokens`. A coil end has instead a spring rate (lb/in or N/mm), a preload (turns or mm), and possibly a linear or progressive spring; tokens and pressure mean nothing on it.
+  - **The tuning suggestions** (`describeDiagnosis()` in `run.html`): every spring-side remedy is "more air pressure (+5–10%)" or "+1 volume token". On coil the levers are a stiffer or softer spring (in steps of the rates that exist, e.g. 25 or 50 lb/in), preload for sag only (it does not change the rate), and — for bottoming — hydraulic bottom-out or a progressive spring rather than tokens.
+  - **The setup history** (`telemetry.js`): what counts as a spring change, and the stale-static-sag warning, look at pressure and tokens only.
+  - **Compare and Trends**, which show and diff the same fields.
+  - The air-specific parts of the rear shock's tuning ladder in `summary.md` are about this bike, not the system.
+  The likely shape: a spring type per end (air / coil) in Settings and the profile, the fields that go with each, and suggestions worded by type. Old runs carry no type and are air.
 - [ ] *(Idea, 2026-10-08)* **An AI second opinion in the Tuning tab.** On request, send a model what the page has already worked out for the run — the evidence behind the suggestions, the events, the segments, the setup and its history, the rider's notes, the bike's components — and show its reading under the rule-based suggestions, which stay. Not the telemetry itself (megabytes). Open points: the call has to come from the browser (the device has neither the memory nor the flash to spare for TLS) and only works where the browser has internet, so not on the device's own access point; where the API key lives, given the pages are served over plain HTTP; and keeping the answer in the run's `.JSON` so it is still there offline. A first step that needs none of that: a "Copy for AI" button that puts the same summary on the clipboard.
 - [ ] **Multilingual UI.** The dashboard is English only. The idea is a UI that can be shown in more than one language, rather than a translation of the strings in place.
 
@@ -39,6 +46,10 @@ How it is used:
 
 ## Done
 
+- 2026-10-25 — **Recording indicator is a pulsing dot**: on the Dashboard, the red "● Recording" badge became a red dot with a ring spreading out from it (`.rec-pulse`, CSS only; steady dot under reduced motion).
+- 2026-10-25 — **Side rail from 1024px (trial)**: the top bar becomes a narrow column on the left (back, nav, page actions, status chips); the run's name moves into the stats card; no hover-expand. Phone/portrait tablet unchanged. Old version in `backups/data-2026-10-25-before-side-rail/`. Also fixed: a long note widened the Runs table past its card. Waiting on the rider's verdict on a real laptop/tablet.
+- 2026-10-25 — **Shorter stats card on the run page**: the missing-data and orientation-lost notes moved from the setup column to under the five figures; wheels joined the bike line, "Edit setup" the lockout row. RUN0049 (both notes) is now the height of a run without them.
+- 2026-10-25 — **New base palette** (the rider's): six blue-grey steps from #06141B to #CCD0CF for every neutral, in both themes; data and status hues kept, re-validated on the new surfaces. See "Base palette" in `summary.md`.
 - 2026-10-19 — **A run's recorded setup can be corrected from its page** ("Edit setup"), with "Use current Settings" to fill it in; the device keeps what the run was recorded with, and the page says when a setup was corrected. Also "≥" on every peak G read off a clipped reading. See "Corrections to a run's recorded setup" in `summary.md`.
 - 2026-10-18 — **The SD fix holds on a ride.** RUN0051–53: no recovery at all, nothing dropped or lost, every row well formed and 2ms apart (it was 0–11 recoveries a run on 2026-10-10). See "Field test 2026-10-18" in `summary.md`.
 - 2026-10-16 — **The run page stops showing an orientation it cannot trust, and the device records why it is lost.** Where the IMU's "up" and the accelerometer disagree by over 60°, lean, pitch and vertical G are not drawn or counted, the stretch is shaded grey and a line says for how long (RUN0049: 23s in 6 stretches; its peak lean went from 180° to 47°). Peak G taken from a reading at the ±8g ceiling shows as "≥11.7G". Every run's `.JSON` gets `imu_diag`, second by second. See "The IMU's orientation is not always right" in `summary.md`.

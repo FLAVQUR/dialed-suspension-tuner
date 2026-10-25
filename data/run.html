@@ -26,7 +26,10 @@
 
     /* The run's name in the topbar doubles as the way to change it. */
     .topbar h1.editable { cursor: pointer; }
-    .topbar h1.editable::after { content: '✎'; margin-left: 8px; font-size: 13px; font-weight: 400; opacity: 0.55; }
+    .topbar h1.editable::after,
+    #runHeading::after { content: '✎'; margin-left: 8px; font-size: 13px; font-weight: 400; opacity: 0.55; }
+    /* The same name, in the stats card beside the side rail. */
+    #runHeading { margin: 0 0 6px; font-size: 18px; cursor: pointer; overflow-wrap: anywhere; }
 
     .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
     @media (min-width: 480px) { .metric-grid { grid-template-columns: repeat(4, 1fr); } }
@@ -98,21 +101,27 @@
          section at the end of style.css. -->
     <div class="run-sidebar-col">
         <div class="card glass stack" id="statsCard">
+            <!-- The bike and its setup: one column on a wide screen. -->
+            <div id="runInfoCol">
+            <!-- The topbar's title, which the side rail has no room for. -->
+            <h2 id="runHeading" class="wide-only editable" title="Rename this run" onclick="renameRun()">Run</h2>
             <p class="stat-sub" id="bikeInfo" style="margin:0;">--</p>
             <div id="setupInfo" style="display:none; margin-top:2px;">
-                <p class="stat-sub" id="setupWheel" style="margin:0;"></p>
                 <p class="stat-sub" id="setupFront" style="margin:0;"></p>
                 <p class="stat-sub" id="setupRear" style="margin:0;"></p>
                 <p class="stat-sub" id="setupChange" style="margin:0;"></p>
-                <p class="stat-sub" id="missingNote" style="display:none; margin:2px 0 0; color:var(--warn);"></p>
-                <p class="stat-sub" id="orientationNote" style="display:none; margin:2px 0 0; color:var(--warn);"></p>
-                <p class="stat-sub" id="setupEditRow" style="margin:2px 0 0;">
-                    <span id="setupCorrected" style="display:none;">Corrected after the ride · </span><button type="button" class="link-btn" onclick="editRecordedSetup()">Edit setup</button>
-                </p>
-                <label class="stat-sub" id="rearLockoutRow" style="display:none; align-items:center; gap:6px; margin:2px 0 0; cursor:pointer;">
-                    <input id="rearLockout" type="checkbox" style="width:14px; height:14px; min-height:auto; margin:0;" onchange="saveRearLockout()">
-                    Rear shock was locked out
-                </label>
+                <!-- One row for both, so the column — which sets the card's
+                     height on a wide screen — stays short. -->
+                <div style="display:flex; flex-wrap:wrap; align-items:center; gap:2px 14px; margin-top:2px;">
+                    <label class="stat-sub" id="rearLockoutRow" style="display:none; align-items:center; gap:6px; margin:0; cursor:pointer;">
+                        <input id="rearLockout" type="checkbox" style="width:14px; height:14px; min-height:auto; margin:0;" onchange="saveRearLockout()">
+                        Rear shock was locked out
+                    </label>
+                    <p class="stat-sub" id="setupEditRow" style="margin:0;">
+                        <span id="setupCorrected" style="display:none;">Corrected after the ride · </span><button type="button" class="link-btn" onclick="editRecordedSetup()">Edit setup</button>
+                    </p>
+                </div>
+            </div>
             </div>
             <div>
                 <p class="stat-label">Duration</p>
@@ -138,6 +147,13 @@
                 <p class="stat-label">Jumps</p>
                 <p class="stat-value" id="statJumps">--</p>
                 <p class="stat-sub" id="statAirTime">--</p>
+            </div>
+            <!-- What the data is missing or cannot be trusted for. On a wide
+                 screen it sits under the five figures rather than in the
+                 bike's column, where it made the card tall (2026-10-25). -->
+            <div id="qualityNotes" style="display:none;">
+                <p class="stat-sub" id="missingNote" style="display:none; margin:0; color:var(--warn);"></p>
+                <p class="stat-sub" id="orientationNote" style="display:none; margin:0; color:var(--warn);"></p>
             </div>
         </div>
     </div>
@@ -545,6 +561,7 @@ const COLOR_TRANSITION = COLOR_NEUTRAL;    // everything in between
 const params = new URLSearchParams(location.search);
 const runName = params.get('name') || '';
 document.getElementById('runTitle').textContent = runName || 'Run';
+document.getElementById('runHeading').textContent = runName || 'Run';
 document.getElementById('compareLink').href = '/compare?a=' + encodeURIComponent(runName);
 
 function showView(name)
@@ -1927,13 +1944,6 @@ function renderSetupInfo(bike, isFullSusp)
         return;
     }
 
-    const wheelBits = [];
-    if (bike.wheel_size) wheelBits.push(`${bike.wheel_size}" wheels`);
-    if (!isFullSusp && typeof bike.rear_wheel_travel_mm === 'number' && bike.rear_wheel_travel_mm > 0) {
-        wheelBits.push(`${bike.rear_wheel_travel_mm.toFixed(0)}mm rear wheel travel`);
-    }
-    document.getElementById('setupWheel').textContent = wheelBits.join(' · ');
-
     // The same fields the Tuning tab and Compare show (setupFields() in
     // telemetry.js decides which exist — a dial by its has_* flag, never by
     // its value), in this strip's shorter wording and without the static sag
@@ -1952,7 +1962,7 @@ function renderSetupInfo(bike, isFullSusp)
     document.getElementById('setupFront').textContent = suspText('Front', bike.front_suspension);
     document.getElementById('setupRear').textContent = isFullSusp ? suspText('Rear', bike.rear_suspension) : '';
 
-    const hasAnything = wheelBits.length || bike.front_suspension || (isFullSusp && bike.rear_suspension);
+    const hasAnything = bike.front_suspension || (isFullSusp && bike.rear_suspension);
     info.style.display = hasAnything ? '' : 'none';
 
     const hasRearSetup = isFullSusp && !!bike.rear_suspension;
@@ -2155,6 +2165,13 @@ function setupContextFor(runs, name, bikeName)
     return index >= 0 ? { entries, index } : null;
 }
 
+// The box the two notes below sit in, shown when either has something to say.
+function showQualityNotes()
+{
+    const shown = ['missingNote', 'orientationNote'].some(id => document.getElementById(id).style.display !== 'none');
+    document.getElementById('qualityNotes').style.display = shown ? '' : 'none';
+}
+
 // Under the setup, when samples are missing: how much and where, from the
 // gaps in the data itself (findGaps() in telemetry.js) — "0.49 s missing, at
 // 0:00". The list can only say what the run's .JSON counted; this also finds
@@ -2165,6 +2182,7 @@ function renderMissing(gaps)
 
     if (gaps.length === 0) {
         note.style.display = 'none';
+        showQualityNotes();
         return;
     }
 
@@ -2180,7 +2198,7 @@ function renderMissing(gaps)
         : `${formatShortSeconds(total)} missing in ${gaps.length} gaps: ${where.join(', ')}${gaps.length > 3 ? ', …' : ''}`;
     note.title = 'Samples that never reached the SD card. The charts draw straight across a gap.';
     note.style.display = '';
-    document.getElementById('setupInfo').style.display = '';
+    showQualityNotes();
 }
 
 // Under the setup, when the sensor lost its orientation somewhere in the
@@ -2192,6 +2210,7 @@ function renderOrientationLoss(spans)
 
     if (!spans || spans.length === 0) {
         note.style.display = 'none';
+        showQualityNotes();
         return;
     }
 
@@ -2203,7 +2222,7 @@ function renderOrientationLoss(spans)
     note.title = 'The IMU\'s own idea of which way is up was wrong there: it disagreed with the accelerometer, averaged over a second, by more than '
         + `${ORIENT_LOST_DEG}°. Its accelerometer tops out at 8g on hard hits, which is the likeliest reason. The grey bands on the charts are those stretches.`;
     note.style.display = '';
-    document.getElementById('setupInfo').style.display = '';
+    showQualityNotes();
 }
 
 // The line under the setup: what was changed for this run, or how long the
@@ -2251,6 +2270,7 @@ function showRunInfoLines()
 function showRunTitle()
 {
     document.getElementById('runTitle').textContent = runTitle || runName || 'Run';
+    document.getElementById('runHeading').textContent = runTitle || runName || 'Run';
     document.title = `${runTitle || runName || 'Run'} — Dialed`;
 }
 
@@ -3656,7 +3676,12 @@ async function load()
         runTitle = (meta && typeof meta.title === 'string') ? meta.title : '';
         showRunTitle();
 
-        runInfoBase = [bikeName ? `${bikeName} · ${suspLabel}` : suspLabel];
+        // The wheels ride on the bike's line rather than one of their own.
+        const bikeBits = [bikeName, suspLabel];
+        if (bike && bike.wheel_size) bikeBits.push(`${bike.wheel_size}" wheels`);
+        if (!isFullSusp && bike && typeof bike.rear_wheel_travel_mm === 'number' && bike.rear_wheel_travel_mm > 0)
+            bikeBits.push(`${bike.rear_wheel_travel_mm.toFixed(0)}mm rear wheel travel`);
+        runInfoBase = [bikeBits.filter(Boolean).join(' · ')];
 
         // Absent on runs recorded before the device could tell the time.
         if (meta && meta.start_utc > 0)

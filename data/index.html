@@ -29,9 +29,7 @@
         <div class="card glass">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <p class="stat-label" style="margin:0;">Recording</p>
-                <span class="badge bad" id="recordBadge" style="display:none;">
-                    <span class="dot pulse"></span> Recording
-                </span>
+                <span class="rec-pulse" id="recordBadge" role="img" aria-label="Recording" title="Recording" style="display:none;"></span>
             </div>
             <p class="stat-sub" id="recordInfo" style="margin-bottom:14px;">--</p>
             <button style="width:100%;" id="recordBtn" onclick="toggleRun()">Start Run</button>
