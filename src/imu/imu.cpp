@@ -74,7 +74,7 @@ static volatile bool gotFirstEvent = false;
 
 // ─── How sure the sensor is of its orientation, second by second ───────────
 // On rough ground the fused orientation goes wrong for seconds at a time
-// (found 2026-10-16, see summary.md), and the accelerometer hitting its ±8g
+// (found 2026-10-16, see docs/hardware.md), and the accelerometer hitting its ±8g
 // ceiling is the likeliest reason, not a proven one. These record, for each
 // second of a run, what would tell: the worst accuracy status the rotation
 // vector gave itself that second (0 unreliable … 3 high), the largest

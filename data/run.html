@@ -952,7 +952,7 @@ function nearestChartIndex(chartRows, t)
 // hard corner or steep pitch mixes lean into any single axis. Magnitude
 // needs no orientation assumptions at all, which is why the plain "how hard
 // was it" labels stay on it; verticalG() is the better signal for harshness
-// specifically and is used there instead. See summary.md's tuning-engine
+// specifically and is used there instead. See docs/dashboard.md's tuning-engine
 // design notes for the fuller investigation.
 const PEAK_G_WINDOW_MS = 175;
 
@@ -2688,7 +2688,7 @@ function detectAirtimeEvents(rows, gThreshold, minDurationS)
 // A hit the suspension failed to absorb: a hard *vertical* kick (verticalG())
 // arriving while that end's travel barely moves, so the energy went through
 // the frame into the rider instead of into the damper. This is the signal
-// summary.md's design notes deliberately left for later — it needed a
+// docs/dashboard.md's design notes deliberately left for later — it needed a
 // vertical axis that could be trusted, which Zero IMU now provides.
 //
 // Detected per side because the action differs: harsh at the front points at
@@ -2836,7 +2836,7 @@ function reboundAdjusterLabel(available) {
 // for rider weight/preference/terrain the way a human tuner would; treat
 // these as a place to start, not a verdict.
 //
-// Three explicit phases (see summary.md's tuning-engine design notes):
+// Three explicit phases (see docs/dashboard.md's tuning-engine design notes):
 // evidence gathering (collectSuggestionEvidence), diagnosis (diagnose*),
 // and text generation (describeDiagnosis) — replacing what used to be a
 // chain of independent if-blocks that each looked at one metric and fired
@@ -2878,7 +2878,7 @@ function collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, 
         staticSagPct,
         sagDiff: staticSagPct > 0 ? avgPct - staticSagPct : null,
         // Notable Events' own hard-impact detection (load()), reused
-        // rather than recomputed — see summary.md, refinement 2. Only
+        // rather than recomputed — see docs/dashboard.md, refinement 2. Only
         // ever used to corroborate a bottoming-out diagnosis's severity
         // below, never to invent a diagnosis on its own: a hard-hitting
         // but well-controlled ride can rack up plenty of these with zero

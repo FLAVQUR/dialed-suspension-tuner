@@ -111,7 +111,7 @@ function gravityUpInSensorAxes(pitchRad, rollRad)
 // upward (a compression, a landing), − is unloading toward freefall.
 //
 // Closes the "vertical-only G" question the tuning-engine design notes
-// (summary.md) deliberately left open. Its two blockers are both gone: the
+// (docs/dashboard.md) deliberately left open. Its two blockers are both gone: the
 // pitch/roll
 // radians-vs-degrees bug is fixed, and the IMU's mounting is now documented
 // and field-validated via Zero IMU. What's left is simpler than that note
@@ -211,7 +211,7 @@ function parseCompactTelemetry(buffer, basis)
 // The BNO08x's fused orientation goes wrong for seconds at a time on rough
 // ground (found 2026-10-16): in RUN0049 it reported a sensor lying upside
 // down, at 25 km/h, for seven seconds. Its accelerometer saturates at ±8g on
-// hard hits, which is the likeliest reason; see summary.md. Everything taken
+// hard hits, which is the likeliest reason; see docs/hardware.md. Everything taken
 // from that orientation goes wrong with it — lean, pitch, and vertical G.
 //
 // It is caught by setting the sensor's "up" (from its own pitch and roll)

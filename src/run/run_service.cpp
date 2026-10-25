@@ -28,7 +28,7 @@ static uint32_t lastFlush = 0;
 static uint32_t runStartMs = 0;
 
 // Tried at 500ms (2026-09-26) to test whether the sync *rate* was what the card
-// couldn't take — experiment 3 in summary.md — and the answer is no, so this is
+// couldn't take — "Syncing less often" in docs/sd-card.md — and the answer is no, so this is
 // back at 100ms. RUN0037 (28s at 500ms, ~60 syncs) still had 3 failures where
 // 100ms (~300 syncs) gives 4-6: the count barely moved while the per-sync
 // failure rate went *up*, from ~1.7% to ~5%. Whatever this is tracks how much
