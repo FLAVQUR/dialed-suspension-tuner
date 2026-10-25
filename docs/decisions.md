@@ -34,6 +34,7 @@ New entries go at the end of their group, dated. An entry that is overturned sta
 - **Rear lockout is a mark on the run, not a Settings field** (2026-10-08, the rider): a lever left on Threshold is only noticed after the run. A locked-out run is set aside by the setup history, not counted as a change.
 - **The active bike's profile keeps itself up to date** (2026-10-07, the rider: having to remember to click a button is halfway to it being inconsistent). See [hardware.md](hardware.md#suspension-sensors-and-calibration).
 - **Battery voltage stays in the run's `.JSON`**, not on the dashboard (2026-10-19, the rider).
+- **A second rider is a bike profile**, not a user account (2026-10-25, the rider): each rider gets a profile of their own, even on the same bike. There are no logins.
 - **Run dates are always `dd/mm/yyyy hh:mm:ss`** (2026-10-07, the rider), written out field by field. Don't go back to `toLocaleString()`.
 
 ## Dashboard

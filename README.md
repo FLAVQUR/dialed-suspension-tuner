@@ -6,11 +6,13 @@ The device rides on the bike and records every run. It logs suspension travel (a
 
 ## Documentation
 
-- [docs/architecture.md](docs/architecture.md) — the firmware: tasks and cores, the sampling loop, the clock.
+- [docs/prd.md](docs/prd.md) — what the product is for: who, goals, non-goals, requirements.
+- [docs/architecture.md](docs/architecture.md) — how device and browser fit together, then the firmware: tasks and cores, the sampling loop, the clock.
 - [docs/hardware.md](docs/hardware.md) — the bike, the pin table, the sensors and their calibration, the IMU's mounting and maths.
 - [docs/sd-card.md](docs/sd-card.md) — how a run gets onto the card, and the long story of why writes failed.
 - [docs/data-formats.md](docs/data-formats.md) — a run's `.CSV`, `.CSVB` and `.JSON`, and the web server's API.
 - [docs/dashboard.md](docs/dashboard.md) — the web pages: shared UI, the run page, the tuning suggestions, the setup history.
+- [docs/design-system.md](docs/design-system.md) — colours, type, spacing, components and chart rules.
 - [docs/field-log.md](docs/field-log.md) — what each ride showed, and the suspension tuning that followed.
 - [docs/troubleshooting.md](docs/troubleshooting.md) — problems that cost real time, and how to test on the device.
 - [docs/decisions.md](docs/decisions.md) — what was decided and turned down, and why.
@@ -58,9 +60,9 @@ Since 2026-10-08 a build says what code it is, not only when it was made.
 
 ## Repository
 
-Under git since 2026-10-08, branch `main`. On GitHub it is `FLAVQUR/dialed-suspension-tuner`, private for now, MIT licence.
+Under git since 2026-10-08, branch `main`. On GitHub it is `FLAVQUR/dialed-suspension-tuner`, **public**, MIT licence (private at first; public by 2026-10-25).
 
-- **What is not in it**: `src/config/secrets.h` (the OTA password) and `platformio.local.ini` (the device's address and the same password, as `--auth`). Each has a committed `.example` next to it. `platformio.ini` pulls the local file in with `extra_configs`; a missing file is skipped without a word, and uploads then go over USB. The password was moved out before the first commit, so no commit contains it — which is what keeps making the repository public an option.
+- **What is not in it**: `src/config/secrets.h` (the OTA password) and `platformio.local.ini` (the device's address and the same password, as `--auth`). Each has a committed `.example` next to it. `platformio.ini` pulls the local file in with `extra_configs`; a missing file is skipped without a word, and uploads then go over USB. The password was moved out before the first commit, so no commit contains it — which is what made it safe to make the repository public.
 - **Line endings**: 27 of the files were CRLF and the rest LF. `.gitattributes` (`* text=auto eol=lf`) makes the repository store LF everywhere; a CRLF file in the working folder becomes LF the next time git writes it.
 - Also ignored: `.pio/`, the VS Code files the PlatformIO extension regenerates, `.claude/settings.local.json`.
 - **Platform and libraries are pinned to exact versions** in `platformio.ini`. The fresh clone made when the project left OneDrive (2026-10-08, see [CHANGELOG.md](CHANGELOG.md)) was the first build ever made without the old folder's `.pio/`, and it failed: `fastled/FastLED@^3.10.3` resolved to 3.10.6, which is 390KB bigger, and the firmware came to 115.6% of its partition instead of 85%. Nothing had warned of it, because an existing `.pio/libdeps` keeps whatever was installed first. With `espressif32@7.0.1`, FastLED 3.10.3, ArduinoJson 7.4.3, TinyGPSPlus 1.1.0 and the BNO08x library 1.0.6 pinned, a clean build gives the same binary as before. A library upgrade is now a deliberate change — and FastLED's needs its size looked at first.

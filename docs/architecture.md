@@ -1,6 +1,6 @@
-# Dialed — Firmware architecture
+# Dialed — Architecture
 
-How the firmware is put together: what runs where, the sampling loop, the clock. The pins and the sensors are in [hardware.md](hardware.md), the SD write path in [sd-card.md](sd-card.md), the files a run leaves and the API in [data-formats.md](data-formats.md).
+How the system is put together — device and browser — and then the firmware in detail: what runs where, the sampling loop, the clock. The pins and the sensors are in [hardware.md](hardware.md), the SD write path in [sd-card.md](sd-card.md), the files a run leaves and the API in [data-formats.md](data-formats.md).
 
 ## Project
 
@@ -13,6 +13,46 @@ The original idea of two rotary potentiometers used as string-pots was abandoned
 **Known gap — air springs only** (noted 2026-10-19): the setup, the tuning suggestions and the setup history all assume an air fork and shock (pressure, volume tokens). A coil spring's rate and preload have nowhere to go, and the suggestions' spring-side advice is all pressure and tokens. Not built: no coil-sprung bike to test on. What would change is listed in `todo.md`.
 
 Dashboard pages: `index.html`, `runs.html`, `run.html` (Overview/Analysis/Tuning tabs), `compare.html`, `trends.html`, `settings.html` (Bike/Sensors/WiFi/System tabs), sharing `style.css` and `common.js`, plus `telemetry.js` on the three pages that open a run. The dashboard is designed for **tablet / laptop / PC first**; the phone layout is a fallback.
+
+## System overview
+
+Two halves: the device on the bike records and serves files, and the browser does nearly all of the analysis.
+
+```mermaid
+flowchart LR
+    subgraph device["ESP32 on the bike"]
+        sensors["KPM12J × 2 (ADC1)<br/>GPS (UART)"] --> loop
+        imu["BNO08x<br/>imuTask, core 0"] --> loop
+        loop["loop(), core 1<br/>one pass = one 2ms sample<br/>then LED, battery, WiFi, web server"]
+        loop -- "row" --> queue[("queue<br/>448 rows")]
+        queue --> writer["sdWriter, core 0<br/>format, write, recover"]
+        writer --> csv[("SD: RUNxxxx.CSV")]
+        csv -- "when the run stops" --> meta[("SD: .JSON + .CSVB")]
+        web["web server<br/>one request at a time"]
+        fs[("LittleFS: the pages, gzipped")] --> web
+        nvs[("NVS: settings,<br/>calibration, IMU zero")]
+    end
+    meta --> web
+    web <-->|"WiFi: home network or the device's own AP<br/>(off while recording)"| browser
+    subgraph client["Browser: tablet, laptop, phone"]
+        browser["pages + common.js + telemetry.js"] --> cache[("localStorage:<br/>the runs list, by stamp")]
+        browser --> analysis["charts, segments, events,<br/>suggestions, Compare, Trends"]
+    end
+```
+
+- **While recording**, the radio is off (by default), so nothing competes with the sample clock. `loop()` takes a sample every 2ms and only queues the row; the writer on the other core formats it and writes it to the card, and recovers from a failed write without losing rows ([sd-card.md](sd-card.md)). The headline figures (`stats`) are added up sample by sample as it goes.
+- **When the run stops**, the device writes the run's `.JSON` (setup snapshot, stats, counters) and a compact `.CSVB` for the dashboard. The `.CSV` stays as it was, readable in a spreadsheet ([data-formats.md](data-formats.md)).
+- **Everything else is worked out in the browser**: decoding the `.CSVB`, the bike-frame angles and vertical G, gaps and lost orientation, trail segments, events, tuning suggestions, the setup history. The device has neither the memory nor the CPU to spare, and keeping it in JavaScript means a run recorded long ago is re-read with today's analysis.
+- **Where things live**:
+
+| Where | What |
+|---|---|
+| NVS (flash) | live settings, suspension calibration, IMU zero, WiFi |
+| SD card | runs (`.CSV`, `.JSON`, `.CSVB`), bike profiles (`/bikes/*.json`) |
+| LittleFS (flash) | the web pages only, gzipped at build time |
+| Browser `localStorage` | the runs list, kept by stamp; the last theme seen |
+
+- **The clock** comes from GPS, NTP or the browser, the most trusted one available (see [the clock and run dates](#the-clock-and-run-dates-added-2026-10-0607--field-validated-2026-10-10)). Durations never depend on it.
 
 ## Platform, tasks and cores
 

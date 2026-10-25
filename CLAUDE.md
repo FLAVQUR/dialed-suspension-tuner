@@ -6,11 +6,13 @@ A DIY ESP32 MTB suspension telemetry and tuning helper: firmware in `src/` (Plat
 
 | For | Read |
 |---|---|
-| Tasks, cores, the sampling loop, the clock | [docs/architecture.md](docs/architecture.md) |
+| What the product is for, its goals and non-goals | [docs/prd.md](docs/prd.md) |
+| How device and browser fit together; tasks, cores, the sampling loop, the clock | [docs/architecture.md](docs/architecture.md) |
 | Pins, sensors, calibration, the IMU's mounting and maths | [docs/hardware.md](docs/hardware.md) |
 | Anything touching the SD card or a run's integrity | [docs/sd-card.md](docs/sd-card.md) |
 | A run's files, the `.JSON` keys, the API | [docs/data-formats.md](docs/data-formats.md) |
 | Any page in `data/` | [docs/dashboard.md](docs/dashboard.md) |
+| Colours, type, components, chart rules — before touching any UI | [docs/design-system.md](docs/design-system.md) |
 | What the rides showed, the bike's setup and tuning | [docs/field-log.md](docs/field-log.md) |
 | Something misbehaving; testing on the device | [docs/troubleshooting.md](docs/troubleshooting.md) |
 | Before proposing anything | [docs/decisions.md](docs/decisions.md) — don't re-propose what is there |
@@ -22,6 +24,7 @@ A DIY ESP32 MTB suspension telemetry and tuning helper: firmware in `src/` (Plat
 - **Work from `todo.md`.** When an item is done, it leaves `todo.md` and gets a dated entry at the top of `CHANGELOG.md`. In the same step, write whatever is worth keeping into the `docs/` file it belongs to — what was built, why it was built that way, what went wrong on the way. Do this after every change worth recording, without being asked. A change that leaves nothing worth recording needs no entry.
 - **Anything decided or turned down** goes into `docs/decisions.md`, with the date and the reason.
 - **Every `.md` file is written in English.**
+- **How a long doc is laid out**: an "In short" `> [!NOTE]` at the top; rules and dangers as GitHub alerts (`> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`) rather than a ⚠ in the middle of a paragraph; measurements, test details and history behind `<details><summary>…</summary>` (a blank line after the summary line, or the Markdown inside is not rendered). What stays visible is how things work now.
 - **Measured, not assumed.** Numbers in the docs come from the device or from a run: rows per second in the CSV, not the configured rate. Say how something was checked, and say when it wasn't.
 - **The dashboard is desktop first** (tablet, laptop, PC); the phone is a fallback. Check wide widths first, and keep the run page's charts vertically dense.
 
