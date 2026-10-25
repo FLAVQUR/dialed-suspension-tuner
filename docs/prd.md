@@ -75,5 +75,3 @@ A device that rides on a mountain bike and records how the suspension moves on e
 What supports that, without replacing it:
 - **The data can be trusted**: `rows_dropped` and `rows_lost` at 0 and no SD recovery on a ride (held on 2026-10-18). A suggestion read off bad data is worse than none.
 - **The data agrees with the feel**: after an applied change, the figures it was meant to move do move — the rear's bottom-outs per run, say — and the rider's note on the run says it felt better.
-
-No target for the time between stopping a run and seeing it on a phone, for now (the rider, 2026-10-25).

@@ -81,6 +81,36 @@ Checked with a test build that faked a failure every 37 flushes and cut the file
 
 In `src/run/run_service.cpp`:
 
+```mermaid
+flowchart TD
+    row["A row off the queue"] --> write["Write it<br/>kept in pending until a flush confirms it"]
+    write --> due{"100ms since the last flush,<br/>or pending nearly full?"}
+    due -- no --> row
+    due -- yes --> flush["Flush"] --> check{"Card holds every<br/>byte accepted?"}
+    check -- yes --> ok["Confirmed<br/>pending emptied"]:::ok
+    check -- no --> retry["Flush again,<br/>size from stat()"] --> check2{"Now?"}
+    check2 -- yes --> okr["Confirmed<br/>sd_retry_ok + 1"]:::ok
+    check2 -- no --> broken["Sync failed:<br/>recovery starts"]:::warn
+    broken --> reopen["Reopen in append mode<br/>at most every 150ms"]
+    reopen -- "fails" --> hold["Hold new rows in pending,<br/>try again"]:::warn
+    hold --> reopen
+    reopen -- "open" --> fin["Finish the cut line with 0,0<br/>or start a new one"]
+    fin --> replay["Replay every pending row,<br/>flush"]
+    replay --> stuck{"On the card?"}
+    stuck -- no --> hold
+    stuck -- yes --> rec["Recovered, nothing lost<br/>sd_recovered + 1"]:::ok
+    hold -. "pending full" .-> queue["Rows wait in the queue<br/>448 deep"]:::warn
+    queue -. "queue full too" .-> drop["New rows turned away<br/>rows_dropped"]:::bad
+    hold -. "run stopped first" .-> lost["Pending rows never written<br/>rows_lost, incomplete"]:::bad
+    classDef default fill:#E6E9E8,stroke:#4A5C6A,color:#06141B
+    classDef ok fill:#dcfce7,stroke:#15803d,color:#06141B
+    classDef warn fill:#fef3c7,stroke:#b45309,color:#06141B
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#06141B
+```
+
+Amber is waiting, red is data lost. The counters a failed step leaves (`sd_reopen_failed`, `sd_stat_failed`, `sd_replay_failed`) are in the run's `.JSON`.
+
+
 1. After every flush (every 100ms, `RUN_FLUSH_INTERVAL_MS`), compare the on-disk size with the bytes accepted. The size comes from `stat()` on the file path — **not** `csvFile.size()`, which returns a stale cached value when called twice with only a `flush()` in between. That bug made `sd_retry_ok` structurally 0 in every run before the fix; ignore those old readings and any conclusion drawn from them.
 2. On mismatch, retry the flush once (`sd_retry_ok`).
 3. If it still fails: reopen in append mode, write a newline, and **replay the `pending` buffer** — every row since the last confirmed flush (`sd_recovered`). Reopen is retried every 150ms; a final attempt runs at `stop()`.
@@ -134,11 +164,11 @@ Earlier stages of the investigation, kept because their measurements are still t
 - Every failure that logged anything was a communication error: `sdCommand(): crc error` — the card answering that the command it received had a bad checksum — or `token error [13] 0x3` / `0x47`, a garbled reply to the status check after a write. Some failures log nothing: the driver does not log a rejected data block. The card's CRC catches all of them, which is why nothing has ever been corrupted silently.
 - **The failure rate follows how long the bus is busy, not how fast it is clocked:**
 
-  | SD clock | Failures | Per minute |
-  |---|---|---|
-  | 4MHz | 30 in 9 min | 3.3 |
-  | 10MHz | 12 in 10 min | 1.2 |
-  | 20MHz | 3 in 7 min | 0.4 |
+  | SD clock | Failures | Per minute | |
+  |---|---|---|---|
+  | 4MHz | 30 in 9 min | 3.3 | ❌ |
+  | 10MHz | 12 in 10 min | 1.2 | ⚠️ |
+  | 20MHz | 3 in 7 min | 0.4 | ✅ chosen |
 
   That is about half an error per second of bus activity at all three. Something disturbs the link at a steady rate in *time*, so a slower clock, which keeps every transfer on the wires for longer, gets hit more often. **Lowering the clock makes it worse.**
 - Not the cause — each switched at run time and compared: the **LED's data line** (LED written on every pass: 0 failures in 2 min; quiet: 3), the **GPS serial line** (each error was tagged with the GPS's activity: 3 of 14 fell inside its 280ms-per-second burst, which is what chance gives), the **IMU's SPI bus** (polling paused: 5 failures in 2 min; active: 5).

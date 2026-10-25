@@ -38,6 +38,9 @@ flowchart LR
         browser["pages + common.js + telemetry.js"] --> cache[("localStorage:<br/>the runs list, by stamp")]
         browser --> analysis["charts, segments, events,<br/>suggestions, Compare, Trends"]
     end
+    classDef default fill:#E6E9E8,stroke:#4A5C6A,color:#06141B
+    classDef store fill:#CCD0CF,stroke:#253745,color:#06141B
+    class queue,csv,meta,fs,nvs,cache store
 ```
 
 - **While recording**, the radio is off (by default), so nothing competes with the sample clock. `loop()` takes a sample every 2ms and only queues the row; the writer on the other core formats it and writes it to the card, and recovers from a failed write without losing rows ([sd-card.md](sd-card.md)). The headline figures (`stats`) are added up sample by sample as it goes.

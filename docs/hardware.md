@@ -24,6 +24,26 @@ GPIO36 is free (it briefly held the 3.3V rail monitor). Any future analog input 
 
 ## Suspension sensors and calibration
 
+```mermaid
+flowchart LR
+    travel["Bike tab:<br/>declared travel"] --> max
+    zero["Zero<br/>bike at rest"] --> max["Max<br/>end fully compressed"]
+    max --> span{"Zero and Max<br/>300mV apart or more?"}
+    span -- no --> flag["Flagged: probably<br/>not compressed"]:::warn
+    flag -. "capture again" .-> max
+    span -- yes --> sag["Sag<br/>both ends, live"]:::ok
+    sag --> ride["Riding: Max extends itself<br/>if deeper by 1mm for 15ms"]
+    imuz["IMU zero<br/>bike truly vertical"] --> rest{"About 1g, and steady<br/>within 0.75°?"}
+    rest -- no --> refused["Refused"]:::bad
+    rest -- yes --> up["Reference stored<br/>and copied into each run"]:::ok
+    classDef default fill:#E6E9E8,stroke:#4A5C6A,color:#06141B
+    classDef ok fill:#dcfce7,stroke:#15803d,color:#06141B
+    classDef warn fill:#fef3c7,stroke:#b45309,color:#06141B
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#06141B
+```
+
+Max can't be captured until that end's declared travel is set in the Bike tab. Zero and Max are per end and belong to the device, not to a bike profile; the sag goes stale when the pressure or tokens change.
+
 - **Sensor strokes**: 200mm KPM12J on the 170mm fork, 75mm KPM12J on the 55mm shock, so neither sensor runs out of rod before the suspension bottoms.
 - **Two-point calibration per side**: Capture Zero (rest) and Capture Max, stored in millivolts in NVS (`suspension` namespace). It is device-level and **not part of a bike profile** — it describes how the sensor is mounted right now.
 - **Declared travel** (`settings.frontMaxTravelMM` / `rearStrokeMM`) is a separate, rider-entered spec that lives in `SystemConfig` and in each bike profile (`bikes.cpp`), so switching bikes restores the right travel. `run.html` reads it from each run's `.JSON`.

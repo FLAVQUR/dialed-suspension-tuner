@@ -50,6 +50,14 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
 | `--map-ink` | lines drawn on the map tiles, which are light in both themes |
 
 - **Within one chart: front + rear, or one hue + neutral.** Those are the combinations the palette is validated for, colour-blind vision included. Pink ↔ aqua and violet ↔ blue do **not** pass side by side, so never put them in the same chart.
+
+  | In one chart | |
+  |---|---|
+  | front + rear | ✅ |
+  | any one hue + neutral | ✅ |
+  | pink + aqua | ❌ |
+  | violet + blue | ❌ |
+  | any other two hues | ❌ not validated |
 - Blue, orange and violet have a darker step in the light theme (each clears 3:1 on white). Aqua and pink are the same in both.
 - The neutral is only 2.4:1 on the light card, so it always comes with a label ("Run A", "Vertical", the segment names).
 - **Text never takes a series colour.** Values, labels and legends stay in `--text` / `--text-muted`; a coloured mark beside them carries the identity.

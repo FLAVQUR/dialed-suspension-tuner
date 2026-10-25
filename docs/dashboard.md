@@ -135,17 +135,36 @@ The web pages the device serves (`data/`): shared UI, the run page, the tuning s
 
 **Harsh-event calibration (2026-10-03)** used RUN0045 as a natural experiment — same track as RUN0044/RUN0046 but with the rear on Threshold, so its rear should transmit more while its front stays unchanged. Event counts per cut (RUN0042/44/45/46):
 
-| cut | harsh front | harsh rear |
-|---|---|---|
-| ≤10pp | 1 / 3 / 1 / 0 | 2 / 3 / 4 / 1 |
-| **≤15pp** | **3 / 3 / 3 / 5** | **4 / 4 / 10 / 4** |
-| ≤20pp | 8 / 4 / 6 / 5 | 6 / 7 / 13 / 9 |
+| cut | harsh front | harsh rear | |
+|---|---|---|---|
+| ≤10pp | 1 / 3 / 1 / 0 | 2 / 3 / 4 / 1 | |
+| **≤15pp** | **3 / 3 / 3 / 5** | **4 / 4 / 10 / 4** | ✅ chosen |
+| ≤20pp | 8 / 4 / 6 / 5 | 6 / 7 / 13 / 9 | |
 
 `HARSH_TRAVEL_PP` was therefore set to **15**: that is where the end that changed stands out most (RUN0045's rear 2.5× the others) while the end that didn't stays flat. The p98 threshold lands at 2.76-3.62G on these runs, so the 1.5G floor never binds on real trail data.
 
 </details>
 
 ## Tuning Suggestions engine (`generateSuggestions()` in `run.html`)
+
+```mermaid
+flowchart LR
+    data[".CSVB rows, the setup,<br/>static sag, Notable Events"] --> ev
+    subgraph each["For each end: front, then rear"]
+        ev["1 · Collect evidence<br/>average travel, time topped out,<br/>bottom-outs, rebound ratio,<br/>sag, impacts"] --> dx["2 · Diagnose<br/>one most likely cause:<br/>bottoming, sag, rebound,<br/>too firm, high usage"]
+        dx --> rb["Rebound balance<br/>unless rebound already<br/>is the cause"]
+        dx --> txt
+        rb --> txt["3 · Generate text<br/>only the adjusters that end has,<br/>clicks or psi by severity 1–3"]
+        txt --> ctx["4 · Setup context<br/>First run since…,<br/>stale static sag"]
+    end
+    ctx --> tab["Tuning tab"]:::ok
+    imb["Front/rear imbalance<br/>from the median gap"] --> tab
+    lock["Rear locked out:<br/>a note first"]:::warn -.-> tab
+    classDef default fill:#E6E9E8,stroke:#4A5C6A,color:#06141B
+    classDef ok fill:#dcfce7,stroke:#15803d,color:#06141B
+    classDef warn fill:#fef3c7,stroke:#b45309,color:#06141B
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#06141B
+```
 
 **The problem it solves**: the old version had each rule look at one metric in isolation and fire its own suggestion, which let two contradictory suggestions appear on the same run (low `avgPct` → "add pressure", fast rebound → "slow the rebound"). RUN0017 hit exactly that.
 
