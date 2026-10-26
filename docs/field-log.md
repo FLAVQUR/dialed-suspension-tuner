@@ -9,6 +9,7 @@ What each ride showed, the setup it was ridden on, and the tuning that followed.
 | 2026-09-28 | RUN0042, 44–46 | ~385Hz, SD at 10MHz | 225 psi, 1 token | ✅ the data held · ✅ front dialled · ⚠️ rear bottoms out 2–3× a run |
 | 2026-10-10 | RUN0047–50 | 500Hz, SD at 20MHz | 235 psi (+10) | ✅ 500Hz holds · ⚠️ two runs lost ~0.5s to slow SD recoveries · ❌ +10 psi not enough |
 | 2026-10-18 | RUN0051–53 | 500Hz, SD driver fixed | 235 psi | ✅ no SD recovery at all · ➖ slippery and slow, no orientation loss to study |
+| 2026-10-25 | RUN0054–58 | 500Hz, firmware `v0.1.0-15` | 235 psi | ✅ 4 of 5 runs whole · ⚠️ RUN0057 lost 0.3s to a 1.36s card stall · ⚠️ both sensors slipped on their mounts (the rear reads ~1.2mm high) |
 
 > [!TIP]
 > **Next on the rear**: one more positive volume token (1 → 2), waiting on the part. See [the tuning ladder](#rear-shock--spec-decoded-and-tuning-ladder).
@@ -79,6 +80,22 @@ What each ride showed, the setup it was ridden on, and the tuning that followed.
 **The IMU did not lose its orientation**, so `imu_diag` could not say why it does. No stretch reached 60° of disagreement (the worst second: 52°); the median was 13–15°, against 15–22° on 2026-10-10. The rotation vector rated itself 3 (high) in every second of every run, its accuracy estimate rising from 4° at rest to 5–14° while riding. Readings at the ±8g ceiling were rare: 13–28 rows a run, against dozens on one axis alone before. Consistent with saturation being the trigger, but a slower ride is no proof of it.
 
 **The battery was nearly full this time**, and at half charge or less on 2026-10-10, as the rider remembers it. So three things changed at once — the firmware, the pace and the charge — and these runs cannot tell them apart. The firmware fix does not need the battery to explain it (the stray statuses were reproduced and fixed on the bench, on USB power), but a low battery could make them more frequent: the 3.3V rail was only ever checked on USB power. Nothing recorded the battery in any run, so **from 2026-10-19 every run's `.JSON` has `battery_v`**: `start` and `end` (the smoothed voltage the dashboard shows) and `lowest`, the lowest 200ms burst while recording (`batteryBurstVoltage()`; one burst every 3s, so millisecond sags are out of reach). Not shown on the dashboard, by the rider's choice.
+
+## Field test 2026-10-25 (a ride for reliability, on mounts that had slipped)
+
+5 runs on firmware `v0.1.0-15-g4279803`, the setup unchanged since 2026-10-10 (69/235 psi, 1/1 tokens; static sag not recaptured). Not a setup test: a ride to see whether the firmware's reliability holds, and for the rider to work on cornering. The rider is happy with the current setup; pushing it needs cleaner tracks, or a better-kept trail elsewhere. The rider rated every run badly, but for the riding, not the bike: the tracks were dirty and gave no confidence to push. **The bike felt good.** So the pace was held back, as on 2026-10-18, and these runs say little about the setup. Both sensors had moved a little on their mounts from where they were calibrated — the straps holding them no longer grip as they should and are to be replaced.
+
+Tracks, from the GPS against RUN0051/52: RUN0054 and RUN0056 on the warm-up track, RUN0055 on the aggressive one, RUN0057 most likely the aggressive one (its trace sits between the two), RUN0058 on a track about 200m from either, ridden faster (33 km/h against 24–28) and using far less travel (front peak 116mm against 141–151).
+
+**Four runs whole, one with 0.3s missing.** `sd_recovered` 0 and `rows_lost` 0 in all five: no write failed. RUN0057 has `rows_dropped: 151` — the first time rows were dropped at the queue with no recovery at all. 8.3s into the run, about 404KB into its file, the card took 375, 624 and 357ms over three writes in a row: 1.36s with the writer stopped, against the 0.9s the 448-row queue covers. The rows came off in two gaps, 12 rows at 9.26s and 139 at 9.62s. The rest of that run's slow writes (172, 214, 141+140ms) the queue absorbed.
+
+**Slow writes, against 2026-10-18**: 6–10 writes over 100ms a run (4–6 then); the longest stall otherwise 0.37–0.42s (0.21–0.30s then). Slightly worse, on a handful of runs — and RUN0057's 1.36s is three times anything else on record since the driver fix.
+
+**The rear sensor reads about 1.2mm high.** On 2026-10-18 the shock read 0mm (topped out) for 0.8–1.3% of every run; on this ride never, its lowest 0.5% around 1mm and its median 1.5mm higher on the same tracks. That is ~2% of the 55mm stroke, and it is enough to make bottom-outs: counted above 97% of travel, the rear has 2 / 3 / 2 / 2 / 0 as recorded and 1 / 0 / 1 / 0 / 0 with 1.2mm taken off — against 1 / 2 / 2 on 2026-10-18. RUN0054 and RUN0056 reached 55.0mm. Treat this ride's rear bottom-outs and rear averages as overstated. The front shows no clear change at its zero.
+
+**The IMU did not lose its orientation** (one second at 68° in RUN0054, none over 60° elsewhere; median 10–14°). The first real-ride `imu_diag` says something about the status, though: in RUN0056 the rotation vector rated itself 1 (low) for the first 17 seconds, its accuracy estimate at 82–84°, then recovered — while its "up" agreed with the accelerometer throughout (worst second 38°). And RUN0054's 68° second came with the status at 3. So the status follows the heading (the magnetometer settling), not the tilt, as the library's documentation suggested; on this evidence it can't flag a lost orientation.
+
+**Battery**: 4.03V at the start of RUN0054 (16:41) to 3.96V at the end of RUN0058 (17:38). Every run ends higher than it starts (the radio is off while recording), and the lowest burst is within 0.02V of the start. When the device was switched on is not recorded, so this gives no battery life yet.
 
 ## Rear shock — spec decoded and tuning ladder
 

@@ -1,4 +1,5 @@
 #include <vector>
+#include <atomic>
 #include <algorithm>
 #include <cmath>
 #include <cerrno>
@@ -20,6 +21,8 @@
 #include "suspension/suspension.h"
 #include "imu/imu.h"
 #include "power/battery.h"
+#include "connectivity/network.h"
+#include <esp_heap_caps.h>
 
 static File csvFile;
 static String currentRun;
@@ -273,6 +276,79 @@ static constexpr int LOG_QUEUE_DEPTH = 448;
 static QueueHandle_t logQueue = nullptr;
 static SemaphoreHandle_t drainSem = nullptr;
 static TaskHandle_t sdWriterTaskHandle = nullptr;
+
+// ─── Spill buffer: more room behind the queue, while the radio is off ───────
+//
+// The queue covers 0.9s of a card that has stopped answering. On 2026-10-25
+// (RUN0057) the card stopped for 1.36s over three writes, no write failing,
+// and 151 rows were dropped. The queue can't simply be made deeper: it is
+// allocated at boot from the heap WiFi needs (see `pending` below for what
+// 48KB too many did to lwIP). But with the radio off for a run, the WiFi
+// driver's memory is free — so a run takes a second, larger buffer for its
+// own duration, and gives it back before the radio comes up again.
+//
+// Rows go into it only once the queue is full, and every row after that
+// goes into it too until it is empty again, so the writer — which takes from
+// the queue first and from here only when the queue is empty — sees them in
+// the order they were sampled. One producer (log(), core 1) and one consumer
+// (the writer task, core 0): a ring with an index each side, no lock.
+//
+// Taken in chunks, not as one block: with the radio off there is ~100KB
+// free, but in pieces — on the bench the largest one was 31–41KB and shrank
+// from run to run, so a single block gave 223–383 rows. 8KB chunks fit in
+// the gaps, and it is the total that counts.
+static constexpr uint32_t SPILL_CHUNK_ROWS = 64;        // 4KB a chunk
+static constexpr uint32_t SPILL_MAX_CHUNKS = 16;        // 1024 rows, 2s at 500Hz, 64KB
+static constexpr uint32_t SPILL_HEAP_RESERVE = 32768;   // free heap left for everything else
+static LogRow* spillChunks[SPILL_MAX_CHUNKS] = {};
+static uint32_t spillChunkCount = 0;
+static uint32_t spillCapacity = 0;          // set before the run starts, 0 when there is none
+
+static LogRow& spillSlot(uint32_t index) {
+    uint32_t i = index % spillCapacity;
+    return spillChunks[i / SPILL_CHUNK_ROWS][i % SPILL_CHUNK_ROWS];
+}
+// Release on the side that writes an index, acquire on the side that reads
+// it: a row is in the ring before the other core can see the head move past
+// it, and out of it before the tail move lets the slot be reused.
+static std::atomic<uint32_t> spillHead{0};  // written by log() only
+static std::atomic<uint32_t> spillTail{0};  // written by the writer task only
+static uint32_t spillMaxUsed = 0;           // the most it held at once, for the run's .JSON
+static uint32_t heapFreeAtStart = 0;        // free heap once the run's buffers are taken
+
+static uint32_t spillCount() {
+    return spillHead.load(std::memory_order_acquire) - spillTail.load(std::memory_order_acquire);
+}
+
+// log()'s side. False when there is no spill buffer or it is full.
+static bool spillPush(const LogRow& r) {
+    uint32_t head = spillHead.load(std::memory_order_relaxed);
+    uint32_t used = head - spillTail.load(std::memory_order_acquire);
+
+    if (spillCapacity == 0 || used >= spillCapacity)
+        return false;
+
+    spillSlot(head) = r;
+    spillHead.store(head + 1, std::memory_order_release);
+
+    if (used + 1 > spillMaxUsed)
+        spillMaxUsed = used + 1;
+
+    return true;
+}
+
+// The writer's side. Never touches the buffer when it is empty, which is
+// what lets stop() free it once it has drained.
+static bool spillPop(LogRow& r) {
+    uint32_t tail = spillTail.load(std::memory_order_relaxed);
+
+    if (spillHead.load(std::memory_order_acquire) == tail)
+        return false;
+
+    r = spillSlot(tail);
+    spillTail.store(tail + 1, std::memory_order_release);
+    return true;
+}
 
 static String csvPath(const String& run);
 
@@ -618,6 +694,104 @@ static void writeLogRow(const LogRow& row) {
     lastWriteSuccessMs = millis();
 }
 
+// The next row for the writer, oldest first: the queue, then the spill
+// buffer. While the spill holds rows, log() adds nothing to the queue, so
+// whatever is left in the queue is older than all of them.
+//
+// stop()'s drain marker is the one thing that can arrive in the queue while
+// the spill holds rows — and those rows were sampled before it. So it is held
+// back until the spill has been emptied, then handed over.
+//
+// Blocking on the queue is safe: the spill only fills while the queue is
+// full, and the writer empties the queue before it looks at the spill.
+static bool markerHeldBack = false;
+
+// At the start of a run, once the radio is down: up to SPILL_MAX_CHUNKS
+// chunks, while the free heap stays above SPILL_HEAP_RESERVE. None with the
+// radio on — that heap is lwIP's.
+static uint32_t spillRowsThisRun = 0;
+
+static void spillTake() {
+    spillMaxUsed = 0;
+    spillRowsThisRun = 0;
+
+    // Left over from a run whose drain never finished (see spillGiveBack()).
+    if (spillCapacity > 0) {
+        spillRowsThisRun = spillCapacity;
+        return;
+    }
+
+    if (wifiGetMode() != WifiMode::NET_OFF)
+        return;
+
+    uint32_t chunkBytes = SPILL_CHUNK_ROWS * sizeof(LogRow);
+
+    while (spillChunkCount < SPILL_MAX_CHUNKS && ESP.getFreeHeap() >= SPILL_HEAP_RESERVE + chunkBytes) {
+        LogRow* chunk = (LogRow*)malloc(chunkBytes);
+        if (!chunk)
+            break;
+        spillChunks[spillChunkCount++] = chunk;
+    }
+
+    spillHead.store(0, std::memory_order_relaxed);
+    spillTail.store(0, std::memory_order_relaxed);
+    spillCapacity = spillChunkCount * SPILL_CHUNK_ROWS;
+    spillRowsThisRun = spillCapacity;
+    Serial.printf("RunService: spill buffer %u rows in %u chunks, free heap %u\n",
+                  (unsigned)spillCapacity, (unsigned)spillChunkCount, (unsigned)ESP.getFreeHeap());
+}
+
+// At the end of a run, before the radio comes back. Only once the writer has
+// emptied it: while it holds rows the writer may be reading one.
+static void spillGiveBack() {
+    if (spillCapacity == 0)
+        return;
+
+    for (int i = 0; i < 100 && spillCount() > 0; i++)
+        vTaskDelay(pdMS_TO_TICKS(10));
+
+    if (spillCount() > 0) {
+        Serial.printf("RunService: spill buffer still holds %u rows; kept\n", (unsigned)spillCount());
+        return;
+    }
+
+    spillCapacity = 0;
+
+    for (uint32_t c = 0; c < spillChunkCount; c++) {
+        free(spillChunks[c]);
+        spillChunks[c] = nullptr;
+    }
+
+    spillChunkCount = 0;
+}
+
+static bool takeRow(LogRow& row) {
+    for (;;) {
+        if (markerHeldBack) {
+            if (spillPop(row))
+                return true;
+
+            markerHeldBack = false;
+            row = LogRow{};
+            row.isDrainMarker = true;
+            return true;
+        }
+
+        if (xQueueReceive(logQueue, &row, 0) == pdTRUE ||
+            (spillCount() == 0 && xQueueReceive(logQueue, &row, portMAX_DELAY) == pdTRUE)) {
+            if (row.isDrainMarker && spillCount() > 0) {
+                markerHeldBack = true;
+                continue;
+            }
+
+            return true;
+        }
+
+        if (spillPop(row))
+            return true;
+    }
+}
+
 static void sdWriterTask(void*) {
     LogRow row;
 
@@ -640,7 +814,7 @@ static void sdWriterTask(void*) {
             continue;
         }
 
-        if (xQueueReceive(logQueue, &row, portMAX_DELAY) != pdTRUE)
+        if (!takeRow(row))
             continue;
 
         if (row.isDrainMarker) {
@@ -1106,6 +1280,14 @@ static void writeRunMeta(float durationSeconds) {
     doc["rows_dropped"] = rowsDropped;
     doc["rows_lost"] = rowsLost;
     doc["rows_written"] = runStats.count - rowsDropped - rowsLost;
+
+    // The spill buffer this run had behind the queue (0: none, the radio
+    // stayed on or the heap had no room), the most it held at once, and the
+    // free heap once it was taken — to see whether it was needed, and how
+    // much room it left.
+    doc["spill_rows"] = spillRowsThisRun;
+    doc["spill_max"] = spillMaxUsed;
+    doc["heap_free_recording"] = heapFreeAtStart;
 
     doc["imu_resets"] = imuHealth.resets - imuResetsAtStart;
     doc["imu_streaming"] = imuHealth.streaming;
@@ -1613,6 +1795,7 @@ bool RunService::start() {
     imuResetsAtStart = imuGetHealth().resets;
     rowsDropped = 0;
 
+
     // Only a warning, not a failure: an overflow is detected and flagged
     // rather than silently losing rows. The sampling loop does deliver the
     // configured rate since 2026-10-07 (it used to manage 300-390 rows/s of a
@@ -1636,6 +1819,12 @@ bool RunService::start() {
     batteryAtStart = readBatteryVoltage();
     batteryLowest = 0;
 
+    // Last, after everything else the run takes from the heap: the radio is
+    // down by now (recordingPrepare() above), and its memory free. No row
+    // reaches log() before this returns — both run on loop()'s task.
+    spillTake();
+    heapFreeAtStart = ESP.getFreeHeap();
+
     Serial.println("Run started: " + currentRun);
     return true;
 }
@@ -1656,6 +1845,7 @@ void RunService::stop() {
     xQueueSend(logQueue, &marker, portMAX_DELAY);
     xSemaphoreTake(drainSem, pdMS_TO_TICKS(3000));
     stopping = false;
+    spillGiveBack();
     imuDiagStop();
 
     storageClose(csvFile);
@@ -1784,7 +1974,12 @@ void RunService::log(
     // the pending buffer and the writer stall. Every hole lines up with an SD
     // recovery long enough to fill the queue (a reopen + replaying ~300 rows,
     // sometimes more than once) — see rows_dropped in the run's .JSON.
-    if (xQueueSend(logQueue, &row, 0) != pdTRUE)
+    //
+    // Past a full queue, the spill buffer when the run has one — and while
+    // that holds rows, every row goes there, so none overtakes them.
+    bool queued = spillCount() == 0 && xQueueSend(logQueue, &row, 0) == pdTRUE;
+
+    if (!queued && !spillPush(row))
         rowsDropped++;
 }
 

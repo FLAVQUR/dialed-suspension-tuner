@@ -75,7 +75,8 @@ src/gps/gps.cpp          — NMEA decoding (bounded non-blocking read, values ca
 src/system/clock.cpp     — wall-clock time from GPS / NTP / browser, most trusted source wins
 src/connectivity/network.cpp — STA/AP state machine; starts NTP when the home network connects
 src/logger/logger.cpp    — one row per suspension sample, stamped with the time it was due
-src/run/run_service.cpp  — recording (incl. timed runs), SD writer task (detect/retry/reopen/replay), row formatting,
+src/run/run_service.cpp  — recording (incl. timed runs), SD writer task (detect/retry/reopen/replay), the spill
+                           buffer behind the queue (radio off), row formatting,
                            run .JSON (stats, start_utc, title, notes), compact .CSVB,
                            orphaned-run recovery
 src/storage/storage.cpp  — SD init (SD_SPI_HZ), open/flush/close wrappers

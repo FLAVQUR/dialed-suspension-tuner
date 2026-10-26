@@ -62,6 +62,7 @@ Written when the run stops (`writeRunMeta()` in `run_service.cpp`), and changed 
 | `incomplete` | rows were lost on the card side (`rows_lost`), not at the queue |
 | `no_gps` | no fix during the whole run |
 | `rows_written`, `rows_dropped`, `rows_lost` | samples in the file; dropped at the queue; taken by the writer and never written ([how to read a run](sd-card.md)) |
+| `spill_rows`, `spill_max`, `heap_free_recording` | the spill buffer the run had behind the queue (0: none, the radio stayed on), the most it held at once, and the free heap once it was taken ([spill buffer](sd-card.md#spill-buffer-2026-10-26)); since 2026-10-26 |
 | `sd_retry_ok`, `sd_recovered`, `sd_last_errno`, `sd_last_gap_bytes`, `sd_recover_max_ms`, `sd_reopen_failed`, `sd_stat_failed`, `sd_replay_failed` | the SD writer's counters ([sd-card.md](sd-card.md)) |
 | `imu_resets`, `imu_streaming` | the BNO08x link during the run |
 | `imu_up` | `[x, y, z]`: the IMU's zero reference when the run was recorded; absent before the IMU was zeroed |

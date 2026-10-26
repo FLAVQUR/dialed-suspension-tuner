@@ -14,6 +14,9 @@ platformio.local.ini
 # Written by tools/version_stamp.py on every build
 include/version_stamp.h
 
+# Local copies kept before a big change, for going back by hand (git has the history)
+backups/
+
 # Claude Code per-machine settings
 .claude/settings.local.json
 

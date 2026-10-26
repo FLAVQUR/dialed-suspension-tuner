@@ -6,6 +6,7 @@ How a run gets onto the card, why writes failed and how that was fixed, and what
 > **In short**
 > - Runs used to "fail" to write because the SD driver took a stray `0x03` in the card's status for an error. A project copy of the driver (`lib/SD`) asks again before failing (2026-10-11); the first ride on it had no failure at all.
 > - A write that does fail is still recovered: the file is reopened and the rows since the last good flush are replayed, so nothing is lost.
+> - A card that merely stalls is covered for ~2.6–2.8s: the 448-row queue, then a spill buffer of up to 1024 rows that each run takes from the heap the radio frees (since 2026-10-26).
 > - Hundreds of runs on the card are fine: nothing walks the card by opening every file any more (tested with 120).
 > - Reading a run's integrity: see [How to read a run](#how-to-read-a-run).
 
@@ -48,6 +49,32 @@ The writer used to keep taking rows off the queue while the card was away, into 
 
 - **`pending` is now also flushed when it is about to fill**, not only by the clock. Rows that queue up behind a slow write are written in one burst, far more than a flush window, and with the queue deeper than `pending` that burst overflowed it: three 100s bench runs came back `incomplete` with every one of their 50000 rows in the file. A flush confirms the rows and empties `pending`, so outside a recovery it can no longer overflow.
 - **The firmware as it now is, on the bench**: 11 runs of 4s and 3 of 100s, no recovery, nothing dropped, nothing lost, every line valid. Not ridden.
+
+</details>
+
+## Spill buffer (2026-10-26)
+
+On 2026-10-25 the card stopped for 1.36s over three writes in RUN0057, no write failing, and 151 rows were dropped: the queue covers 0.9s. The queue can't simply be deeper — it comes from the heap WiFi needs, at boot. But with the radio off for a run (`wifiOffWhileRecording`, the default), the WiFi driver's memory is free, so **each run takes a second buffer behind the queue and gives it back before the radio comes up again** (`spillTake()` / `spillGiveBack()` in `run_service.cpp`).
+
+- **Rows go into it only once the queue is full**, and every row after that goes into it too until it is empty again. The writer takes from the queue first and from the spill only when the queue is empty, so it sees every row in the order it was sampled. One producer (`log()`, core 1), one consumer (the writer, core 0): a ring with an atomic index each side, no lock.
+- **stop()'s drain marker** can reach the queue while the spill still holds older rows; the writer holds it back until the spill is empty (`takeRow()`).
+- **Taken in 4KB chunks**, up to 16 (1024 rows, 2s at 500Hz), while the free heap stays above 32KB. With the radio off there is ~100KB free but in pieces: as one block the spill got 223–383 rows and shrank from run to run on the bench; in 8KB chunks 640–896; in 4KB chunks 832–960, and the full 1024 on a fresh boot.
+- **None with the radio on** — that heap is lwIP's. A run recorded with WiFi on has `spill_rows: 0` and the queue alone, as before.
+- Each run's `.JSON` says what it had: `spill_rows`, `spill_max` (the most it held at once) and `heap_free_recording` (free heap once it was taken).
+
+<details>
+<summary>How it was tested (bench, 2026-10-26)</summary>
+
+A temporary hook made the writer stop for a set time partway through a timed run — a card stall to order — and every line of each file was checked for the 2ms step and the order. Since removed.
+
+| Stall | Spill | Rows dropped | |
+|---|---|---|---|
+| 1.5s, as RUN0057 | 960 / 832 rows | 0 | ✅ |
+| 2.5s | 896 | 0 | ✅ |
+| run stopped 1.5s into a 2.5s stall | 832 | 0, every row to the last | ✅ |
+| 4s (8KB chunks) | 640 | 1074, in one gap, the rest in order | ✅ as expected |
+
+The heap's largest free block was 45KB after each run, as before it: giving the chunks back leaves WiFi no worse off. A normal 10s run on the final build: spill 1024 rows, unused, 5000 rows 2ms apart.
 
 </details>
 
@@ -100,7 +127,8 @@ flowchart TD
     stuck -- no --> hold
     stuck -- yes --> rec["Recovered, nothing lost<br/>sd_recovered + 1"]:::ok
     hold -. "pending full" .-> queue["Rows wait in the queue<br/>448 deep"]:::warn
-    queue -. "queue full too" .-> drop["New rows turned away<br/>rows_dropped"]:::bad
+    queue -. "queue full" .-> spillbuf["Then in the spill buffer<br/>up to 1024, radio off"]:::warn
+    spillbuf -. "full too" .-> drop["New rows turned away<br/>rows_dropped"]:::bad
     hold -. "run stopped first" .-> lost["Pending rows never written<br/>rows_lost, incomplete"]:::bad
     classDef default fill:#E6E9E8,stroke:#4A5C6A,color:#06141B
     classDef ok fill:#dcfce7,stroke:#15803d,color:#06141B

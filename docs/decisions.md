@@ -45,5 +45,5 @@ New entries go at the end of their group, dated. An entry that is overturned sta
 - **Technical trail segments need low speed too.** The speed gate is rider-validated — don't remove it. See [dashboard.md](dashboard.md#the-run-page--runhtml).
 - **The tuning engine keeps its three phases** (evidence → diagnosis → text). One pass let contradictory suggestions appear together. See [dashboard.md](dashboard.md#tuning-suggestions-engine-generatesuggestions-in-runhtml).
 - **The base palette is the rider's** (2026-10-25): six blue-grey steps from `#06141B` to `#CCD0CF`. See [dashboard.md](dashboard.md).
-- **The side rail from 1024px never expands on hover** (2026-10-25). A tablet has no hover, and the run page's map and its zoom buttons sit right beside it. The rail is a trial; the old top bar is in `backups/data-2026-10-25-before-side-rail/`. See [dashboard.md](dashboard.md).
+- **The side rail from 1024px never expands on hover** (2026-10-25). A tablet has no hover, and the run page's map and its zoom buttons sit right beside it. The rail is a trial; the old top bar is the dashboard as of commit `45e86f9`. See [dashboard.md](dashboard.md).
 - **The Runs pager is Previous / page numbers / Next** (2026-10-13, the rider's choice over "Newer / Older").

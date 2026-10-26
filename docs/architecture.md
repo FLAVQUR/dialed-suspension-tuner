@@ -43,7 +43,7 @@ flowchart LR
     class queue,csv,meta,fs,nvs,cache store
 ```
 
-- **While recording**, the radio is off (by default), so nothing competes with the sample clock. `loop()` takes a sample every 2ms and only queues the row; the writer on the other core formats it and writes it to the card, and recovers from a failed write without losing rows ([sd-card.md](sd-card.md)). The headline figures (`stats`) are added up sample by sample as it goes.
+- **While recording**, the radio is off (by default), so nothing competes with the sample clock. `loop()` takes a sample every 2ms and only queues the row (past a full queue, into a spill buffer the run takes from the heap the radio freed); the writer on the other core formats it and writes it to the card, and recovers from a failed write without losing rows ([sd-card.md](sd-card.md)). The headline figures (`stats`) are added up sample by sample as it goes.
 - **When the run stops**, the device writes the run's `.JSON` (setup snapshot, stats, counters) and a compact `.CSVB` for the dashboard. The `.CSV` stays as it was, readable in a spreadsheet ([data-formats.md](data-formats.md)).
 - **Everything else is worked out in the browser**: decoding the `.CSVB`, the bike-frame angles and vertical G, gaps and lost orientation, trail segments, events, tuning suggestions, the setup history. The device has neither the memory nor the CPU to spare, and keeping it in JavaScript means a run recorded long ago is re-read with today's analysis.
 - **Where things live**:
