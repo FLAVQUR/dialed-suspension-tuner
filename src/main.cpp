@@ -14,6 +14,7 @@
 #include "system/loop_profiler.h"
 #include "system/log_capture.h"
 #include "power/battery.h"
+#include "power/low_battery.h"
 #include "logger/logger.h"
 #include "suspension/suspension.h"
 #include "system/settings.h"
@@ -36,6 +37,10 @@ void setup() {
     logCaptureInit();
 
     Serial.printf("Reset reason: %s\n", systemResetReason());
+
+    // Before anything else is started: a wake from the low-battery cutoff's
+    // sleep with the battery still flat goes straight back to sleep.
+    lowBatteryBootCheck();
     Serial.println("Initializing components...");
 
     systemInit();
@@ -133,6 +138,7 @@ void loop() {
     LoopProfiler::lap(LoopProfiler::LED);
 
     batteryUpdate();
+    lowBatteryUpdate();
     LoopProfiler::lap(LoopProfiler::BATTERY);
 
     gpsUpdate();

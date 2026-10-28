@@ -77,18 +77,30 @@ float batteryBurstVoltage() {
 }
 
 
+// The share of a riding day left before the low-battery cutoff (3.30V, see
+// low_battery.cpp), read off the drain test of 2026-10-27/28: this cell, a
+// timed run every 12 minutes, the smoothed voltage with WiFi on. So "50%" is
+// half the time left, not half the charge. The old guess of a curve had 0% at
+// the same voltage but read low below 3.7V (10% with 16% of the time left).
+// The first 0.1V is the cell's surface charge, gone in the first 8 minutes.
+static const float PERCENT_CURVE[][2] = {
+    {4.20f, 100}, {4.10f, 97}, {4.05f, 90}, {4.00f, 81}, {3.95f, 71},
+    {3.90f, 64},  {3.85f, 60}, {3.80f, 47}, {3.75f, 37}, {3.70f, 32},
+    {3.60f, 25},  {3.50f, 16}, {3.40f, 7},  {3.30f, 0},
+};
+
 float batteryPercent(float v) {
-    float percent;
+    constexpr int n = sizeof(PERCENT_CURVE) / sizeof(PERCENT_CURVE[0]);
 
-    if      (v >= 4.20f) percent = 100.0f;
-    else if (v >= 4.00f) percent = 85.0f + (v - 4.00f) * 75.0f;
-    else if (v >= 3.85f) percent = 60.0f + (v - 3.85f) * 166.0f;
-    else if (v >= 3.70f) percent = 30.0f + (v - 3.70f) * 200.0f;
-    else if (v >= 3.50f) percent = 10.0f + (v - 3.50f) * 100.0f;
-    else                 percent =          (v - 3.30f) * 50.0f;
+    if (v >= PERCENT_CURVE[0][0]) return 100.0f;
+    if (v <= PERCENT_CURVE[n - 1][0]) return 0.0f;
 
-    if (percent > 100.0f) percent = 100.0f;
-    if (percent < 0.0f)   percent = 0.0f;
-
-    return percent;
+    for (int i = 1; i < n; i++) {
+        if (v >= PERCENT_CURVE[i][0]) {
+            float v0 = PERCENT_CURVE[i][0], p0 = PERCENT_CURVE[i][1];
+            float v1 = PERCENT_CURVE[i - 1][0], p1 = PERCENT_CURVE[i - 1][1];
+            return p0 + (v - v0) * (p1 - p0) / (v1 - v0);
+        }
+    }
+    return 0.0f;
 }

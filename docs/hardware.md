@@ -24,22 +24,56 @@ GPIO36 is free (it briefly held the 3.3V rail monitor). Any future analog input 
 
 ## Battery
 
-**A full charge lasts about 9¾ hours** on a riding-day cadence (bench, 2026-10-27/28): from 4.19V at 18:19 to the last answer at 04:04, 2.68V. That is more than twice the rider's 4-hour estimate, so a day of riding is covered with room to spare. Measured with `tools/bench/battery_drain.py`: a 2-minute timed run every 12 minutes with the radio off (a descent), the home network in between, the voltage read from `/api/status` every 30s. 47 runs were recorded on the way.
+**A full charge lasts about 9¾ hours** on a riding-day cadence (bench, 2026-10-27/28): from 4.19V at 18:19 to the last answer at 04:04, 2.68V. That is more than twice the rider's 4-hour estimate, so a day of riding is covered with room to spare. Since the low-battery cutoff (below) the device stops itself at 3.30V, about 9h10 in. Measured with `tools/bench/battery_drain.py`: a 2-minute timed run every 12 minutes with the radio off (a descent), the home network in between, the voltage read from `/api/status` every 30s. 47 runs were recorded on the way.
 
 - **Average current ≈ 310mA**: 3000mAh over 9.74h, if the cell still gives its rated capacity. A worn cell gives less, so the real figure is that or lower. There is no current meter, so this is the only figure.
 - **The voltage rises while recording** (+0.04V over each 2-minute run) and drops again once WiFi is back. The radio is the biggest single load.
 - **Below 3.3V it falls off a cliff**: 3.33V → 3.26V → 3.11V → 2.72V in the last four 12-minute steps. Nothing went wrong on the way down: no reboot (the uptime counted on throughout), the free heap steady (84KB with WiFi on, 61KB while recording), every run whole down to 3.11V. The last one, started at 2.72V with its lowest burst at 2.66V, has all 60000 rows too: the device gave out a few seconds after it ended. The single exception is in [sd-card.md](sd-card.md#spill-buffer-2026-10-26).
 
+- **The percentage is the share of the day left**, not of the charge: `batteryPercent()` follows the curve this test measured, from 100% at 4.20V to 0% at the cutoff (3.30V). 50% is 3.80V, about 4h20 left; the LED's low-battery flash (below 20%, 3.55V) comes with about 1h50 left. The guess it replaced read 10% with 16% of the time left.
+- **The power path**: a charger board with its own protection (cuts at ~2.4–2.5V), a switch between the battery and the rest, a u-blox NEO-M9N GPS (the rider, 2026-10-28).
+
+### The low-battery cutoff (2026-10-28)
+
+Once the smoothed voltage has stayed under **3.30V for two minutes**, the device shuts itself down (`low_battery.cpp`):
+
+1. A run that is recording is stopped as if from the button, and its `.JSON` gets `"stopped_by": "low_battery"`.
+2. The LED flashes orange three times and goes dark.
+3. The GPS goes into backup mode (`UBX-RXM-PMREQ`, woken by activity on its RX line, which is held high through the sleep so nothing wakes it). The BNO08x is sent to sleep; when it doesn't answer within a second, its reset line is held low instead.
+4. The SD card is closed, the radio turned off, and the ESP32 goes into deep sleep.
+
+Asleep, it **wakes every 10 minutes** to read the battery and goes straight back to sleep unless it has been charged above **3.50V**; then it boots in full. **A press of the button boots it at once**, whatever the charge, and the two minutes start over. A switch-off and on is a normal boot.
+
 > [!IMPORTANT]
-> **The percentage is pessimistic near the bottom.** `batteryPercent()` maps the voltage, and on this cell it reaches 0% at 3.31V, 33 minutes before the device stopped. The LED's low-battery warning comes on below 20% (3.6V), with about 2¾ hours still left.
+> **A device that doesn't answer may be asleep, not dead.** Charge it (it comes back by itself within 10 minutes of passing 3.50V) or press the button. Its `/api/status` then says `"reset_reason": "deep_sleep"`.
 
 > [!WARNING]
-> **The device runs the cell down to ~2.7V.** It has no cutoff of its own. That is lower than a Li-ion cell should go often. Charge it after a long day, and don't leave it switched on in a bag.
+> **Asleep, it still draws current**, by an amount that was not measured: the SD card, the LED and the boards' regulators stay powered, and the GPS and IMU are only asleep. Switch it off after a ride; the charger board's protection is still the last line, at ~2.5V.
+
+- **Why 3.30V and two minutes**: it leaves the ~33 minutes the drain test ran past it unused, where the voltage falls fastest, and two minutes on the smoothed reading (itself ~30s behind) ride out a dip when the radio comes back. A reading under 2.5V is taken as no battery (USB power with the switch off) and never cuts off.
+- **Why 3.50V to come back**: well clear of the cutoff, so a cell that recovers a little at rest doesn't boot, run two minutes and sleep again every 10 minutes.
+
+<details>
+<summary>How the cutoff was tested (bench, 2026-10-28)</summary>
+
+A temporary hook made the device act on a voltage given over the API, with a shorter hold and sleep, and kept what happened in RTC memory to read back after the wake. Since removed; the battery was at 3.8V, charging.
+
+| Test | Result | |
+|---|---|---|
+| Idle, 3.2V faked, 60s sleeps, two wakes treated as still flat | slept, woke twice and went back to sleep, booted on the third (07:47 → 07:50); `reset_reason` `deep_sleep` | ✅ |
+| The GPS asleep | 0 bytes in the second after the command (awake it sends ~3.8KB); sending NMEA again after the boot | ✅ |
+| The IMU asleep | never answered the sleep command within the second, twice; held in reset, back after the boot | ⚠️ |
+| Cut 20s into a 60s timed run | stopped at 19.2s with 9595 rows (19.19s × 500), none dropped, every row 2ms after the last, `stopped_by: low_battery` | ✅ |
+| Woken by the button from a 10-minute sleep | the rider pressed it about a minute in; booted at once | ✅ |
+
+What it draws asleep was not measured: no current meter.
+
+</details>
 
 <details>
 <summary>The discharge curve and what the percent said (bench, 2026-10-27/28)</summary>
 
-Readings with WiFi on, between runs. "Left" is the time until the device stopped answering (584.6 min after the start).
+Readings with WiFi on, between runs. "Left" is the time until the device stopped answering (584.6 min after the start). "Percent shown" is the mapping of the time, replaced the next day by one fitted to this curve.
 
 | Elapsed | Voltage | Percent shown | Left |
 |---|---|---|---|

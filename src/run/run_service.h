@@ -15,6 +15,10 @@ namespace RunService
     bool start();
     void stop();
 
+    // stop(), with "stopped_by": "low_battery" in the run's .JSON: the
+    // low-battery cutoff is about to put the device to sleep.
+    void stopForLowBattery();
+
     // For a start asked for over the network: schedules it for half a second
     // from now, so that the request can be answered before the radio goes,
     // and returns the name the run will have ("" if the device isn't idle).

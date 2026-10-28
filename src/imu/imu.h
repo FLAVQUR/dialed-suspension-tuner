@@ -9,6 +9,12 @@
 // loop() task). There is no imuUpdate(): nothing to call from loop().
 bool imuInit();
 
+// Puts the BNO08x to sleep and stops polling it, for the low-battery cutoff.
+// Waits up to a second for imuTask to do it and returns whether the sensor
+// took the command: the task can be stuck in the SPI HAL waiting for INT, and
+// then it never gets to it. The next boot's reset wakes it either way.
+bool imuSleep();
+
 // Link health, for judging whether the INT line is behaving without reading
 // the serial log. resets counts every time the sensor's reset flag fired
 // (each one wipes the enabled reports and costs ~200ms to restore);

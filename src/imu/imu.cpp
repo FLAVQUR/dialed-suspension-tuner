@@ -140,6 +140,13 @@ ImuHealth imuGetHealth() {
 // hardware that was streaming fine moments later.
 constexpr uint32_t FIRST_REPORT_GRACE_MS = 3000;
 
+// Set by imuSleep(); the task itself sends the command, since the SPI link
+// is its own.
+static volatile bool sleepRequested = false;
+static volatile bool sleeping = false;
+static volatile bool sleepAccepted = false;
+static bool taskStarted = false;
+
 static void imuTask(void*) {
     const uint32_t taskStartMs = millis();
     bool warnedNoData = false;
@@ -148,6 +155,12 @@ static void imuTask(void*) {
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(2));
+
+        if (sleepRequested) {
+            sleepAccepted = imu.modeSleep();
+            sleeping = true;
+            vTaskSuspend(nullptr);
+        }
 
         // Checking the throttle before wasReset() itself matters: wasReset()
         // clears its internal flag as soon as it's called, so checking it
@@ -252,9 +265,23 @@ bool imuInit() {
     enableReports();
 
     xTaskCreatePinnedToCore(imuTask, "imu", 4096, nullptr, 1, nullptr, 0);
+    taskStarted = true;
 
     Serial.println("IMU Ready!");
     return true;
+}
+
+bool imuSleep() {
+    if (!taskStarted)
+        return false;
+
+    sleepRequested = true;
+
+    uint32_t t0 = millis();
+    while (!sleeping && millis() - t0 < 1000)
+        delay(5);
+
+    return sleeping && sleepAccepted;
 }
 
 float imuPitch() {

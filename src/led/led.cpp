@@ -51,6 +51,17 @@ static void setColor(CRGB color) {
     lastShownMs = now;
 }
 
+void ledShowLowBatteryCutoff() {
+    for (int i = 0; i < 3; i++) {
+        leds[0] = CRGB::Orange;
+        FastLED.show();
+        delay(250);
+        leds[0] = CRGB::Black;
+        FastLED.show();
+        delay(250);
+    }
+}
+
 void ledSetAlert(bool active) {
     alertActive = active;
 }

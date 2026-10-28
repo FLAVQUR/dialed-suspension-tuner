@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include <TinyGPSPlus.h>
+#include <driver/gpio.h>
 #include "gps.h"
 #include "config/pins.h"
 #include "system/system.h"
@@ -37,8 +38,28 @@ static float cachedSpeedKmh = 0.0f;
 static float cachedHdop = 0.0f;
 static int cachedSats = 0;
 
+// After the low-battery cutoff the module is in backup mode (gpsSleep()) and
+// wakes on activity on its RX line; the first bytes may be lost while it
+// does, so a few are sent, then again every 2s until it is heard from. To a
+// module that is already awake they are a stray byte of noise.
+static constexpr uint32_t WAKE_RETRY_MS = 2000;
+static constexpr int WAKE_TRIES = 5;
+static uint32_t lastWakeMs = 0;
+static int wakeTries = 0;
+
+static void sendWake() {
+    const uint8_t ff[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    GPSSerial.write(ff, sizeof(ff));
+    lastWakeMs = millis();
+    wakeTries++;
+}
+
 bool gpsInit() {
     Serial.println("Initializing GPS...");
+
+    // Still held high from the cutoff's sleep, if that is where this boot came
+    // from; the UART can't drive it until it is let go.
+    gpio_hold_dis((gpio_num_t)PIN_GPS_TX);
 
     GPSSerial.setRxBufferSize(GPS_RX_BUFFER_BYTES);     // has to come before begin()
     GPSSerial.begin(38400, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
@@ -46,7 +67,39 @@ bool gpsInit() {
     connected = false;
     hasFix = false;
 
+    sendWake();
+
     return true;
+}
+
+void gpsSleep() {
+    // UBX-RXM-PMREQ, the 16-byte version: backup mode (flags bit 1), no time
+    // limit (duration 0), woken by UART RX activity (wakeupSources bit 3).
+    uint8_t msg[24] = {
+        0xB5, 0x62, 0x02, 0x41, 16, 0,
+        0, 0, 0, 0,          // version 0, reserved
+        0, 0, 0, 0,          // duration (ms), 0 = until woken
+        0x02, 0, 0, 0,       // flags: backup
+        0x08, 0, 0, 0,       // wakeupSources: uartrx
+        0, 0,                // checksum
+    };
+    uint8_t a = 0, b = 0;
+    for (int i = 2; i < 22; i++) {
+        a += msg[i];
+        b += a;
+    }
+    msg[22] = a;
+    msg[23] = b;
+
+    GPSSerial.write(msg, sizeof(msg));
+    GPSSerial.flush();
+    delay(100);
+
+    GPSSerial.end();
+
+    pinMode(PIN_GPS_TX, OUTPUT);
+    digitalWrite(PIN_GPS_TX, HIGH);
+    gpio_hold_en((gpio_num_t)PIN_GPS_TX);
 }
 
 void gpsUpdate() {
@@ -83,6 +136,8 @@ void gpsUpdate() {
 
     if (gps.charsProcessed() > 100) {
         connected = true;
+    } else if (gps.charsProcessed() == 0 && wakeTries < WAKE_TRIES && millis() - lastWakeMs > WAKE_RETRY_MS) {
+        sendWake();
     }
 
     // Hand the satellites' date/time to the system clock (see clock.h): as

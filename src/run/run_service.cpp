@@ -115,6 +115,9 @@ static volatile uint32_t rowsLost = 0;
 static float batteryAtStart = 0;
 static float batteryLowest = 0;
 
+// Why the run ended, when it wasn't the rider: written as "stopped_by".
+static const char* stopReason = nullptr;
+
 // Set by stop() while it waits for the writer to finish. See sdWriterTask().
 static volatile bool stopping = false;
 
@@ -1252,6 +1255,8 @@ static void writeRunMeta(float durationSeconds) {
         if (batteryLowest > 0) battery["lowest"] = serialized(String(batteryLowest, 2));
     }
 
+    if (stopReason) doc["stopped_by"] = stopReason;
+
     // SD link health for this run — nonzero means the card hiccuped even
     // if nothing was lost (retry_ok: a second flush fixed it; recovered:
     // file reopened and buffered rows replayed).
@@ -1818,6 +1823,7 @@ bool RunService::start() {
     imuDiagStart();
     batteryAtStart = readBatteryVoltage();
     batteryLowest = 0;
+    stopReason = nullptr;
 
     // Last, after everything else the run takes from the heap: the radio is
     // down by now (recordingPrepare() above), and its memory free. No row
@@ -1867,6 +1873,11 @@ void RunService::stop() {
                       100.0f * rowsDropped / (float)runStats.count);
 
     currentRun = "";
+}
+
+void RunService::stopForLowBattery() {
+    stopReason = "low_battery";
+    stop();
 }
 
 void RunService::log(

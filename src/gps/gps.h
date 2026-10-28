@@ -5,6 +5,11 @@
 bool gpsInit();
 void gpsUpdate();
 
+// Puts the module into backup mode until something arrives on its UART, and
+// holds that line high through the ESP32's deep sleep so nothing does. For
+// the low-battery cutoff; gpsInit() wakes it again.
+void gpsSleep();
+
 // Real connection status lives in components.gps (see system.h) instead
 // of a separate getter here — set inside gpsUpdate() as soon as the
 // module starts sending valid NMEA data.

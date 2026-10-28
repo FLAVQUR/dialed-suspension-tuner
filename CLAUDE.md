@@ -69,7 +69,10 @@ src/imu/imu.cpp          — BNO08x on its own HSPI bus (imuTask, core 0); retur
                            Zero IMU rest measurement + bike-frame angles; imu_diag, the
                            per-second record of how sure the sensor is of its orientation
 src/power/battery.cpp    — battery voltage (200ms bursts every 3s, smoothed); a run's .JSON
-                           gets battery_v (start, end, lowest burst)
+                           gets battery_v (start, end, lowest burst); batteryPercent() from the
+                           measured curve
+src/power/low_battery.cpp — the cutoff: under 3.30V for 2 min → stop the run, GPS/IMU asleep,
+                           deep sleep; wakes every 10 min, boots above 3.50V or on the button
 src/gps/gps.cpp          — NMEA decoding (bounded non-blocking read, values cached as floats);
                            also hands the GPS date/time to the system clock
 src/system/clock.cpp     — wall-clock time from GPS / NTP / browser, most trusted source wins

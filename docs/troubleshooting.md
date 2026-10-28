@@ -4,6 +4,8 @@ Problems that cost real time, kept here so they are recognised quickly if they c
 
 ## A device that looks dead
 
+**It may be asleep with a flat battery.** Since 2026-10-28 it shuts itself down below 3.30V and only wakes every 10 minutes to check: charge it (it comes back within 10 minutes of passing 3.50V) or press the button. See [the low-battery cutoff](hardware.md#the-low-battery-cutoff-2026-10-28).
+
 **Recovery playbook**: a device that looks completely dead after a flash or rewire (no LED, no Wi-Fi, no serial) is most likely a blank flash, not a hardware fault — serial shows `invalid header: 0xffffffff` looping. Fix: force download mode (hold BOOT, tap EN) and reflash over USB.
 
 ## Problems we hit and how they were solved

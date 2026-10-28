@@ -14,3 +14,7 @@ void ledSetAlert(bool active);
 // RunService::isWriteStalled()). Distinct from ledSetAlert() so the two
 // can never be confused for each other.
 void ledSetWriteStall(bool active);
+
+// Three orange flashes, then dark: the low-battery cutoff is putting the
+// device to sleep (see low_battery.h). Blocks for ~1.5s.
+void ledShowLowBatteryCutoff();

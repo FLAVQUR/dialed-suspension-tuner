@@ -15,7 +15,7 @@ Written live during the run, one row per suspension sample (500 a second, exactl
 
 | Column | Unit | Notes |
 |---|---|---|
-| `timestamp_ms` | ms since the run started | the time the sample was *due* |
+| `timestamp_ms` | ms on the device's sample clock, which starts at boot | the time the sample was *due*; a run's first row is not 0 (checked 2026-10-28: 23358 on a run started shortly after a boot) |
 | `lat`, `lon` | degrees | GPS; repeat their last value between fixes |
 | `speed` | km/h | GPS |
 | `sats`, `hdop` | | GPS quality |
@@ -68,6 +68,7 @@ Written when the run stops (`writeRunMeta()` in `run_service.cpp`), and changed 
 | `imu_up` | `[x, y, z]`: the IMU's zero reference when the run was recorded; absent before the IMU was zeroed |
 | `imu_diag` | per second: `status` (0–3), `accuracy_deg`, `accel_clipped`; up to 15 minutes |
 | `battery_v` | `start`, `end`, `lowest` (V) |
+| `stopped_by` | `"low_battery"` when the [low-battery cutoff](hardware.md#the-low-battery-cutoff-2026-10-28) ended the run; absent when the rider or a timer did |
 | `stats` | accumulated while recording, so the run page shows its figures before the `.CSVB` arrives: `max/avg_front_mm`, `max/avg_rear_mm`, `max/avg_speed_kmh`, `max_lean_deg` / `max_pitch_deg` (**radians**, despite the name), `max_g`, `avg_g`, `min/max_alt_m`, `distance_km`, `moving_s`, `elev_gain_m`, `elev_loss_m` |
 | `bike` | the setup snapshot: `name`, `wheel_size`, `full_suspension`, `front_travel`, `rear_travel`, `rear_wheel_travel_mm`, and `front_suspension` / `rear_suspension`, each with `lsc`, `hsc`, `lsr`, `hsr`, `volume_tokens`, `pressure_psi`, `sag_pct`, `has_lsc`…`has_hsr`, and, when set afterwards, `lockout` and `recorded` (the values before a correction) |
 
