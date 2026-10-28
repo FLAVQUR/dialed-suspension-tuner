@@ -25,7 +25,7 @@ The device rides on the bike and records every run. It logs suspension travel (a
 ```
 src/            firmware, one folder per module (suspension, imu, gps, run, storage, web, ...)
 data/           the dashboard (HTML, CSS, JS) — becomes the device's LittleFS image
-tools/          build scripts run by PlatformIO
+tools/          build scripts run by PlatformIO; tools/bench/ scripts run by hand against the device
 platformio.ini  board, libraries and build options
 ```
 

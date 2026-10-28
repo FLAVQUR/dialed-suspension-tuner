@@ -6,7 +6,7 @@ How a run gets onto the card, why writes failed and how that was fixed, and what
 > **In short**
 > - Runs used to "fail" to write because the SD driver took a stray `0x03` in the card's status for an error. A project copy of the driver (`lib/SD`) asks again before failing (2026-10-11); the first ride on it had no failure at all.
 > - A write that does fail is still recovered: the file is reopened and the rows since the last good flush are replayed, so nothing is lost.
-> - A card that merely stalls is covered for ~2.6–2.8s: the 448-row queue, then a spill buffer of up to 1024 rows that each run takes from the heap the radio frees (since 2026-10-26).
+> - A card that merely stalls is covered for ~2.6–2.8s: the 448-row queue, then a spill buffer of up to 1024 rows that each run takes from the heap the radio frees (since 2026-10-26). One stall of ~3.8s has been seen past it, in 47 bench runs.
 > - Hundreds of runs on the card are fine: nothing walks the card by opening every file any more (tested with 120).
 > - Reading a run's integrity: see [How to read a run](#how-to-read-a-run).
 
@@ -61,6 +61,8 @@ On 2026-10-25 the card stopped for 1.36s over three writes in RUN0057, no write 
 - **Taken in 4KB chunks**, up to 16 (1024 rows, 2s at 500Hz), while the free heap stays above 32KB. With the radio off there is ~100KB free but in pieces: as one block the spill got 223–383 rows and shrank from run to run on the bench; in 8KB chunks 640–896; in 4KB chunks 832–960, and the full 1024 on a fresh boot.
 - **None with the radio on** — that heap is lwIP's. A run recorded with WiFi on has `spill_rows: 0` and the queue alone, as before.
 - Each run's `.JSON` says what it had: `spill_rows`, `spill_max` (the most it held at once) and `heap_free_recording` (free heap once it was taken).
+
+**A real stall longer than it covers, once** (battery drain test, 2026-10-28, bench). Of 47 two-minute runs, 44 never touched the spill. Three in a row, at 3.47–3.43V, did: it held 258 rows, then 304, then filled (960 rows) and **495 rows were dropped**. That is a card stall of about 3.8s (448 queue + 960 spill + 495 dropped rows at 500 a second). No write failed (`sd_recovered` 0), so the card was slow, not wrong. It is not simply the low battery: the seven runs after it were clean all the way down to 3.11V. The card had also been written and emptied 44 times in a row by then (~6MB a run), which may matter just as much. The runs were deleted by the test before their `write_us` could be read, and the script now keeps the CSV of any run that touched the spill.
 
 <details>
 <summary>How it was tested (bench, 2026-10-26)</summary>

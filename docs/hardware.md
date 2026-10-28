@@ -16,11 +16,51 @@ The bike, the pins, the sensors and how they are calibrated, and how the IMU is 
 | IMU (BNO08x) | own HSPI bus — SCK 27, MISO 35, MOSI 13, CS 26, INT 39, RST 25 | **400kHz**; INT has an external 10kΩ pull-up (GPIO39 has no internal pull) |
 | SD card | VSPI — SCK 18, MISO 19, MOSI 23, CS 5 | **20MHz** (10MHz until 2026-10-07 — do not lower it, see [sd-card.md](sd-card.md)), FAT32 with 64KB clusters |
 | GPS | UART — RX 16, TX 17 | |
-| Battery voltage | ADC1 — GPIO34 | |
+| Battery voltage | ADC1 — GPIO34 | single cell, 3000mAh, about 9¾h a charge ([Battery](#battery)); shown as percent by `batteryPercent()` from the voltage |
 | LED (WS2812B) | GPIO22 | |
 | Button | GPIO4 | 10s long-press resets connectivity to defaults |
 
 GPIO36 is free (it briefly held the 3.3V rail monitor). Any future analog input must be on ADC1 — ADC2 is unusable while Wi-Fi runs.
+
+## Battery
+
+**A full charge lasts about 9¾ hours** on a riding-day cadence (bench, 2026-10-27/28): from 4.19V at 18:19 to the last answer at 04:04, 2.68V. That is more than twice the rider's 4-hour estimate, so a day of riding is covered with room to spare. Measured with `tools/bench/battery_drain.py`: a 2-minute timed run every 12 minutes with the radio off (a descent), the home network in between, the voltage read from `/api/status` every 30s. 47 runs were recorded on the way.
+
+- **Average current ≈ 310mA**: 3000mAh over 9.74h, if the cell still gives its rated capacity. A worn cell gives less, so the real figure is that or lower. There is no current meter, so this is the only figure.
+- **The voltage rises while recording** (+0.04V over each 2-minute run) and drops again once WiFi is back. The radio is the biggest single load.
+- **Below 3.3V it falls off a cliff**: 3.33V → 3.26V → 3.11V → 2.72V in the last four 12-minute steps. Nothing went wrong on the way down: no reboot (the uptime counted on throughout), the free heap steady (84KB with WiFi on, 61KB while recording), every run whole down to 3.11V. The single exception is in [sd-card.md](sd-card.md#spill-buffer-2026-10-26).
+
+> [!IMPORTANT]
+> **The percentage is pessimistic near the bottom.** `batteryPercent()` maps the voltage, and on this cell it reaches 0% at 3.31V, 33 minutes before the device stopped. The LED's low-battery warning comes on below 20% (3.6V), with about 2¾ hours still left.
+
+> [!WARNING]
+> **The device runs the cell down to ~2.7V.** It has no cutoff of its own. That is lower than a Li-ion cell should go often. Charge it after a long day, and don't leave it switched on in a bag.
+
+<details>
+<summary>The discharge curve and what the percent said (bench, 2026-10-27/28)</summary>
+
+Readings with WiFi on, between runs. "Left" is the time until the device stopped answering (584.6 min after the start).
+
+| Elapsed | Voltage | Percent shown | Left |
+|---|---|---|---|
+| 0h | 4.19V | 99% | 9h45 |
+| 1h | 4.05V | 89% | 8h45 |
+| 2h | 3.99V | 83% | 7h45 |
+| 3h | 3.93V | 73% | 6h45 |
+| 4h | 3.85V | 60% | 5h45 |
+| 4h52 | 3.80V | 50% | 4h52 |
+| 6h17 | 3.70V | 30% | 3h27 |
+| 6h57 | 3.60V | 20% | 2h48 |
+| 7h46 | 3.50V | 10% | 1h59 |
+| 9h12 | 3.31V | 0% | 0h33 |
+| 9h45 | 2.68V | 0% | — |
+
+**How close this is to a ride:**
+- Indoors the GPS keeps searching for a fix (it had one some of the time), and on the trail the radio is the device's own access point, not a client of the home network. Both change the draw by an amount that was not measured.
+- There is no vibration and the LED is not on a bike. The cadence matches the 2026-10-25 ride.
+- The device had been on USB, charging, for about six hours before the start. It was unplugged at 4.19V.
+
+</details>
 
 ## Suspension sensors and calibration
 

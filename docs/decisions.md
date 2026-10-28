@@ -10,6 +10,20 @@ New entries go at the end of their group, dated. An entry that is overturned sta
 - **Recording in binary instead of CSV.** Asked about and turned down for now on 2026-10-13. A row is about 100 bytes of text against 30 in the `.CSVB` the device already makes after a run, so recording straight to binary would put a third of the data on the card. It stays CSV because the recovery from a failed write leans on lines of text, the file is what the SD investigation was read from, and a card pulled out of the device opens in a spreadsheet. The two things that would reopen it: 1000Hz, or run size and download time becoming a nuisance.
 - **The Linear XL air can** for the rear shock. Deliberately not bought: a bigger lever than 2–3 short, HBO-cushioned bottom-outs a run justifies. It is the last rung of the tuning ladder, after tokens. See [field-log.md](field-log.md#rear-shock--spec-decoded-and-tuning-ladder).
 - **Coil springs** (gap noted 2026-10-19). The system assumes air springs; nothing is built for coil because there is no coil-sprung bike to test on. What would change is in `todo.md`.
+- **Sleeping between samples, and 160MHz** (2026-10-28). Both were ideas to save battery, waiting on how long it lasts. It lasts about 9¾ hours on a riding-day cadence, more than twice a day of riding, so the most validated code in the project stays as it is. What each would take is kept below. They come back if the battery stops covering a day (a smaller cell, or the 1000Hz option). See [hardware.md](hardware.md#battery).
+
+  <details>
+  <summary>What the sleep would take (analysed 2026-10-26)</summary>
+
+  `suspensionWaitUntilDue()` spins for the ~1.5ms of every 2ms period that `loop()` has nothing to do (busy 426–532µs a pass), so core 1 runs flat out at 240MHz all the time.
+  - **How**: a hardware timer wakes the loop task each period (an ISR giving a task notification); the task blocks until ~100µs before the sample is due and spins the rest, so the timing stays where it is (94% of rows within ±10µs). Not `vTaskDelay()` (1ms ticks against a 2ms period) and not light sleep (it stops peripheral clocks: GPS UART and SPI data would be lost).
+  - **Gain, unmeasured**: the ESP32 datasheet puts a 240MHz core at ~30–68mA between idle and busy; idle 75% of the time instead of never, perhaps 15–20mA less — against ~310mA measured for the whole device, about 5–7%.
+  - **Cost**: bench timing runs and a ride to validate the sampling again; the web server, which runs in the same loop with WiFi on, has to stay responsive.
+  - **Cheaper lever first**: `setCpuFrequencyMhz(160)`, one line — a pass would take ~0.6ms instead of ~0.4ms, still well inside 2ms. Also needs the timing re-checked.
+  - **Measuring either**: no current meter, so one drain test per build (`tools/bench/battery_drain.py`, ~10 hours).
+
+  </details>
+
 - **Harsh events feeding the tuning suggestions** (2026-10-03). Not until they are checked against a run the rider remembers as harsh. See [dashboard.md](dashboard.md#the-run-page--runhtml).
 
 ## Firmware and hardware
@@ -18,6 +32,7 @@ New entries go at the end of their group, dated. An entry that is overturned sta
 - **The IMU's mount is not softened** (2026-10-16, the rider): not the way to go about the orientation loss. See [hardware.md](hardware.md#imu-orientation--lean-pitch-and-vertical-g).
 - **SD clock at 20MHz — never lower it** (2026-10-07, the rider's choice on the numbers). Failures follow how long the bus is busy, so a slower clock is worse. What else was ruled out is listed under "Ruled out or tried" in [sd-card.md](sd-card.md).
 - **WiFi goes down before anything touches the card** at the start of a run (2026-10-07, the rider: "take the WiFi down before any file write"). A start from the network is scheduled 500ms ahead instead. See [architecture.md](architecture.md#the-sampling-loop-rewritten-2026-10-07--ridden-on-2026-10-10-500-rowss-none-dropped).
+- **No HTTPS on the device** (2026-10-26, the rider). Browsers flag every file downloaded over plain HTTP, so a run's ZIP takes one extra "Keep" click; the rider is fine with that. HTTPS would need a self-signed certificate — a full-page warning on every visit instead — and ~40KB of RAM per TLS connection, the heap WiFi needs. If the click ever becomes a nuisance: the per-site "Insecure content: Allow" setting in Chrome.
 - **No internet check on the ESP32 itself.** The browser's internet is what decides whether the maps load, so that is what the connection chip shows. See [dashboard.md](dashboard.md).
 - **One `volume_tokens` field, not positive and negative ones.** Single-user tool; only positive tokens have a telemetry signal. See [field-log.md](field-log.md#rear-shock--spec-decoded-and-tuning-ladder).
 - **No "give up after N resets" for the IMU.** It was added and removed: it blanked IMU data for the rest of a ride. See [troubleshooting.md](troubleshooting.md).

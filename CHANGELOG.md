@@ -2,8 +2,16 @@
 
 What changed, newest first. Each entry says what was done and how it was checked; how things work now is in [docs/](docs/). Releases are git tags (see "Versions" in [README.md](README.md)).
 
+## 2026-10-28
+
+- **The battery measured: about 9¾ hours on a full charge.** `tools/bench/battery_drain.py` ran overnight on the bench: 47 two-minute runs with the radio off, one every 12 minutes, from 4.19V at 18:19 until the device stopped answering at 04:04, at 2.68V. That is ~310mA on average for a 3000mAh cell, and more than twice the 4 hours the rider estimated. No reboot, the heap steady, every run whole bar one. The dashboard's percentage reads 0% 33 minutes before the end. Curve and caveats in "Battery" in [hardware.md](docs/hardware.md#battery).
+- **Sleeping between samples and 160MHz parked**: the battery covers a day without them. What they would take moved from `todo.md` to [decisions.md](docs/decisions.md). New idea in its place: a low-battery cutoff (the cell went down to ~2.7V) and a percentage that follows the measured curve.
+- **One card stall past the spill buffer**, the first seen outside a test hook: ~3.8s at 3.43V, 495 rows dropped, no write failing, after two runs that used the spill partway. The seven runs after it were clean down to 3.11V. See "Spill buffer" in [sd-card.md](docs/sd-card.md#spill-buffer-2026-10-26). The test script now keeps the CSV of any run the card stalls on, for its `write_us`.
+
 ## 2026-10-26
 
+- **A battery-life test script**, `tools/bench/battery_drain.py`: timed runs on a riding-day cadence until the battery gives out, the voltage logged every 30s, each run checked and deleted. Smoke-tested with two 5-second runs. The cell is 3000mAh (now in `hardware.md`).
+- **"Edit setup" clicked through by the rider**: the dialog works as built on 2026-10-19.
 - **A card that stalls is covered for ~2.7s, not 0.9s.** Each run with the radio off takes a spill buffer of up to 1024 rows behind the queue, in 4KB chunks from the heap the WiFi driver frees, and gives it back before the radio returns; the writer keeps every row in order, stop()'s drain marker included. Tested on the bench with writer stalls to order (a temporary hook, since removed): a 1.5s stall like RUN0057's and a 2.5s one lose nothing; a run stopped inside a stall keeps every row. Each run's `.JSON` gets `spill_rows`, `spill_max` and `heap_free_recording`. See "Spill buffer" in [sd-card.md](docs/sd-card.md).
 - **The ride of 2026-10-25 read.** RUN0054–58: four runs whole; RUN0057 dropped 151 rows (0.3s) to a 1.36s card stall with no write failing — a first. Both sensors had slipped on their mounts, the rear reading ~1.2mm high, which overstates that ride's rear bottom-outs. No orientation loss; the IMU's own status turned out to follow the heading, not the tilt. See [field-log.md](docs/field-log.md).
 

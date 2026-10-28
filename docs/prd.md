@@ -66,7 +66,7 @@ A device that rides on a mountain bike and records how the suspension moves on e
 - **Desktop first**, usable on a tablet by touch, workable on a phone.
 - A single page is never left without telling the rider why: an unreachable device, a run with WiFi off, a run still loading.
 - The device never resets from what is on its card (tested with 120 runs).
-- Battery life: more than 4 hours with the device on all the time, from a full charge — the rider's estimate from riding, likely more. **Not measured yet** (see `todo.md`).
+- Battery life: a day of riding with the device on all the time, from a full charge. **Measured at about 9¾ hours** on the bench, on a riding-day cadence (2026-10-28; the rider's estimate was more than 4). See [hardware.md](hardware.md#battery).
 
 ## How success is measured
 

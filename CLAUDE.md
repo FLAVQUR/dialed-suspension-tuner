@@ -93,6 +93,8 @@ src/system/version.cpp   — FIRMWARE_VERSION / FIRMWARE_BUILD, the only file th
 tools/gzip_web_files.py  — build step: gzips data/ into the filesystem image (buildfs/uploadfs)
                            and adds version.json
 tools/upload_both.py     — makes "upload" send the dashboard after the firmware
+tools/bench/battery_drain.py — battery-life test: timed runs on a riding-day cadence until the battery
+                           gives out; logs the voltage and checks and deletes each run
 todo.md                  — the task list; CHANGELOG.md what was done; docs/ how things work
 data/style.css           — colour roles (top of the file), components, wide-screen block (end)
 data/common.js           — every page: applyTheme/escapeHtml/formatDuration, BikeUI dialogs/toast,

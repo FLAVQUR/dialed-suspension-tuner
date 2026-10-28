@@ -128,7 +128,7 @@ A 60s run: 29,939 rows, 29,936 of them exactly 2ms after the previous one, none 
 
 **What is still there.**
 - **Not measured yet**: a real ride — minutes of vibration with the SD card taking ~46KB/s instead of ~35, which is when its hiccups happen. The queue to the SD writer covers 0.51s at this rate (it was 0.66s); `rows_dropped` in a run's `.JSON` is the number to watch.
-- The wait for the next sample is a busy spin, as `loop()` always was. Sleeping through most of it would save battery; not done, to keep the timing change small.
+- The wait for the next sample is a busy spin, as `loop()` always was. Sleeping through most of it would save battery; not done, to keep the timing change small, and parked since the battery was measured at ~9¾ hours ([decisions.md](decisions.md)).
 - The idle device (WiFi on) samples at ~496Hz: the web server's own 1ms idle delay uses most of each period.
 
 ## The clock and run dates (added 2026-10-06/07 — field-validated 2026-10-10)
