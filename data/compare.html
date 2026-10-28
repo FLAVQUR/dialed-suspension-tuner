@@ -222,21 +222,30 @@ function renderSetupPair(elA, elB, setupA, setupB)
     const mapA = computeSetupFieldMap(setupA);
     const mapB = computeSetupFieldMap(setupB);
 
-    function render(el, map, other)
+    const modelOf = setup => (setup && typeof setup.model === 'string') ? setup.model.trim() : '';
+
+    function render(el, map, other, model, otherModel)
     {
-        const html = SETUP_FIELD_ORDER
+        const modelHtml = !model ? ''
+            : otherModel && otherModel.toLowerCase() !== model.toLowerCase() ? `<span class="setup-diff">${escapeHtml(model)}</span>`
+            : escapeHtml(model);
+
+        const html = [modelHtml].concat(SETUP_FIELD_ORDER
             .filter(key => map[key])
             .map(key => {
                 const differs = !other[key] || other[key].value !== map[key].value;
                 return differs ? `<span class="setup-diff">${map[key].text}</span>` : map[key].text;
-            })
+            }))
+            .filter(Boolean)
             .join(' · ');
 
         el.innerHTML = html || 'Not recorded';
     }
 
-    render(elA, mapA, mapB);
-    render(elB, mapB, mapA);
+    // The model only marked as different when both runs have one: runs
+    // from before 2026-10-28 have none, and that isn't a different part.
+    render(elA, mapA, mapB, modelOf(setupA), modelOf(setupB));
+    render(elB, mapB, mapA, modelOf(setupB), modelOf(setupA));
 }
 
 // The two runs are recorded independently and start their clocks at

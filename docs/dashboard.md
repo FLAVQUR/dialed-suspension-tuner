@@ -8,6 +8,7 @@ The web pages the device serves (`data/`): shared UI, the run page, the tuning s
 > - Desktop first. From 1024px a side rail replaces the top bar and nothing floats over the content.
 > - The run page: a stats strip, the route map pinned beside seven charts on one time axis, zoom by dragging or by clicking a segment or an event.
 > - Tuning suggestions in three phases (evidence → diagnosis → text), with what the setup history knows under each.
+> - "Copy for AI" on the Tuning tab puts the run on the clipboard as a prompt, for a second opinion from a language model.
 > - The setup history is worked out from the runs themselves; a run's recorded setup can be corrected afterwards.
 > - How things look — colours, type, components, chart rules — is in [design-system.md](design-system.md).
 
@@ -183,6 +184,32 @@ flowchart LR
 
 **A fourth phase adds context from the setup history** (`addSetupContext()`, 2026-10-08): a line under each suggestion saying what the setup history knows about the part of the setup it is about — "First run since pressure 225 → 235 psi", "Last changed 2 runs before this one, at RUN0047: …", or "No change to pressure or tokens in the 4 runs on record". See "Setup-change history" below for what it can and cannot say.
 
+### Copy for AI (2026-10-28)
+
+A **Copy for AI** button at the top of the Tuning Suggestions card puts the run on the clipboard as a Markdown prompt, to paste into a chat with a language model (`aiPrompt()`, `copyForAi()` in `run.html`). It is enabled once `load()` has worked everything out, and `load()` keeps what the prompt needs in `aiContext`, as it computed it — nothing is worked out a second time for the prompt.
+
+What the prompt holds, in this order:
+- **What to answer**: what the data says about each end and the two together, where the dashboard's suggestions are right or wrong, the one change to make first and what to look for in the next ride, and what the data can't tell (ask for the feel, the trail, the rider's weight, the fork and shock models and revisions).
+- **How each figure was measured**: the sample rate of this run (rows per second, not the configured rate), rear figures being shock stroke and not wheel travel, what "average travel used", a bottom-out and "topped out" mean here, unfiltered shaft speed and the p90 ratio, the ±8g ceiling and what "≥" means, ride-relative segments, harsh hits marked experimental, click counts with no known direction.
+- **The ride**, the **bike and setup** (with the adjusters each end has and has not, the leverage ratio, a lockout, corrections made after the ride), a **table of figures per end** (dynamic and static sag, deepest point, bottom-outs a minute, topped-out time, compression and rebound speed at p50/p90/p99, fastest of each, the ratio, harsh hits), the travel histogram, the median front/rear gap.
+- The **segments** (up to 30), the **events** that mean something (bottom-outs, harsh hits, jumps; up to 40), the balance spikes only as a count (on RUN0049 they were 36 of 53 events and pushed the bottom-outs out of the list), the **dashboard's own suggestions** with their setup-history lines, the bike's **setup history** (up to 10 runs ending at this one: date, length, deepest point at each end, what changed, notes), and **data quality** (missing samples, orientation lost, clipped readings, no IMU zero, firmware).
+
+The fork and the shock are named by the model in the run's setup snapshot (Settings → Suspension Setup → Model, since 2026-10-28) — with the revision (Domain RC **B1**, Super Deluxe Select+ **C1**), since a revision changes how many tokens fit and the click ranges, which is what the answer is about — and the prompt only asks for the models when the run has none. Runs recorded before then had none; "Edit setup" puts it on them (below), and every run on the card has had it since 2026-10-28.
+
+Dates are written year first (`2026-10-10 18:35`): `03/10/2026` reads as March to a model that assumes the US order.
+
+Why it is built this way:
+- **Copied, not sent.** The device has no internet, and an API key has nowhere safe to live on pages served over plain HTTP. Pasting also leaves the choice of model, and the conversation that follows, to the rider.
+- **Not the telemetry.** Megabytes, and a model handed raw samples would only redo, less carefully, what this page already does.
+- **The clipboard on plain HTTP**: `navigator.clipboard` exists only on secure pages, so the copy goes through a selected `<textarea>` and `document.execCommand('copy')`, which still works from a click. If that fails too, the prompt is saved as `RUNxxxx-for-AI.md`.
+
+<details>
+<summary>How it was checked (2026-10-28)</summary>
+
+The prompt was generated in headless Chrome from a local copy of the page pointed at the device, for RUN0049 and RUN0058: about 8KB each, every section filled. It read as intended once the balance spikes were taken out of the event list. The copy itself — the clipboard path — was not checked headless: that needs a click in a real browser on the device's page. The button's place was checked at 1280px, and measured at the narrowest width headless Chrome draws (500px); at a 390px phone it would be 2px short, so the header wraps it under the title.
+
+</details>
+
 ## Setup-change history (2026-10-08 — on the device, checked against RUN0042–46; no run with changed clicks or pressure yet)
 
 **There is no log of setup changes.** Every run's `.JSON` already carries the setup it was ridden with, so the history is whatever differs between one run of a bike and the next. Chosen over an explicit log written from `BikeProfiles::syncActive()`: the device has no RTC, run numbers start again after "Delete all" (`nextRunNumber()` is the highest on the card plus one), the runs already recorded would not be in it, and a log and the run files would be two sources that can disagree.
@@ -192,6 +219,8 @@ flowchart LR
 - **Run page**: a line under the setup in the stats card — "Changed since RUN0046: rear pressure 225 → 235 psi", or "Same setup for 4 runs, since RUN0042".
 - **Trends**: a Setup History card, newest first, one row per stretch (runs, dates when known, what was changed to start it, the setup itself). Above them, **"Not ridden yet"**: what has been changed in Settings since the last run, when the bike shown is the one Settings hold. The charts' dashed markers now come from the same history — they used to compare the *front* setup only, so a rear-only change was never marked — and a marked run's tooltip says what changed.
 - **Stale static sag is now detected** (it was "nothing detects that automatically"): pressure or tokens changed at one end while its static sag stayed the same → flagged on Trends, and as a "Static sag" item in that end's Tuning list.
+
+**A different fork or shock is a change** (2026-10-28): the `model` of an end, compared without regard to case and spaces at the ends, listed first. Only between two runs that both have one — every run before that date has none, and typing the model in for the first time is not a new part.
 
 **What it leaves out, on purpose**: static sag is never a change (recapturing it measures the setup); runs ridden locked out are skipped (see "Corrections to a run's recorded setup"); recovered runs are skipped (their `.JSON` was rebuilt at the next boot from whatever Settings held by then); so are runs with no setup recorded, or one from before compression and rebound were split.
 
@@ -209,6 +238,12 @@ The snapshot is whatever Settings held when the run ended, which is not always w
 - **"Edit setup" on the run page (2026-10-19)**, under the setup lines: a dialog with an end per column and a field for each dial that end has (`adjusterAvailability()`), the tokens and the pressure, filled in with what the run recorded. **"Use current Settings"** fills it from `/api/config` — the usual case being Settings brought up to date only after the ride. Saving sends one request per end that changed, and the page reloads.
   - The endpoint takes several fields at once — `{ name, end, fields: { pressure_psi: 245, volume_tokens: 2 } }` — applied in one rewrite of the `.JSON`, all or none: one unknown field or out-of-range value refuses the lot. The one-field form still works (the lockout checkbox uses it).
   - **What the run was recorded with is kept**: the first time a field is corrected, `RunService::setSetupFields()` puts the original under the setup's `recorded` (`"recorded": { "pressure_psi": 235 }`); later corrections leave it alone, and correcting a field back to it takes it out. The page then says "Corrected after the ride", the original and the correction in its tooltip. The lockout keeps no original: it is a mark on the run, not a corrected setting.
+  - **The fork's and the shock's model (2026-10-28)**, a text field per end above the numbers, filled in by "Use current Settings" like the rest; emptying it takes the model off the run. A model put on a run recorded without one keeps no `recorded` — nothing was written down to lose, and every run before 2026-10-28 would otherwise read "Corrected after the ride" — while changing a model the run had keeps the original like any field. Used the same day to put "RockShox Domain RC B1" and "RockShox Super Deluxe Select+ C1" on all 16 runs on the card (RUN0042–58, all the Tyee's, same fork and shock throughout), through the API.
+    <details><summary>How it was checked</summary>
+
+    Every one of the 32 requests answered 200; the runs list then had both models on all 16 runs, no `recorded` on any, and new stamps (so the browser's kept list reads them again). On RUN0058, a change to another model kept `"recorded": {"model": "RockShox Domain RC B1"}` and changing it back took it out; a 61-character model was refused (400). The dialog, headless on RUN0049: both models in their fields, the numbers under them as before. Saving from the dialog was then used by the rider on the page and works (confirmed 2026-10-28).
+
+    </details>
   - The static sag and which dials exist are not offered: the one is a measurement, the other the hardware.
   - Checked through the API on a bench run (both fields in one request, a second correction keeping the first original, a correction back to it clearing `recorded`, a bad field refusing the whole request) and on the page (the corrected setup, "Changed since RUN0053: rear pressure 235 → 245 psi" in the history line, the marker). The dialog itself was clicked through by the rider afterwards and works (confirmed 2026-10-26).
 - **A locked-out run is set aside by the history, not counted as a change** (`runLockedOut()` in `telemetry.js`). It was first built as a change like any other, which cut RUN0042–46 — one setup — into three stretches (…44, 45 "lockout on", 46 "lockout off"). The rider's point settled it: the lever was closed for the climb and not opened again, which says nothing about the setup. Now RUN0042–46 is one stretch of 3 runs with "Not counted, ridden locked out: RUN0045" under it, RUN0046 reads "Same setup for 3 runs, since RUN0042", RUN0045's own page says "Not counted in the setup history", and its point on the Trends charts stays, with "ridden locked out" in its tooltip.

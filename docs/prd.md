@@ -27,7 +27,7 @@ A device that rides on a mountain bike and records how the suspension moves on e
 - Replacing the rider's judgement. The suggestions are a second opinion, never an automatic setting.
 - Coil springs, for now: everything assumes air. A known gap, see `todo.md`.
 - Native or installable apps (the device serves plain HTTP, which browsers don't install).
-- An AI second opinion on a run. For now only an idea in `todo.md`, not part of the product.
+- An AI second opinion inside the dashboard. What exists is "Copy for AI" (2026-10-28): the run as a prompt on the clipboard, which the rider pastes into a model of their choosing. Calling a model from the page is still only an idea in `todo.md`.
 
 ## Requirements
 

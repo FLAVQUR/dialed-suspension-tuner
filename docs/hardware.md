@@ -5,7 +5,7 @@ The bike, the pins, the sensors and how they are calibrated, and how the IMU is 
 ## The bike
 
 **Bike**: Propain Tyee 5 29 (full suspension).
-**Front suspension**: RockShox Domain — 170mm, Motion Control RC damper. Only **LSC + rebound are adjustable**; HSC is fixed at the factory (shim stack), there is no dial. DebonAir with up to 3 volume tokens.
+**Front suspension**: RockShox Domain RC B1 — 170mm, Motion Control RC damper. Only **LSC + rebound are adjustable**; HSC is fixed at the factory (shim stack), there is no dial. DebonAir with up to 3 volume tokens (checked in the RockShox TrailHead app for this fork, 2026-10-28).
 **Rear suspension**: RockShox Super Deluxe Select+ C1 — 55mm actual stroke (shock stroke), ≈160mm wheel-equivalent (leverage ratio ~2.9:1). RCT damper: **adjustable rebound (10-15 clicks) + Open/Threshold lever**, no graduated compression (LSC/HSC) at all. Full spec in the rear-shock section.
 
 ## Pins

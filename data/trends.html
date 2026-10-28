@@ -294,6 +294,7 @@ function setupChangesOf(results)
 function setupFromConfig(cfg, end)
 {
     return {
+        model: cfg[end + 'Model'],
         lsc: cfg[end + 'LSC'], hsc: cfg[end + 'HSC'], lsr: cfg[end + 'LSR'], hsr: cfg[end + 'HSR'],
         volume_tokens: cfg[end + 'VolumeTokens'], pressure_psi: cfg[end + 'PressurePsi'], sag_pct: cfg[end + 'SagPct'],
         has_lsc: cfg[end + 'HasLSC'], has_hsc: cfg[end + 'HasHSC'], has_lsr: cfg[end + 'HasLSR'], has_hsr: cfg[end + 'HasHSR']
@@ -335,7 +336,7 @@ function renderSetupHistory(bikeName)
         return;
     }
 
-    const changesText = changes => changes.map(c => setupChangeText(c)).join(' · ');
+    const changesText = changes => changes.map(c => escapeHtml(setupChangeText(c))).join(' · ');
     const runLink = name => `<a href="/run?name=${encodeURIComponent(name)}">${name}</a>`;
     const setupText = (label, setup) => {
         const parts = setupFields(setup).filter(f => f.key !== 'sag').map(setupFieldText);
@@ -416,7 +417,7 @@ function renderTrends(results)
     const changes = setupChangesOf(results);
     const markerIndices = changes.map((c, i) => c.length > 0 ? i : -1).filter(i => i > 0);
     const lockedOut = new Set(lockedOutRuns.map(r => r.name));
-    const xNotes = i => (changes[i] || []).map(c => setupChangeText(c))
+    const xNotes = i => (changes[i] || []).map(c => escapeHtml(setupChangeText(c)))
         .concat(results[i] && lockedOut.has(results[i].name) ? ['ridden locked out'] : []);
 
     // Shown before drawing, not after: a chart sizes its marks from the

@@ -70,7 +70,7 @@ Written when the run stops (`writeRunMeta()` in `run_service.cpp`), and changed 
 | `battery_v` | `start`, `end`, `lowest` (V) |
 | `stopped_by` | `"low_battery"` when the [low-battery cutoff](hardware.md#the-low-battery-cutoff-2026-10-28) ended the run; absent when the rider or a timer did |
 | `stats` | accumulated while recording, so the run page shows its figures before the `.CSVB` arrives: `max/avg_front_mm`, `max/avg_rear_mm`, `max/avg_speed_kmh`, `max_lean_deg` / `max_pitch_deg` (**radians**, despite the name), `max_g`, `avg_g`, `min/max_alt_m`, `distance_km`, `moving_s`, `elev_gain_m`, `elev_loss_m` |
-| `bike` | the setup snapshot: `name`, `wheel_size`, `full_suspension`, `front_travel`, `rear_travel`, `rear_wheel_travel_mm`, and `front_suspension` / `rear_suspension`, each with `lsc`, `hsc`, `lsr`, `hsr`, `volume_tokens`, `pressure_psi`, `sag_pct`, `has_lsc`…`has_hsr`, and, when set afterwards, `lockout` and `recorded` (the values before a correction) |
+| `bike` | the setup snapshot: `name`, `wheel_size`, `full_suspension`, `front_travel`, `rear_travel`, `rear_wheel_travel_mm`, and `front_suspension` / `rear_suspension`, each with `model` (the fork's or shock's make and model as typed in Settings; only when entered, since 2026-10-28), `lsc`, `hsc`, `lsr`, `hsr`, `volume_tokens`, `pressure_psi`, `sag_pct`, `has_lsc`…`has_hsr`, and, when set afterwards, `lockout` and `recorded` (the values before a correction) |
 
 The setup is whatever Settings held when the run ended. How it is read and corrected: [setup-change history](dashboard.md#setup-change-history-2026-10-08--on-the-device-checked-against-run004246-no-run-with-changed-clicks-or-pressure-yet).
 
@@ -91,7 +91,7 @@ One request at a time: while a run or a ZIP streams, everything else waits (see 
 | `/api/runs` | GET | `?index=1`: every run's name and stamp, from the directory alone. `?names=A,B`: those runs. `?offset=&limit=`: a page, newest first (25 by default, 50 at most). `&setup=1` adds each run's setup |
 | `/api/runs` | DELETE | body `{"name": "RUN00xx"}` |
 | `/api/runs/notes` | POST | `{name, notes?, title?}`: only the fields sent change |
-| `/api/runs/setup` | POST | `{name, end, fields: {…}}` or `{name, end, field, value}`: corrects a run's recorded setup, all or nothing |
+| `/api/runs/setup` | POST | `{name, end, fields: {…}}` or `{name, end, field, value}`: corrects a run's recorded setup, all or nothing. `model` is text (at most 60 characters; empty removes it), the rest numbers, `lockout` true/false |
 | `/api/runs/clear` | POST | deletes every run |
 | `/api/runs/download` | GET | `file`: one file from the card |
 | `/api/runs/telemetry` | GET | `name`: the run's `.CSVB`, made first if missing |

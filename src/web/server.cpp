@@ -148,6 +148,9 @@ void handleApiConfigGet() {
     doc["staEnabled"] = settings.staEnabled;
     doc["staSSID"] = settings.staSSID;
 
+    doc["frontModel"] = settings.frontModel;
+    doc["rearModel"] = settings.rearModel;
+
     doc["frontLSC"] = settings.frontLSC;
     doc["frontHSC"] = settings.frontHSC;
     doc["frontLSR"] = settings.frontLSR;
@@ -256,6 +259,19 @@ void handleApiConfigPost() {
 
     if (server.hasArg("rearWheelTravelMM"))
         settings.rearWheelTravelMM = server.arg("rearWheelTravelMM").toFloat();
+
+    // Free text, trimmed and cut to length like the bike's name.
+    auto modelArg = [](const char* key) {
+        String model = server.arg(key);
+        model.trim();
+        return model.length() > MAX_SUSPENSION_MODEL_LEN ? model.substring(0, MAX_SUSPENSION_MODEL_LEN) : model;
+    };
+
+    if (server.hasArg("frontModel"))
+        settings.frontModel = modelArg("frontModel");
+
+    if (server.hasArg("rearModel"))
+        settings.rearModel = modelArg("rearModel");
 
     if (server.hasArg("frontLSC"))
         settings.frontLSC = server.arg("frontLSC").toInt();
@@ -552,6 +568,7 @@ static void addRunSetup(JsonObject run, const char* key, const RunSetup& setup) 
 
     JsonObject obj = run[key].to<JsonObject>();
 
+    if (setup.model.length()) obj["model"] = setup.model;
     obj["lsc"] = setup.lsc;
     obj["hsc"] = setup.hsc;
     obj["lsr"] = setup.lsr;
@@ -930,6 +947,19 @@ static const SetupFieldSpec SETUP_FIELDS[] = {
 // One field and its value, checked against the table: false if either is
 // not acceptable.
 static bool setupCorrection(const char* name, JsonVariantConst value, RunService::SetupCorrection& out) {
+    // The fork's or shock's model: text, trimmed, at most as long as
+    // Settings take it; an empty one takes it off the run.
+    if (strcmp(name, "model") == 0) {
+        if (!value.is<const char*>()) return false;
+
+        String model = value.as<String>();
+        model.trim();
+        if (model.length() > MAX_SUSPENSION_MODEL_LEN) return false;
+
+        out = { "model", 0, model };
+        return true;
+    }
+
     for (const SetupFieldSpec& spec : SETUP_FIELDS) {
         if (strcmp(spec.name, name) != 0) continue;
 
@@ -953,7 +983,7 @@ static bool setupCorrection(const char* name, JsonVariantConst value, RunService
 
 // Corrects the setup a run was recorded with, in that run's .JSON only —
 // Settings and the bike's profile are not touched. Body: { name, end:
-// "front"|"rear", fields: { lsc: 3, pressure_psi: 235, ... } }, applied
+// "front"|"rear", fields: { lsc: 3, pressure_psi: 235, model: "...", ... } }, applied
 // together or not at all (one unknown field or out-of-range value refuses
 // the lot). The older { name, end, field, value } form, one field, still
 // works.

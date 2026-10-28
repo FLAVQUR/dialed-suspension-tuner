@@ -1340,6 +1340,7 @@ static void writeRunMeta(float durationSeconds) {
     bike["rear_wheel_travel_mm"] = serialized(String(settings.rearWheelTravelMM, 1));
 
     JsonObject frontSetup = bike["front_suspension"].to<JsonObject>();
+    if (settings.frontModel.length()) frontSetup["model"] = settings.frontModel;
     frontSetup["lsc"] = settings.frontLSC;
     frontSetup["hsc"] = settings.frontHSC;
     frontSetup["lsr"] = settings.frontLSR;
@@ -1353,6 +1354,7 @@ static void writeRunMeta(float durationSeconds) {
     frontSetup["has_hsr"] = settings.frontHasHSR;
 
     JsonObject rearSetup = bike["rear_suspension"].to<JsonObject>();
+    if (settings.rearModel.length()) rearSetup["model"] = settings.rearModel;
     rearSetup["lsc"] = settings.rearLSC;
     rearSetup["hsc"] = settings.rearHSC;
     rearSetup["lsr"] = settings.rearLSR;
@@ -1375,6 +1377,7 @@ static void loadRunSetup(JsonObjectConst src, RunSetup& setup) {
         return;
 
     setup.recorded = true;
+    setup.model = src["model"] | "";
     setup.lsc = src["lsc"] | 0;
     setup.hsc = src["hsc"] | 0;
     setup.lsr = src["lsr"] | 0;
@@ -1489,6 +1492,29 @@ bool RunService::setSetupFields(const String& name, bool rear, const std::vector
     for (const SetupCorrection& c : fields) {
         const char* field = c.field;
         bool pressure = strcmp(field, "pressure_psi") == 0;
+
+        // The model, like the numbers below, keeps what the run was recorded
+        // with — unless it was recorded with none (every run before
+        // 2026-10-28), when there is nothing to keep.
+        if (strcmp(field, "model") == 0) {
+            JsonObject recorded = setup["recorded"];
+            bool hadOriginal = !recorded.isNull() && recorded["model"].is<const char*>();
+            String original = hadOriginal ? recorded["model"].as<String>() : (setup["model"] | "");
+
+            if (c.text.length()) setup["model"] = c.text;
+            else setup.remove("model");
+
+            if (c.text == original) {
+                if (hadOriginal) recorded.remove("model");
+            } else if (!hadOriginal && original.length()) {
+                if (recorded.isNull()) recorded = setup["recorded"].to<JsonObject>();
+                recorded["model"] = original;
+            }
+
+            if (!setup["recorded"].isNull() && setup["recorded"].size() == 0)
+                setup.remove("recorded");
+            continue;
+        }
 
         // Each in the form writeRunMeta() gives it. "lockout" is only ever
         // there when it is true.
@@ -1615,6 +1641,7 @@ static void recoverOrphanedRun(const String& runName) {
     bike["rear_wheel_travel_mm"] = serialized(String(settings.rearWheelTravelMM, 1));
 
     JsonObject frontSetup = bike["front_suspension"].to<JsonObject>();
+    if (settings.frontModel.length()) frontSetup["model"] = settings.frontModel;
     frontSetup["lsc"] = settings.frontLSC;
     frontSetup["hsc"] = settings.frontHSC;
     frontSetup["lsr"] = settings.frontLSR;
@@ -1628,6 +1655,7 @@ static void recoverOrphanedRun(const String& runName) {
     frontSetup["has_hsr"] = settings.frontHasHSR;
 
     JsonObject rearSetup = bike["rear_suspension"].to<JsonObject>();
+    if (settings.rearModel.length()) rearSetup["model"] = settings.rearModel;
     rearSetup["lsc"] = settings.rearLSC;
     rearSetup["hsc"] = settings.rearHSC;
     rearSetup["lsr"] = settings.rearLSR;

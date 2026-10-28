@@ -121,8 +121,10 @@
                         the field back to "no dial" and + from blank starts it at 0.
                     </p>
                     <p class="stat-sub">
-                        The click counts, tokens and pressure aren't used in any calculation, just
-                        kept for reference and shown alongside each run. Static Sag (captured in
+                        The model, click counts, tokens and pressure aren't used in any calculation, just
+                        kept for reference and shown alongside each run — the model also names the
+                        part in the run's "Copy for AI" prompt. Include the revision (B1, C1…):
+                        it changes how many tokens fit and the click ranges. Static Sag (captured in
                         the Sensors tab) is the exception: Run Analysis uses it to judge whether a
                         ride's average travel looks too firm or too soft for how the bike was set up.
                     </p>
@@ -131,6 +133,10 @@
                 <div class="stack" style="gap:18px;">
                     <div>
                         <p class="stat-label">Front</p>
+                        <div class="field">
+                            <label for="frontModel">Model</label>
+                            <input id="frontModel" type="text" maxlength="60" placeholder="e.g. RockShox Domain RC B1" autocomplete="off">
+                        </div>
                         <div style="display:flex; gap:8px;">
                             <div class="field" style="flex:1;">
                                 <label for="frontLSC">LSC</label>
@@ -165,6 +171,10 @@
 
                     <div>
                         <p class="stat-label">Rear</p>
+                        <div class="field">
+                            <label for="rearModel">Model</label>
+                            <input id="rearModel" type="text" maxlength="60" placeholder="e.g. RockShox Super Deluxe Select+ C1" autocomplete="off">
+                        </div>
                         <div style="display:flex; gap:8px;">
                             <div class="field" style="flex:1;">
                                 <label for="rearLSC">LSC</label>
@@ -682,6 +692,8 @@ function loadConfig() {
             setDial(side + 'HSC', data[side + 'HSC'], !!data[side + 'HasHSC']);
             setDial(side + 'LSR', data[side + 'LSR'], data[side + 'HasLSR'] !== false);
             setDial(side + 'HSR', data[side + 'HSR'], !!data[side + 'HasHSR']);
+
+            document.getElementById(side + 'Model').value = data[side + 'Model'] || '';
 
             // 0 tokens is a real setup; 0 psi just means it was never filled in.
             document.getElementById(side + 'VolumeTokens').value = data[side + 'VolumeTokens'] || 0;
@@ -1213,6 +1225,7 @@ function saveSuspensionSetupConfig() {
             parts.push(`${side}Has${dial}=${clicks === '' ? '0' : '1'}`);
         });
 
+        parts.push(`${side}Model=${encodeURIComponent(value(side + 'Model').trim())}`);
         parts.push(`${side}VolumeTokens=${value(side + 'VolumeTokens') || 0}`);
         parts.push(`${side}PressurePsi=${value(side + 'PressurePsi') || 0}`);
     });

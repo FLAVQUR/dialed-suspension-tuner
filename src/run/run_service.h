@@ -107,7 +107,10 @@ namespace RunService
     // the run was recorded with is kept under the setup's "recorded", so a
     // correction never loses what was really written down; correcting it
     // back to that value takes it out again. The lockout is a mark on the
-    // run, not a correction of a setting, and keeps no original.
+    // run, not a correction of a setting, and keeps no original. "model" is
+    // the one text field (in `text`, an empty one taking the model out); a
+    // model put on a run that was recorded without one keeps no original
+    // either, since nothing was written down to lose.
     //
     // `field` must point at a string that outlives the call (the caller's
     // table of known names). The caller checks the names and the values'
@@ -116,6 +119,7 @@ namespace RunService
     struct SetupCorrection {
         const char* field;
         float value;
+        String text;    // "model" only
     };
 
     bool setSetupFields(const String& name, bool rear, const std::vector<SetupCorrection>& fields);

@@ -117,7 +117,8 @@ data/run.html            — single-run page: minMaxPoints(), the time-series st
                            fitTimeCharts(), drawLineChart()), chart zoom, linked views,
                            computeActivitySegments(), detectHarshEvents(), generateSuggestions(),
                            addSetupContext(), renderMissing() / renderOrientationLoss() (the notes
-                           under the stats), editRecordedSetup() (the "Edit setup" dialog)
+                           under the stats), editRecordedSetup() (the "Edit setup" dialog),
+                           aiPrompt() / copyForAi() (the "Copy for AI" prompt)
 data/compare.html        — A/B of two runs: route + time gained, setup diff, histograms
 data/trends.html         — one bike's setup history, and sag and bottom-outs per minute across its runs
 data/settings.html       — bike profiles + setup (autosave), guided calibration + IMU zero

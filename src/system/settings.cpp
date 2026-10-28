@@ -42,6 +42,8 @@ void settingsLoadDefaults()
     settings.rearWheelTravelMM = 0.0f;
     settings.frontMaxTravelMM = 0.0f;
     settings.rearStrokeMM = 0.0f;
+    settings.frontModel = "";
+    settings.rearModel = "";
 
     settings.frontLSC = 0;
     settings.frontHSC = 0;
@@ -158,6 +160,8 @@ void settingsLoad()
 
     settings.frontMaxTravelMM = prefs.getFloat("fMaxTrvl", settings.frontMaxTravelMM);
     settings.rearStrokeMM = prefs.getFloat("rStrokeMM", settings.rearStrokeMM);
+    settings.frontModel = prefs.getString("fModel", settings.frontModel);
+    settings.rearModel = prefs.getString("rModel", settings.rearModel);
 
     settings.frontLSC = prefs.getUChar("fLSC", settings.frontLSC);
     settings.frontHSC = prefs.getUChar("fHSC", settings.frontHSC);
@@ -271,6 +275,8 @@ void settingsSave()
 
     prefs.putFloat("fMaxTrvl", settings.frontMaxTravelMM);
     prefs.putFloat("rStrokeMM", settings.rearStrokeMM);
+    prefs.putString("fModel", settings.frontModel);
+    prefs.putString("rModel", settings.rearModel);
 
     prefs.putUChar("fLSC", settings.frontLSC);
     prefs.putUChar("fHSC", settings.frontHSC);

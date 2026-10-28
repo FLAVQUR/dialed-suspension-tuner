@@ -589,6 +589,14 @@ function setupChanges(before, after)
 
     const changes = [];
 
+    // A new fork or shock first, the biggest change there is. Only between
+    // two models that were both entered: the first time one is typed in
+    // (every run before 2026-10-28 has none) the part didn't change.
+    const model = setup => (setup && typeof setup.model === 'string') ? setup.model.trim() : '';
+    const modelA = model(before), modelB = model(after);
+    if (modelA && modelB && modelA.toLowerCase() !== modelB.toLowerCase())
+        changes.push({ key: 'model', from: modelA, to: modelB });
+
     new Set([...a.keys(), ...b.keys()]).forEach(key => {
         if (a.get(key) !== b.get(key)) changes.push({ key, from: a.get(key), to: b.get(key) });
     });
@@ -597,10 +605,14 @@ function setupChanges(before, after)
 }
 
 // One change in words — "rear pressure 225 → 235 psi", "front LSC 0 → 4" —
-// or without the end where the place it's shown already says which.
+// or without the end where the place it's shown already says which. Plain
+// text: a model is whatever the rider typed, so escape it before it goes
+// into HTML.
 function setupChangeText(change, withEnd = true)
 {
-    const NAMES = { tokens: 'volume tokens', psi: 'pressure', comp: 'compression', rebound: 'rebound' };
+    const NAMES = { tokens: 'volume tokens', psi: 'pressure', comp: 'compression', rebound: 'rebound', model: 'model' };
+
+    if (change.key === 'model') return `${withEnd ? change.end + ' ' : ''}model ${change.from} → ${change.to}`;
 
     // Tokens are only in a snapshot above zero, so "none" is a real count
     // there; anywhere else a missing value is one that was never entered.

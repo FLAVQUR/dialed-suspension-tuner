@@ -8,6 +8,10 @@ struct RunSetup {
     // compression and rebound were split into four dials.
     bool recorded = false;
 
+    // The fork's or shock's model, as entered in Settings; empty on runs
+    // recorded before it could be (2026-10-28) or when it never was.
+    String model;
+
     uint8_t lsc = 0;
     uint8_t hsc = 0;
     uint8_t lsr = 0;

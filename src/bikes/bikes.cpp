@@ -28,6 +28,7 @@ void writeProfile(JsonDocument& doc, const String& name) {
     doc["rear_wheel_travel_mm"] = serialized(String(settings.rearWheelTravelMM, 1));
 
     JsonObject front = doc["front_suspension"].to<JsonObject>();
+    front["model"] = settings.frontModel;
     front["lsc"] = settings.frontLSC;
     front["hsc"] = settings.frontHSC;
     front["lsr"] = settings.frontLSR;
@@ -42,6 +43,7 @@ void writeProfile(JsonDocument& doc, const String& name) {
     front["has_hsr"] = settings.frontHasHSR;
 
     JsonObject rear = doc["rear_suspension"].to<JsonObject>();
+    rear["model"] = settings.rearModel;
     rear["lsc"] = settings.rearLSC;
     rear["hsc"] = settings.rearHSC;
     rear["lsr"] = settings.rearLSR;
@@ -136,6 +138,8 @@ bool BikeProfiles::activate(const String& name) {
     settings.rearWheelTravelMM = doc["rear_wheel_travel_mm"] | 0.0f;
 
     JsonObject front = doc["front_suspension"];
+    // Absent in profiles saved before 2026-10-28: no model, as before.
+    settings.frontModel = front["model"] | "";
     settings.frontLSC = front["lsc"] | 0;
     settings.frontHSC = front["hsc"] | 0;
     settings.frontLSR = front["lsr"] | 0;
@@ -157,6 +161,7 @@ bool BikeProfiles::activate(const String& name) {
     settings.frontHasHSR = front["has_hsr"] | false;
 
     JsonObject rear = doc["rear_suspension"];
+    settings.rearModel = rear["model"] | "";
     settings.rearLSC = rear["lsc"] | 0;
     settings.rearHSC = rear["hsc"] | 0;
     settings.rearLSR = rear["lsr"] | 0;

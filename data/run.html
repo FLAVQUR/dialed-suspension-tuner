@@ -7,7 +7,10 @@
 <title>Run — Dialed</title>
 
 <style>
-    #playBtn:disabled, #notesSaveBtn:disabled { opacity: 0.4; cursor: default; }
+    #playBtn:disabled, #notesSaveBtn:disabled, #copyAiBtn:disabled { opacity: 0.4; cursor: default; }
+    .tuning-header { align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+    .tuning-header h3 { margin-bottom: 0; }
+    .tuning-header button { flex-shrink: 0; }
 
     /* "Edit setup" under the setup lines: a link-like button, not a control
        that competes with the stats. */
@@ -471,7 +474,11 @@
 
         <div class="tab-panel" id="tabTuning">
             <div class="card glass span-2">
-                <h3 style="margin-top:0;">Tuning Suggestions</h3>
+                <div class="card-header tuning-header">
+                    <h3 style="margin-top:0;">Tuning Suggestions</h3>
+                    <button type="button" class="ghost" id="copyAiBtn" onclick="copyForAi()" disabled
+                            title="Copies this ride's figures, events, setup and history as a prompt to paste into an AI chat">Copy for AI</button>
+                </div>
                 <p class="stat-sub" style="margin-top:-8px; margin-bottom:16px;">Starting points based on this ride's data only — not a substitute for back-to-back testing and how the bike actually felt on the trail.</p>
                 <div id="tuningImbalance" style="display:none; margin-bottom:18px;"></div>
                 <div id="tuningFront" class="tuning-side"></div>
@@ -1983,7 +1990,7 @@ function renderSetupInfo(bike, isFullSusp)
         if (!s || !s.recorded) return;
         Object.keys(s.recorded).forEach(key => {
             const f = SETUP_EDIT_FIELDS.find(x => x.key === key);
-            corrections.push(`${label} ${f ? f.name : key}: recorded ${s.recorded[key]}, corrected to ${s[key]}`);
+            corrections.push(`${label} ${f ? f.name : key}: recorded ${s.recorded[key]}, corrected to ${s[key] ?? 'none'}`);
         });
     });
 
@@ -2032,6 +2039,9 @@ function editRecordedSetup()
     dlg.innerHTML = `
         <h3>Correct this run's setup</h3>
         <p>What was really on the bike for ${escapeHtml(runTitle || runName)}. Only this run changes — not Settings, not the bike's profile — and what it was recorded with is kept.</p>
+        <div class="setup-edit-grid" style="grid-template-columns: auto 1fr;">
+            ${ends.map(e => `<span class="stat-sub" style="margin:0;">${e.end === 'front' ? 'Fork' : 'Shock'} model</span><input type="text" maxlength="60" autocomplete="off" data-end="${e.end}" data-model value="${escapeHtml(suspensionModel(e.setup))}">`).join('')}
+        </div>
         <div class="setup-edit-grid" style="grid-template-columns: auto repeat(${ends.length}, 1fr);">
             <span></span>${ends.map(e => `<span class="stat-label">${e.label}</span>`).join('')}
             ${rows.map(f => `<span class="stat-sub" style="margin:0;">${f.label}</span>` + ends.map(e => has(e, f)
@@ -2047,6 +2057,7 @@ function editRecordedSetup()
 
     const status = dlg.querySelector('#setupEditStatus');
     const inputs = Array.from(dlg.querySelectorAll('input[data-key]'));
+    const modelInputs = Array.from(dlg.querySelectorAll('input[data-model]'));
 
     // Fills in what Settings hold now — the usual case being Settings that
     // were only brought up to date after the ride.
@@ -2061,6 +2072,11 @@ function editRecordedSetup()
                 const f = SETUP_EDIT_FIELDS.find(x => x.key === input.dataset.key);
                 const value = cfg[input.dataset.end + f.config];
                 if (typeof value === 'number') input.value = Math.round(value);
+            });
+
+            modelInputs.forEach(input => {
+                const model = cfg[input.dataset.end + 'Model'];
+                if (typeof model === 'string' && model.trim()) input.value = model.trim();
             });
 
             status.textContent = 'Filled in from Settings — check, then Save.';
@@ -2085,6 +2101,13 @@ function editRecordedSetup()
             }
 
             if (value !== setup[f.key]) (changes[input.dataset.end] = changes[input.dataset.end] || {})[f.key] = value;
+        }
+
+        // An emptied model takes it off the run.
+        for (const input of modelInputs) {
+            const model = input.value.trim();
+            const setup = ends.find(e => e.end === input.dataset.end).setup;
+            if (model !== suspensionModel(setup)) (changes[input.dataset.end] = changes[input.dataset.end] || {}).model = model;
         }
 
         if (Object.keys(changes).length === 0) { dlg.close(); return; }
@@ -3176,9 +3199,11 @@ function addSetupContext(suggestions, ctx, end, available, staticSagPct)
     }
 }
 
-function renderTuningSide(containerId, sideName, color, setup, suggestions)
+function renderTuningSide(containerId, sideName, color, setupSnapshot, suggestions)
 {
     const container = document.getElementById(containerId);
+    // The model is whatever the rider typed in Settings.
+    const setup = [suspensionModel(setupSnapshot), formatSetup(setupSnapshot)].filter(Boolean).map(escapeHtml).join(' · ');
 
     let html = `<div class="tuning-side-header">
         <span class="event-dot" style="background:${color};"></span>
@@ -3243,6 +3268,13 @@ function renderImbalanceSuggestion(imbalance) {
 // snapshot has, written out in full. Which fields those are — dials by
 // their has_* flags, the pre-split click counts for runs old enough to have
 // only those — is setupFields()'s call (telemetry.js), not this page's.
+// The fork's or shock's model from the run's setup snapshot, '' when the
+// run has none (recorded before 2026-10-28, or never entered).
+function suspensionModel(setup)
+{
+    return setup && typeof setup.model === 'string' ? setup.model.trim() : '';
+}
+
 function formatSetup(setup)
 {
     if (!setup) return '';
@@ -3250,6 +3282,243 @@ function formatSetup(setup)
     const parts = setupFields(setup).map(setupFieldText);
 
     return parts.length ? parts.join(' · ') : 'Setup not recorded in Settings';
+}
+
+// ── Copy for AI ────────────────────────────────────────────────────────────
+// The run as a prompt to paste into a chat with a language model, for a
+// second opinion: what this page has worked out — the figures behind the
+// suggestions and the suggestions themselves, segments, events, the setup and
+// its history, the rider's notes — and how each was measured, so the model
+// can read it as a tuner would and disagree with the rules where the data
+// says so. Not the telemetry itself: megabytes, and the model would only redo
+// this page's work less carefully. Copied, not sent: the device has no
+// internet, and an API key has nowhere safe to live on plain-HTTP pages.
+
+let aiContext = null;           // set by load() once everything is computed
+const AI_MAX_SEGMENTS = 30;
+const AI_MAX_EVENTS = 40;
+const AI_MAX_HISTORY = 10;      // runs of the setup history, ending at this one
+
+function aiPrompt(c)
+{
+    const meta = c.meta || {};
+    const bike = c.bike || {};
+    const L = [];
+    const fixed = (v, d = 0) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--';
+    const pctOf = (mm, maxMM) => maxMM ? `${fixed(mm / maxMM * 100)}%` : '--';
+    const orList = list => list.length > 1 ? `${list.slice(0, -1).join(', ')} or ${list[list.length - 1]}` : list.join('');
+
+    // "2026-10-10 18:35", local time: a day-month order a model can't misread.
+    const when = epoch => {
+        const d = new Date(epoch * 1000);
+        const two = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+    };
+
+    // Which dials an end has, from the has_* flags; old runs have none.
+    const adjusters = setup => {
+        if (!setup || typeof setup.has_lsc !== 'boolean') return 'not recorded';
+        const avail = adjusterAvailability(setup);
+        const has = SETUP_DIALS.filter(k => avail[k]).map(k => k.toUpperCase());
+        const lacks = SETUP_DIALS.filter(k => !avail[k]).map(k => k.toUpperCase());
+        return (has.length ? has.join(', ') : 'none') + (lacks.length ? ` (no ${orList(lacks)})` : '');
+    };
+
+    const stroke = c.rear && c.rear.maxMM;
+    const wheel = bike.rear_wheel_travel_mm;
+
+    L.push('# Suspension tuning: a second opinion on one ride', '');
+    L.push('I ride a mountain bike with a DIY data logger on it. Below is what its dashboard worked out from one ride, including its own rule-based tuning suggestions. Please read it as an experienced suspension tuner would:', '');
+    L.push('1. What does the data say about the fork and the shock, each on its own and against each other? Point to the figures you are going by.');
+    L.push('2. Where do you agree or disagree with the dashboard\'s suggestions, and why?');
+    L.push('3. What is the one change you would make first, and by how much? Then: what should I look for in the next ride\'s figures to tell whether it worked?');
+    // The models are only asked for when the run doesn't name them.
+    const frontModel = suspensionModel(c.front.setup);
+    const rearModel = c.isFullSusp ? suspensionModel(c.rear.setup) : '';
+    const missingModels = [!frontModel && 'fork', c.isFullSusp && !rearModel && 'shock'].filter(Boolean);
+    L.push(`4. What can't this data tell you? Ask me for whatever you would need — how the bike felt, the trail, my weight${missingModels.length ? `, the ${missingModels.join(' and ')} model${missingModels.length > 1 ? 's' : ''} and revision${missingModels.length > 1 ? 's' : ''}` : ''}.`, '');
+    L.push('It is one ride; the setup history further down shows what was ridden before it.', '');
+
+    L.push('## How the data was measured', '');
+    L.push(`- **Travel**: a linear potentiometer on the fork and one on the shock, ${fixed(c.rowsPerS)} samples a second on this ride. Front figures are fork travel.` +
+        (c.isFullSusp ? ` Rear figures are **shock stroke**, not wheel travel (${fixed(stroke)}mm of stroke${wheel > 0 ? `, ${fixed(wheel)}mm at the wheel` : ''}).` : ''));
+    L.push('- **Travel used** is a % of that end\'s full travel. "Average travel used" is the mean over the whole ride, stops included (dynamic sag). Static sag was measured with me sitting still on the bike, before the ride.');
+    L.push('- **Bottom-out**: crossing 95% of travel, counted again only once it has dropped below 85%. **Topped out**: the share of samples under 5% of travel.');
+    L.push('- **Shaft speed**: from consecutive samples, unfiltered; positive is compression. The rebound/compression ratio is the 90th percentile of rebound speed over the 90th percentile of compression speed.');
+    L.push('- **G-force**: the accelerometer of an IMU fixed inside the frame triangle, total magnitude (1G at rest). It reads up to ±8g per axis, so a figure with "≥" hit that ceiling and is a lower bound.');
+    L.push('- **Segments**: "technical" where suspension and G activity are high for this ride while the speed is at or below the ride\'s median; the rest is "transition". Relative to the ride, not fixed thresholds.');
+    L.push('- **Harsh hits** (experimental): a vertical acceleration spike (gravity removed) in the top 2% of the ride while that end moved 15% of its travel or less. Not yet checked against a ride I remember as harsh, and the dashboard\'s suggestions don\'t use them.');
+    L.push('- **Click counts** are as I count them on each dial; which end of its range a dial is counted from isn\'t recorded.', '');
+
+    L.push('## The ride', '');
+    L.push(`- ${meta.name || runName}${meta.title ? ` "${meta.title}"` : ''}${meta.start_utc > 0 ? `, ${when(meta.start_utc)}` : ''}`);
+    L.push(`- Duration ${formatDuration(c.totalS)} (${formatDuration(c.movingS)} moving), ${fixed(c.stats.distanceKm, 2)} km, speed ${fixed(c.stats.avgSpeed, 1)} km/h average, ${fixed(c.stats.maxSpeed, 1)} km/h max`);
+    L.push(`- Elevation +${fixed(c.elevGain)} / -${fixed(c.elevLoss)} m (${fixed(c.stats.minAlt)}–${fixed(c.stats.maxAlt)} m)`);
+    L.push(`- Jumps (≥${AIR_MIN_DURATION_S}s airborne): ${c.jumps}${c.jumps ? `, ${fixed(c.airS, 1)}s in the air in all` : ''}`);
+    L.push(`- G-force: ${fixed(c.stats.avgGForce, 1)}G average, peak ${formatPeakG(c.stats.maxGForce, c.stats.maxGClipped)}; ${c.impacts} hard impact${c.impacts === 1 ? '' : 's'} above ${fixed(c.impactHigh, 1)}G (the top 2% of this ride, 2.5G at least)`);
+    if (c.imuBasis) L.push(`- Lean up to ${fixed(c.stats.maxLean)}°, pitch up to ${fixed(c.stats.maxPitch)}°`);
+    const notes = document.getElementById('notesText').value.trim();
+    L.push(`- My notes: ${notes ? `"${notes.replace(/\s*\n\s*/g, ' / ')}"` : 'none'}`, '');
+
+    L.push('## Bike and setup for this ride', '');
+    const bikeBits = [bike.name, bike.wheel_size ? `${bike.wheel_size}" wheels` : '', c.isFullSusp ? 'full suspension' : 'hardtail'].filter(Boolean);
+    L.push(`- Bike: ${bikeBits.join(', ')}`);
+    L.push(`- Fork: ${frontModel ? `${frontModel}, ` : ''}${fixed(c.front.maxMM)}mm travel. Setup: ${formatSetup(c.front.setup) || 'not recorded'}. Adjusters: ${adjusters(c.front.setup)}.`);
+    if (c.isFullSusp) {
+        const leverage = stroke && wheel > 0 ? ` (average leverage ratio ~${fixed(wheel / stroke, 1)}:1)` : '';
+        L.push(`- Shock: ${rearModel ? `${rearModel}, ` : ''}${fixed(stroke)}mm stroke${wheel > 0 ? `, ${fixed(wheel)}mm wheel travel` : ''}${leverage}. Setup: ${formatSetup(c.rear.setup) || 'not recorded'}. Adjusters: ${adjusters(c.rear.setup)}.`);
+        if (c.rear.setup && c.rear.setup.lockout === true)
+            L.push('- **The shock was ridden locked out** (lever closed) on this ride, so its figures are of the locked shock.');
+    }
+    [['Fork', c.front.setup], ['Shock', c.rear && c.rear.setup]].forEach(([label, s]) => {
+        if (s && s.recorded)
+            Object.keys(s.recorded).forEach(key => L.push(`- ${label} ${key} corrected after the ride: recorded ${s.recorded[key]}, really ${s[key] ?? 'none'}`));
+    });
+    L.push('');
+
+    L.push('## Suspension figures', '');
+    const ends = c.isFullSusp ? [c.front, c.rear] : [c.front];
+    const row = (label, fn) => L.push(`| ${label} | ${ends.map(fn).join(' | ')} |`);
+    const speeds = list => list ? list.map(v => fixed(v)).join(' / ') + ' mm/s' : '--';
+    L.push(`| | Fork |${c.isFullSusp ? ' Shock |' : ''}`, `|---|---|${c.isFullSusp ? '---|' : ''}`);
+    row('Average travel used (dynamic sag)', e => `${fixed(e.avgPct)}% (${fixed(e.avgMM)}mm)`);
+    row('Static sag', e => e.staticSag > 0 ? `${fixed(e.staticSag)}%` : 'not measured');
+    row('Deepest point', e => `${pctOf(e.peakMM, e.maxMM)} (${fixed(e.peakMM, 1)}mm)`);
+    row('Bottom-outs', e => `${e.boCount} (${fixed(c.totalS > 0 ? e.boCount / (c.totalS / 60) : 0, 1)}/min)`);
+    row('Time topped out (<5%)', e => `${fixed(e.toppedOutPct)}%`);
+    row('Compression speed p50 / p90 / p99', e => speeds(e.comp));
+    row('Rebound speed p50 / p90 / p99', e => speeds(e.rebound));
+    row('Fastest compression / rebound', e => `${fixed(e.compMax)} / ${fixed(e.reboundMax)} mm/s`);
+    row('Rebound/compression ratio (p90)', e => e.comp && e.rebound && e.comp[1] > 0 ? `${fixed(e.rebound[1] / e.comp[1], 2)}x` : '--');
+    row('Harsh hits (experimental)', e => String(e.harshCount));
+    L.push('');
+    L.push('Share of samples in each tenth of travel (0–10% first):');
+    ends.forEach((e, i) => L.push(`- ${i ? 'Shock' : 'Fork'}: ${e.hist.map(v => fixed(v)).join(' · ')}`));
+    if (c.medianGapPp !== null)
+        L.push('', `Front/rear balance: over the whole ride the fork sat a median ${fixed(Math.abs(c.medianGapPp))} points of travel ${c.medianGapPp >= 0 ? 'deeper' : 'shallower'} than the shock (each as % of its own travel).`);
+    L.push('');
+
+    L.push('## Trail segments', '');
+    if (c.segments.length === 0) L.push('No technical stretches detected.');
+    c.segments.slice(0, AI_MAX_SEGMENTS).forEach(({ seg, stats }) => {
+        const bits = [`${fixed(stats.speedAvg)} km/h`];
+        if (stats.frontAvgPct !== null) bits.push(`fork ${fixed(stats.frontAvgPct)}%`);
+        if (c.isFullSusp && stats.rearAvgPct !== null) bits.push(`shock ${fixed(stats.rearAvgPct)}%`);
+        const bo = stats.frontBO + (c.isFullSusp ? stats.rearBO : 0);
+        if (bo) bits.push(`${bo} bottom-out${bo > 1 ? 's' : ''}`);
+        bits.push(`peak ${formatPeakG(stats.peakG, stats.peakClipped)}`);
+        L.push(`- ${formatClock(seg.startS)}–${formatClock(seg.endS)} ${seg.technical ? 'technical' : 'transition'}: ${bits.join(', ')}`);
+    });
+    if (c.segments.length > AI_MAX_SEGMENTS) L.push(`- … and ${c.segments.length - AI_MAX_SEGMENTS} more`);
+    L.push('');
+
+    L.push('## Notable events', '');
+    L.push('Bottom-outs (with the peak G nearby), harsh hits and jumps.', '');
+    if (c.events.length === 0) L.push('None.');
+    c.events.slice(0, AI_MAX_EVENTS).forEach(e => L.push(`- ${formatChartTime(e.s)} ${e.label}`));
+    if (c.events.length > AI_MAX_EVENTS) L.push(`- … and ${c.events.length - AI_MAX_EVENTS} more`);
+    if (c.balance.count > 0)
+        L.push('', `Also ${c.balance.count} moments where one end sat at least ${fixed(c.balance.thresholdPp)} points of travel deeper than the other (the top 5% of this ride's gap): the fork deeper ${c.balance.frontDeeper} times, the shock ${c.balance.count - c.balance.frontDeeper}. Often a landing, a manual or hard braking rather than the setup.`);
+    L.push('');
+
+    L.push('## The dashboard\'s own suggestions', '');
+    L.push('Rule-based, from this ride alone, with what the setup history says under each.', '');
+    const suggestionLines = (label, list) => {
+        L.push(`${label}:`);
+        if (!list || list.length === 0) L.push('- nothing to suggest');
+        (list || []).forEach(s => L.push(`- [${s.ok ? 'OK' : s.tag}] ${s.text}${s.context ? ` (${s.context})` : ''}`));
+    };
+    suggestionLines('Fork', c.front.suggestions);
+    if (c.isFullSusp) suggestionLines('Shock', c.rear.suggestions);
+    if (c.imbalanceText) L.push(`Balance: ${c.imbalanceText}`);
+    L.push('');
+
+    const ctx = c.setupContext;
+    if (ctx && ctx.entries.length > 1) {
+        L.push('## Setup history of this bike', '');
+        L.push('The runs on record, oldest first, each with what changed from the one before (runs ridden locked out are left out).', '');
+        const first = Math.max(0, ctx.index - AI_MAX_HISTORY + 1);
+        ctx.entries.slice(first, ctx.index + 1).forEach((entry, i) => {
+            const r = entry.run;
+            const bits = [];
+            if (r.start_utc > 0) bits.push(when(r.start_utc).slice(0, 10));
+            if (typeof r.duration_s === 'number') bits.push(formatDuration(r.duration_s));
+            if (typeof r.distance_km === 'number') bits.push(`${fixed(r.distance_km, 2)} km`);
+            if (typeof r.max_speed_kmh === 'number') bits.push(`max ${fixed(r.max_speed_kmh)} km/h`);
+            if (typeof r.max_front_mm === 'number') bits.push(`fork deepest ${pctOf(r.max_front_mm, r.front_travel)}`);
+            if (c.isFullSusp && typeof r.max_rear_mm === 'number') bits.push(`shock deepest ${pctOf(r.max_rear_mm, r.rear_travel)}`);
+
+            const setup = i === 0
+                ? `setup: fork ${[suspensionModel(r.front_suspension), formatSetup(r.front_suspension)].filter(Boolean).join(', ')}${c.isFullSusp ? `; shock ${[suspensionModel(r.rear_suspension), formatSetup(r.rear_suspension)].filter(Boolean).join(', ')}` : ''}`
+                : entry.changes.length ? `changed: ${entry.changes.map(ch => setupChangeText(ch)).join(', ')}` : 'no setup change';
+
+            const here = entry === ctx.entries[ctx.index] ? ' — **this ride**' : '';
+            L.push(`- ${r.name}${r.title ? ` "${r.title}"` : ''}${here} (${bits.join(', ')}); ${setup}${r.notes ? `. Notes: "${r.notes.replace(/\s*\n\s*/g, ' / ')}"` : ''}`);
+        });
+        const later = ctx.entries.length - 1 - ctx.index;
+        if (later > 0) L.push(`- (${later} later run${later > 1 ? 's' : ''} on record, not shown)`);
+        const stale = ctx.entries[ctx.index].sagStale;
+        ['front', 'rear'].forEach(end => {
+            if (stale[end]) L.push(`- The ${end === 'front' ? 'fork' : 'shock'}'s static sag has not been measured again since its pressure or tokens changed, at ${stale[end]}.`);
+        });
+        L.push('');
+    }
+
+    L.push('## Data quality', '');
+    const quality = [];
+    const gapS = c.gaps.reduce((sum, g) => sum + g.s, 0);
+    if (c.gaps.length) quality.push(`${formatShortSeconds(gapS)} of samples missing, in ${c.gaps.length} gap${c.gaps.length > 1 ? 's' : ''}`);
+    const lostS = c.orientationLost.reduce((sum, g) => sum + g.s, 0);
+    if (c.orientationLost.length) quality.push(`the IMU lost its orientation for ${formatShortSeconds(lostS)}, where lean, pitch and vertical G are missing`);
+    if (c.clippedSamples) quality.push(`the accelerometer was at its ±8g ceiling in ${c.clippedSamples} samples`);
+    if (!c.imuBasis) quality.push('the IMU had no rest reference for this ride, so lean, pitch and vertical G are the sensor\'s, not the bike\'s');
+    L.push(quality.length ? quality.map(q => `- ${q[0].toUpperCase()}${q.slice(1)}`).join('\n') : '- Nothing missing or out of range.');
+    if (meta.firmware) L.push(`- Recorded with logger firmware ${meta.firmware}`);
+
+    return L.join('\n') + '\n';
+}
+
+// navigator.clipboard is only there on HTTPS pages, and these are plain HTTP
+// from the device, so the old way first: a selected textarea and "copy",
+// which still works from a click. If even that fails, the prompt is saved as
+// a file instead.
+async function copyForAi()
+{
+    if (!aiContext) return;
+
+    const text = aiPrompt(aiContext);
+
+    if (window.isSecureContext && navigator.clipboard) {
+        try {
+            await navigator.clipboard.writeText(text);
+            BikeUI.toast('Copied — paste it into a chat with an AI model.');
+            return;
+        } catch (e) { /* the fallback below */ }
+    }
+
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed; top:0; left:0; width:1px; height:1px; opacity:0;';
+    document.body.appendChild(area);
+    area.select();
+    area.setSelectionRange(0, text.length);
+
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch (e) { copied = false; }
+    area.remove();
+
+    if (copied) {
+        BikeUI.toast('Copied — paste it into a chat with an AI model.');
+        return;
+    }
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
+    link.download = `${runName}-for-AI.md`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    BikeUI.toast('Couldn\'t reach the clipboard, so it was saved as a file instead.');
 }
 
 function drawHistogram(svg, tooltip, values, opts)
@@ -4127,10 +4396,13 @@ async function load()
         const frontToppedOutPct = computeToppedOutPct(frontVals, frontMaxMM, TOPPED_OUT_PCT);
         const frontSuggestions = generateSuggestions(frontMaxMM ? (frontAvg / frontMaxMM * 100) : 0, frontToppedOutPct, frontBOTimes.length, totalMinutes, frontVels, frontStaticSag, adjusterAvailability(frontSetup), impactEvents.length, maxImpactG, maxImpactClipped);
         addSetupContext(frontSuggestions, setupContext, 'front', adjusterAvailability(frontSetup), frontStaticSag);
-        renderTuningSide('tuningFront', 'Front', COLOR_FRONT, formatSetup(frontSetup), frontSuggestions);
+        renderTuningSide('tuningFront', 'Front', COLOR_FRONT, frontSetup, frontSuggestions);
+
+        // Kept past the block for "Copy for AI" (aiContext below).
+        let rearVels = [], rearToppedOutPct = 0, rearSuggestionsShown = [];
 
         if (isFullSusp) {
-            const rearVels = computeVelocities(rows, 'rear');
+            rearVels = computeVelocities(rows, 'rear');
             const rearVelHist = computeVelocityHistogram(rearVels, VEL_BINS);
             document.getElementById('rearVelPeakMini').textContent = arrayMax(rearVels.map(Math.abs)).toFixed(0) + ' mm/s';
             drawHistogram(
@@ -4148,7 +4420,7 @@ async function load()
                 }
             );
 
-            const rearToppedOutPct = computeToppedOutPct(rearVals, rearMaxMM, TOPPED_OUT_PCT);
+            rearToppedOutPct = computeToppedOutPct(rearVals, rearMaxMM, TOPPED_OUT_PCT);
             const rearSuggestions = generateSuggestions(rearMaxMM ? (rearAvg / rearMaxMM * 100) : 0, rearToppedOutPct, rearBOTimes.length, totalMinutes, rearVels, rearStaticSag, adjusterAvailability(rearSetup), impactEvents.length, maxImpactG, maxImpactClipped);
             addSetupContext(rearSuggestions, setupContext, 'rear', adjusterAvailability(rearSetup), rearStaticSag);
 
@@ -4160,7 +4432,8 @@ async function load()
                     text: 'This run was ridden with the rear shock locked out, so the rear figures here are of the locked shock, not of the setup as it is ridden open. Tune the rear from another run.'
                 });
             }
-            renderTuningSide('tuningRear', 'Rear', COLOR_REAR, formatSetup(rearSetup), rearSuggestions);
+            renderTuningSide('tuningRear', 'Rear', COLOR_REAR, rearSetup, rearSuggestions);
+            rearSuggestionsShown = rearSuggestions;
         }
 
         renderImbalanceSuggestion(detectConsistentImbalance(rows, frontMaxMM, rearMaxMM, isFullSusp));
@@ -4228,7 +4501,7 @@ async function load()
                 : '') +
             `. "Harsh" marks a vertical hit of ≥${harshHigh.toFixed(1)}G that moved that end ≤${HARSH_TRAVEL_PP}pp of its travel — the impact went through the bike rather than into the damper.`;
 
-        renderEvents([
+        const eventEntries = [
             ...frontBOTimes.map(t => ({ t, label: `Front bottom-out (${peakGNearText(rows, gVals, t)})`, color: COLOR_FRONT })),
             ...rearBOTimes.map(t => ({ t, label: `Rear bottom-out (${peakGNearText(rows, gVals, t)})`, color: COLOR_REAR })),
             ...frontHarsh.map(ev => ({ t: ev.t, label: `Harsh front (${ev.peak.toFixed(1)}G vertical, only ${ev.usedPp.toFixed(0)}pp travel)`, color: COLOR_FRONT })),
@@ -4238,7 +4511,52 @@ async function load()
                 return { t: ev.startT, label: `Jump (${ev.durationS.toFixed(2)}s air, ${peakGNearText(rows, gVals, landingT)} landing)`, color: COLOR_SPEED };
             }),
             ...balanceEvents
-        ], t0, totalS);
+        ];
+        renderEvents(eventEntries, t0, totalS);
+
+        // What "Copy for AI" puts into its prompt (aiPrompt()): this page's
+        // own figures, kept as computed here rather than worked out again.
+        const endFigures = (maxMM, vals, vels, boTimes, toppedOutPct, staticSag, setup, suggestions, harsh, hist) => {
+            const comp = vels.filter(v => v > 0);
+            const rebound = vels.filter(v => v < 0).map(v => -v);
+            const speeds = list => list.length > 10 ? [50, 90, 99].map(p => percentile(list, p)) : null;
+            const avg = average(vals);
+
+            return {
+                maxMM, setup, suggestions, staticSag, toppedOutPct, hist,
+                avgMM: avg, avgPct: maxMM ? avg / maxMM * 100 : null,
+                peakMM: arrayMax(vals), boCount: boTimes.length,
+                comp: speeds(comp), rebound: speeds(rebound),
+                compMax: comp.length ? arrayMax(comp) : 0, reboundMax: rebound.length ? arrayMax(rebound) : 0,
+                harshCount: harsh.length
+            };
+        };
+
+        aiContext = {
+            meta, bike, isFullSusp, totalS, movingS, elevGain, elevLoss,
+            stats, imuBasis: !!imuBasis,
+            rowsPerS: rows.length / (totalS || 1),
+            jumps: airEvents.length, airS: totalAirS,
+            impacts: impactEvents.length, impactHigh, maxImpactG, maxImpactClipped,
+            clippedSamples: rows.filter(accelClipped).length,
+            front: endFigures(frontMaxMM, frontVals, frontVels, frontBOTimes, frontToppedOutPct, frontStaticSag, frontSetup, frontSuggestions, frontHarsh, frontHist),
+            rear: isFullSusp
+                ? endFigures(rearMaxMM, rearVals, rearVels, rearBOTimes, rearToppedOutPct, rearStaticSag, rearSetup, rearSuggestionsShown, rearHarsh, rearHist)
+                : null,
+            medianGapPp: isFullSusp && frontMaxMM && rearMaxMM
+                ? percentile(rows.map(r => (r.front / frontMaxMM * 100) - (r.rear / rearMaxMM * 100)), 50)
+                : null,
+            imbalanceText: (document.querySelector('#tuningImbalance .suggestion-item > span:last-child') || {}).textContent || '',
+            segments: segments.map(seg => ({ seg, stats: computeSegmentStats(rows, seg, frontMaxMM, rearMaxMM) })),
+            events: eventEntries.filter(e => !balanceEvents.includes(e)).map(e => ({ s: (e.t - t0) / 1000, label: e.label })),
+            balance: {
+                count: balanceEvents.length, thresholdPp: balanceHigh,
+                frontDeeper: balanceEvents.filter(e => e.label.startsWith('Front')).length
+            },
+            gaps: runGaps, orientationLost: rows.orientationLost || [],
+            setupContext
+        };
+        document.getElementById('copyAiBtn').disabled = false;
     } catch (e) {
         console.error('run.html load() failed:', e);
         const el = document.getElementById('loadError');

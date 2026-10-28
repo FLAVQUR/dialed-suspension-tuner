@@ -51,6 +51,14 @@ struct SystemConfig {
     float frontMaxTravelMM;
     float rearStrokeMM;
 
+    // The fork's and the shock's make and model, as the rider writes them
+    // ("RockShox Domain RC") — empty when never entered. Used in no
+    // calculation: it goes into each run's setup snapshot, so the run page
+    // can name the parts (Copy for AI, the Tuning tab), and a change of it
+    // is a change of setup like any other (setupChanges() in telemetry.js).
+    String frontModel;
+    String rearModel;
+
     // Suspension setup — not used in any calculation today (travel/sag come
     // from the calibration), just recorded for reference since it's handy
     // to have logged alongside a run later. Split into low/high-speed
@@ -119,6 +127,7 @@ struct SystemConfig {
 extern SystemConfig settings;
 
 constexpr size_t MAX_BIKE_NAME_LEN = 40;
+constexpr size_t MAX_SUSPENSION_MODEL_LEN = 60;
 
 void settingsLoadDefaults();
 void settingsLoad();
