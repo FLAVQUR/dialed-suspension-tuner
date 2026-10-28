@@ -28,7 +28,7 @@ GPIO36 is free (it briefly held the 3.3V rail monitor). Any future analog input 
 
 - **Average current ≈ 310mA**: 3000mAh over 9.74h, if the cell still gives its rated capacity. A worn cell gives less, so the real figure is that or lower. There is no current meter, so this is the only figure.
 - **The voltage rises while recording** (+0.04V over each 2-minute run) and drops again once WiFi is back. The radio is the biggest single load.
-- **Below 3.3V it falls off a cliff**: 3.33V → 3.26V → 3.11V → 2.72V in the last four 12-minute steps. Nothing went wrong on the way down: no reboot (the uptime counted on throughout), the free heap steady (84KB with WiFi on, 61KB while recording), every run whole down to 3.11V. The single exception is in [sd-card.md](sd-card.md#spill-buffer-2026-10-26).
+- **Below 3.3V it falls off a cliff**: 3.33V → 3.26V → 3.11V → 2.72V in the last four 12-minute steps. Nothing went wrong on the way down: no reboot (the uptime counted on throughout), the free heap steady (84KB with WiFi on, 61KB while recording), every run whole down to 3.11V. The last one, started at 2.72V with its lowest burst at 2.66V, has all 60000 rows too: the device gave out a few seconds after it ended. The single exception is in [sd-card.md](sd-card.md#spill-buffer-2026-10-26).
 
 > [!IMPORTANT]
 > **The percentage is pessimistic near the bottom.** `batteryPercent()` maps the voltage, and on this cell it reaches 0% at 3.31V, 33 minutes before the device stopped. The LED's low-battery warning comes on below 20% (3.6V), with about 2¾ hours still left.
