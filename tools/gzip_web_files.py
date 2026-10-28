@@ -72,8 +72,12 @@ if FS_TARGETS & set(COMMAND_LINE_TARGETS):
     # Which code these pages are, for Settings to show next to the firmware's
     # (the values come from version_stamp.py). Only in the image: data/ has
     # no such file.
-    with open(os.path.join(staged_dir, "version.json"), "w", newline="\n") as stamp:
-        json.dump({"version": env.get("DIALED_VERSION", "unknown"),
-                   "build": env.get("DIALED_BUILD_TIME", "")}, stamp)
+    # Gzipped like the rest: serveWebFile() looks for the .gz first, and the
+    # framework logs an error for every lookup of a file that isn't there.
+    stamp = json.dumps({"version": env.get("DIALED_VERSION", "unknown"),
+                        "build": env.get("DIALED_BUILD_TIME", "")})
+    with open(os.path.join(staged_dir, "version.json.gz"), "wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, compresslevel=9, mtime=0) as packed:
+            packed.write(stamp.encode("utf-8"))
 
     env.Replace(PROJECT_DATA_DIR=staged_dir)

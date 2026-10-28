@@ -64,7 +64,7 @@ Written when the run stops (`writeRunMeta()` in `run_service.cpp`), and changed 
 | `rows_written`, `rows_dropped`, `rows_lost` | samples in the file; dropped at the queue; taken by the writer and never written ([how to read a run](sd-card.md)) |
 | `spill_rows`, `spill_max`, `heap_free_recording` | the spill buffer the run had behind the queue (0: none, the radio stayed on), the most it held at once, and the free heap once it was taken ([spill buffer](sd-card.md#spill-buffer-2026-10-26)); since 2026-10-26 |
 | `sd_retry_ok`, `sd_recovered`, `sd_last_errno`, `sd_last_gap_bytes`, `sd_recover_max_ms`, `sd_reopen_failed`, `sd_stat_failed`, `sd_replay_failed` | the SD writer's counters ([sd-card.md](sd-card.md)) |
-| `imu_resets`, `imu_streaming` | the BNO08x link during the run |
+| `imu_resets`, `imu_streaming` | the BNO08x link during the run: resets inside it, and whether both reports had arrived within the last second when it ended. **`imu_streaming` is meaningless before 2026-10-28** — false on every run checked (RUN0050, RUN0053, RUN0055–RUN0058), from a read loop that never let the flag move ([troubleshooting.md](troubleshooting.md)) |
 | `imu_up` | `[x, y, z]`: the IMU's zero reference when the run was recorded; absent before the IMU was zeroed |
 | `imu_diag` | per second: `status` (0–3), `accuracy_deg`, `accel_clipped`; up to 15 minutes |
 | `battery_v` | `start`, `end`, `lowest` (V) |
@@ -82,7 +82,7 @@ One request at a time: while a run or a ZIP streams, everything else waits (see 
 
 | Route | Method | What it does |
 |---|---|---|
-| `/api/status` | GET | state (`ready` / `recording` / …), current run, live readings, `clock`, `reset_reason`, `memory`, `health` |
+| `/api/status` | GET | state (`ready` / `recording` / …), current run, live readings, `clock`, `reset_reason`, `memory`, `health`, `imu_link` (ms since the last rotation-vector and accelerometer report, the count of each since boot, whether each was enabled, the longest read pass in ms and the most reports in one) |
 | `/api/system` | GET | chip, memory, storage, uptime, the active setup, `device.firmware_version` / `firmware_build` (the dashboard's own stamp is `/version.json`) |
 | `/api/time` | POST | `epoch`: the browser offers the time (least trusted source) |
 | `/api/config` | GET, POST | Settings; POST takes form fields with the same names |
@@ -108,6 +108,6 @@ One request at a time: while a run or a ZIP streams, everything else waits (see 
 | `/api/wifi/scan`, `/api/wifi/status` | GET | |
 | `/api/wifi/mode` | POST | `mode` |
 | `/api/debug/loop` | GET | the loop profiler: `last_recording` has the row rate, the spacing histogram and each section's cost |
-| `/api/debug/log` | GET | the last 3KB of the core's and libraries' warnings; `?clear=1` empties it |
+| `/api/debug/log` | GET | the last 3KB of the core's and libraries' warnings; `?clear=1` empties it. Quiet when nothing is wrong: the responses that used to put a warning in it on every request no longer do (2026-10-28, [troubleshooting.md](troubleshooting.md)) |
 
 **`/api/runs` listing** now also returns `start_utc`, `title`, and — when the run has a `stats` block — `distance_km`, `max_speed_kmh`, `max_front_mm`, `max_rear_mm`. They are read from each run's `.JSON` at request time; nothing was added to the recording path for them.

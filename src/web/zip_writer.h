@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include <WebServer.h>
+#include "dialed_web_server.h"
 #include <vector>
 
 struct ZipEntry {
@@ -15,4 +15,4 @@ struct ZipEntry {
 // keeps this self-contained. Sends its own error response and returns
 // false if any source file can't be opened; on success, `server`'s
 // response has already been fully sent.
-bool sendZipResponse(WebServer& server, const std::vector<ZipEntry>& entries, const String& downloadName);
+bool sendZipResponse(DialedWebServer& server, const std::vector<ZipEntry>& entries, const String& downloadName);

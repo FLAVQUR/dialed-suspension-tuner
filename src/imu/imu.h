@@ -13,16 +13,27 @@ bool imuInit();
 // Waits up to a second for imuTask to do it and returns whether the sensor
 // took the command: the task can be stuck in the SPI HAL waiting for INT, and
 // then it never gets to it. The next boot's reset wakes it either way.
+// (It never answered while the read loop was unbounded; since, it took the
+// command 3 times out of 3, in 10–30ms — bench, 2026-10-28.)
 bool imuSleep();
 
 // Link health, for judging whether the INT line is behaving without reading
 // the serial log. resets counts every time the sensor's reset flag fired
-// (each one wipes the enabled reports and costs ~200ms to restore);
-// streaming is false when no report has arrived for over a second.
+// (each one wipes the enabled reports and costs ~200ms to restore).
+// The two reports are tracked apart: on the bench (2026-10-28) the
+// accelerometer kept coming while the rotation vector stopped altogether.
+// streaming is true only while both have arrived within the last second.
 struct ImuHealth {
     uint32_t resets;
     bool streaming;
-    uint32_t msSinceEvent;   // UINT32_MAX if no report ever arrived
+    uint32_t msSinceRotation;    // UINT32_MAX if none ever arrived
+    uint32_t msSinceAccel;       // UINT32_MAX if none ever arrived
+    uint32_t rotationReports;    // counted from boot
+    uint32_t accelReports;
+    bool rotationEnabled;        // what the last enableReports() was told
+    bool accelEnabled;
+    uint32_t longestDrainMs;     // longest single pass of the read loop, including one still running
+    uint32_t mostEventsPerDrain;
 };
 ImuHealth imuGetHealth();
 

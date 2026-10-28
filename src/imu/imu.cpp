@@ -46,11 +46,17 @@ constexpr uint16_t IMU_REPORT_INTERVAL_MS = 10;
 // Also called again whenever imu.wasReset() fires, since a reset (the
 // library triggers one itself if the INT line ever times out) silently
 // wipes whatever reports were configured.
+static volatile bool rotationEnabled = false;
+static volatile bool accelEnabled = false;
+
 static void enableReports() {
     bool rvOk = imu.enableRotationVector(IMU_REPORT_INTERVAL_MS);
     delay(100);
     bool accOk = imu.enableAccelerometer(IMU_REPORT_INTERVAL_MS);
     delay(100);
+
+    rotationEnabled = rvOk;
+    accelEnabled = accOk;
 
     Serial.printf("IMU reports enabled: rotationVector=%s accelerometer=%s\n",
         rvOk ? "OK" : "FAILED", accOk ? "OK" : "FAILED");
@@ -71,6 +77,18 @@ static void enableReports() {
 static volatile uint32_t resetCount = 0;
 static volatile uint32_t lastEventMs = 0;
 static volatile bool gotFirstEvent = false;
+
+// Per report, stamped as each one is read.
+static volatile uint32_t lastRotationMs = 0, lastAccelMs = 0;
+static volatile bool gotRotation = false, gotAccel = false;
+static volatile uint32_t rotationReports = 0, accelReports = 0;
+
+// How long one pass of the read loop takes: bounded in reports, so what is
+// left to make it long is the SPI HAL waiting on INT.
+static volatile bool draining = false;
+static volatile uint32_t drainStartMs = 0;
+static volatile uint32_t longestDrainMs = 0;
+static volatile uint32_t mostEventsPerDrain = 0;
 
 // ─── How sure the sensor is of its orientation, second by second ───────────
 // On rough ground the fused orientation goes wrong for seconds at a time
@@ -125,9 +143,19 @@ void imuDiagToJson(JsonObject out) {
 
 ImuHealth imuGetHealth() {
     ImuHealth h;
+    uint32_t now = millis();
     h.resets = resetCount;
-    h.msSinceEvent = gotFirstEvent ? (millis() - lastEventMs) : UINT32_MAX;
-    h.streaming = gotFirstEvent && h.msSinceEvent < 1000;
+    h.msSinceRotation = gotRotation ? (now - lastRotationMs) : UINT32_MAX;
+    h.msSinceAccel = gotAccel ? (now - lastAccelMs) : UINT32_MAX;
+    h.streaming = h.msSinceRotation < 1000 && h.msSinceAccel < 1000;
+    h.rotationReports = rotationReports;
+    h.accelReports = accelReports;
+    h.rotationEnabled = rotationEnabled;
+    h.accelEnabled = accelEnabled;
+
+    uint32_t running = draining ? now - drainStartMs : 0;
+    h.longestDrainMs = running > longestDrainMs ? running : longestDrainMs;
+    h.mostEventsPerDrain = mostEventsPerDrain;
     return h;
 }
 
@@ -139,6 +167,8 @@ ImuHealth imuGetHealth() {
 // boot — the warning was pure noise, blamed on the INT solder joint, on
 // hardware that was streaming fine moments later.
 constexpr uint32_t FIRST_REPORT_GRACE_MS = 3000;
+
+constexpr uint32_t MAX_EVENTS_PER_PASS = 8;
 
 // Set by imuSleep(); the task itself sends the command, since the SPI link
 // is its own.
@@ -188,13 +218,28 @@ static void imuTask(void*) {
         }
 
         bool gotEventThisPass = false;
+        uint32_t eventsThisPass = 0;
 
-        while (imu.getSensorEvent()) {
+        drainStartMs = millis();
+        draining = true;
+
+        // A bounded number of reports per pass. Draining until the sensor had
+        // nothing left never ended on this link: on the bench (2026-10-28) one
+        // pass ran 25.7s and 5794 reports, until a sensor reset broke it off,
+        // and in that time nothing outside the loop ran — not the reset
+        // check, not the sleep request, not lastEventMs. Two reports arrive
+        // every 10ms, a pass comes round every ~2ms, so 8 is plenty.
+        while (eventsThisPass < MAX_EVENTS_PER_PASS && imu.getSensorEvent()) {
             gotFirstEvent = true;
             gotEventThisPass = true;
+            eventsThisPass++;
 
             switch (imu.getSensorEventID()) {
                 case SENSOR_REPORTID_ROTATION_VECTOR:
+                    lastRotationMs = millis();
+                    gotRotation = true;
+                    rotationReports++;
+
                     cachedPitch = imu.getPitch();
                     cachedRoll = imu.getRoll();
                     cachedYaw = imu.getYaw();
@@ -213,6 +258,10 @@ static void imuTask(void*) {
                     break;
 
                 case SENSOR_REPORTID_ACCELEROMETER:
+                    lastAccelMs = millis();
+                    gotAccel = true;
+                    accelReports++;
+
                     cachedAccelX = imu.getAccelX();
                     cachedAccelY = imu.getAccelY();
                     cachedAccelZ = imu.getAccelZ();
@@ -225,6 +274,11 @@ static void imuTask(void*) {
                     break;
             }
         }
+
+        draining = false;
+        uint32_t drainMs = millis() - drainStartMs;
+        if (drainMs > longestDrainMs) longestDrainMs = drainMs;
+        if (eventsThisPass > mostEventsPerDrain) mostEventsPerDrain = eventsThisPass;
 
         if (gotEventThisPass) {
             lastEventMs = millis();
@@ -384,6 +438,7 @@ ImuRestReading imuMeasureRest(uint32_t durationMs) {
     constexpr uint32_t STEP_MS = 10;
     double mean[3] = {0, 0, 0}, m2[3] = {0, 0, 0}, accSum = 0;
     int n = 0;
+    const uint32_t rotationReportsAtStart = rotationReports;
 
     for (uint32_t t = 0; t < durationMs; t += STEP_MS) {
         float g[3];
@@ -404,6 +459,14 @@ ImuRestReading imuMeasureRest(uint32_t durationMs) {
 
     if (n == 0) {
         r.error = "No samples";
+        return r;
+    }
+
+    // The orientation has to be live: averaging an old cached one would zero
+    // the bike against wherever it stood when the reports stopped. Half the
+    // reports due (one every IMU_REPORT_INTERVAL_MS) is the bar.
+    if (rotationReports - rotationReportsAtStart < durationMs / IMU_REPORT_INTERVAL_MS / 2) {
+        r.error = "IMU is not sending its orientation — switch the device off and on, then try again";
         return r;
     }
 

@@ -76,7 +76,7 @@ struct EntryInfo {
 
 } // namespace
 
-bool sendZipResponse(WebServer& server, const std::vector<ZipEntry>& entries, const String& downloadName) {
+bool sendZipResponse(DialedWebServer& server, const std::vector<ZipEntry>& entries, const String& downloadName) {
     std::vector<EntryInfo> infos;
     infos.reserve(entries.size());
 
@@ -132,7 +132,7 @@ bool sendZipResponse(WebServer& server, const std::vector<ZipEntry>& entries, co
 
     server.sendHeader("Content-Disposition", "attachment; filename=\"" + downloadName + "\"");
     server.setContentLength(totalSize);
-    server.send(200, "application/zip", "");
+    server.beginResponse(200, "application/zip");
     server.client().setNoDelay(true);
 
     // Pass 2: stream each entry's local file header followed by its raw

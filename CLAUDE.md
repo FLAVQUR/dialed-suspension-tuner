@@ -88,6 +88,8 @@ lib/SD/                  — the framework's SD library 2.0.0 with the write-sta
 src/system/settings.h    — SystemConfig (live settings, mirrors the active profile)
 src/bikes/bikes.cpp      — bike profiles (/bikes/*.json on the SD): save/activate/rename/delete, and
                            syncActive(), which keeps the active one equal to the live settings
+src/web/dialed_web_server.h — WebServer subclass: beginResponse()/streamWebFile(), the framework's
+                           send() without its "content length is zero" warning
 src/web/server.cpp       — one serveWebFile() route per web file (gzip); /api/status, /api/time,
                            /api/config, /api/runs/*, /api/run/timed, /api/bikes/*,
                            /api/suspension/*, /api/imu*, /api/wifi/*, /api/debug/loop

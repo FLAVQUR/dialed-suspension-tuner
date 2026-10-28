@@ -17,10 +17,11 @@
 #include "suspension/suspension.h"
 #include "imu/imu.h"
 #include "zip_writer.h"
+#include "dialed_web_server.h"
 #include "system/version.h"
 #include "bikes/bikes.h"
 
-WebServer server(80);
+DialedWebServer server(80);
 
 static const char* getMimeType(const String& filename) {
     if (filename.endsWith(".CSV")) return "text/csv";
@@ -71,6 +72,18 @@ void handleApiStatus() {
     ImuHealth ih = imuGetHealth();
     health["imu_streaming"] = ih.streaming;
     health["imu_resets"] = ih.resets;
+
+    JsonObject link = doc["imu_link"].to<JsonObject>();
+    if (ih.msSinceRotation == UINT32_MAX) link["ms_since_rotation"] = nullptr;
+    else link["ms_since_rotation"] = ih.msSinceRotation;
+    if (ih.msSinceAccel == UINT32_MAX) link["ms_since_accel"] = nullptr;
+    else link["ms_since_accel"] = ih.msSinceAccel;
+    link["rotation_reports"] = ih.rotationReports;
+    link["accel_reports"] = ih.accelReports;
+    link["rotation_enabled"] = ih.rotationEnabled;
+    link["accel_enabled"] = ih.accelEnabled;
+    link["longest_drain_ms"] = ih.longestDrainMs;
+    link["most_events_per_drain"] = ih.mostEventsPerDrain;
 
     // Free heap matters here because the same pool feeds lwIP's TCP buffers:
     // when it ran low, every socket write failed with EAGAIN and the dashboard
@@ -641,7 +654,7 @@ void handleApiRuns() {
     if (server.hasArg("index")) {
         std::vector<RunStamp> runs = RunService::stamps();
 
-        server.send(200, "application/json", "");
+        server.beginResponse(200, "application/json");
 
         // `fw` because what a run's entry holds can change with the
         // firmware: the dashboard drops what it kept when this does.
@@ -684,7 +697,7 @@ void handleApiRuns() {
             start = comma + 1;
         }
 
-        server.send(200, "application/json", "");
+        server.beginResponse(200, "application/json");
         server.sendContent("{\"runs\":[");
         sendRuns(names, 0, names.size(), withSetup);
         server.sendContent("]}");
@@ -700,7 +713,7 @@ void handleApiRuns() {
 
     std::vector<String> names = RunService::names();
 
-    server.send(200, "application/json", "");
+    server.beginResponse(200, "application/json");
     server.sendContent("{\"total\":" + String(names.size()) + ",\"offset\":" + String(offset) + ",\"runs\":[");
     sendRuns(names, offset, offset + limit, withSetup);
     server.sendContent("]}");
@@ -737,7 +750,7 @@ void handleApiRunDownload() {
 
     server.sendHeader("Content-Disposition", "attachment; filename=\"" + downloadName + "\"");
     server.setContentLength(file.size());
-    server.send(200, getMimeType(filename), "");
+    server.beginResponse(200, getMimeType(filename));
 
     // Nagle's algorithm holds a small write back for up to ~40ms waiting
     // to see if more data is coming, hoping to coalesce it with the next
@@ -805,7 +818,7 @@ void handleApiRunTelemetry() {
     }
 
     server.setContentLength(file.size());
-    server.send(200, "application/octet-stream", "");
+    server.beginResponse(200, "application/octet-stream");
     server.client().setNoDelay(true);
 
     int n;
@@ -1315,8 +1328,8 @@ void handleNotFound() {
 
 // Serves one of the dashboard's files at exactly `uri`. The filesystem image
 // holds each of them gzipped (path + ".gz" — tools/gzip_web_files.py does
-// that when the image is built), and streamFile() adds "Content-Encoding:
-// gzip" by itself for a file whose name ends in .gz, so the browser gets the
+// that when the image is built), and streamWebFile() adds "Content-Encoding:
+// gzip" for a file whose name ends in .gz, so the browser gets the
 // page at about a third of its size and unpacks it. A plain file is still
 // served if that is what's there (an image built without the script).
 //
@@ -1334,7 +1347,7 @@ static void serveWebFile(const char* uri, const char* path, const char* contentT
             return;
         }
 
-        server.streamFile(f, contentType);
+        server.streamWebFile(f, contentType);
         f.close();
     });
 }

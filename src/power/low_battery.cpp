@@ -97,9 +97,9 @@ static void cutOff(float v) {
     gpsSleep();
 
     // Asleep or held in reset, the BNO08x stops working either way, and the
-    // next boot resets it. On the bench (2026-10-28) it never answered the
-    // sleep command in time, so it is the reset. What each draws was not
-    // measured.
+    // next boot resets it. The reset is the fallback: with the read loop
+    // bounded, the sensor took the command 3 times out of 3 (bench,
+    // 2026-10-28). What each draws was not measured.
     if (!imuSleep()) {
         rtc_gpio_init((gpio_num_t)PIN_IMU_RST);
         rtc_gpio_set_direction((gpio_num_t)PIN_IMU_RST, RTC_GPIO_MODE_OUTPUT_ONLY);

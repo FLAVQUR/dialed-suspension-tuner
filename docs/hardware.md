@@ -63,6 +63,7 @@ A temporary hook made the device act on a voltage given over the API, with a sho
 | Idle, 3.2V faked, 60s sleeps, two wakes treated as still flat | slept, woke twice and went back to sleep, booted on the third (07:47 → 07:50); `reset_reason` `deep_sleep` | ✅ |
 | The GPS asleep | 0 bytes in the second after the command (awake it sends ~3.8KB); sending NMEA again after the boot | ✅ |
 | The IMU asleep | never answered the sleep command within the second, twice; held in reset, back after the boot | ⚠️ |
+| The IMU asleep, again, after its read loop was bounded (a hook calling `imuSleep()` then restarting) | took the command 3 times out of 3, in 10, 20 and 30ms; streaming again after each restart. "Took" is what the library says; whether the chip then draws less was not measured | ✅ |
 | Cut 20s into a 60s timed run | stopped at 19.2s with 9595 rows (19.19s × 500), none dropped, every row 2ms after the last, `stopped_by: low_battery` | ✅ |
 | Woken by the button from a 10-minute sleep | the rider pressed it about a minute in; booted at once | ✅ |
 
@@ -150,6 +151,7 @@ Max can't be captured until that end's declared travel is set in the Bike tab. Z
 - Firmware: `imuMeasureRest()` (averages ~1.5s; rejects if |a| isn't ≈1g or the direction wobbles >0.75°), `imuBikeAngles()`; endpoints `GET /api/imu`, `POST /api/imu/zero` (409 while recording), `POST /api/imu/clear`.
 - Settings → Sensors: "IMU Orientation" card with a Zero button and a live lean/pitch readout.
 - Dashboard (`telemetry.js`): `bikeBasis()`/`bikeAngles()` applied in `parseCompactTelemetry(buffer, basis)`. Lean is + to the right, pitch is + nose up.
+- **A zero is refused when the orientation isn't live** (2026-10-28): fewer than half the rotation-vector reports due during the 1.5s capture, and it says to switch the device off and on. It used to average the last cached orientation, wherever the bike stood when the reports stopped. Not tried on the device: a zero on the bench would replace the real one.
 - **Operating notes**: zero with the bike **truly vertical** (wall/stand + level) — a reference taken with the bike held differently biases lean by ~5°. Re-zero whenever the master is re-mounted or moved to another bike. Runs recorded before zeroing (no `imu_up`) show raw sensor angles with an amber note and can't be corrected retroactively.
 
 **The IMU's orientation is not always right (found 2026-10-16).** RUN0049's lean chart jumps between +180° and −180° from 0:55 to 0:58 and its pitch reaches 82°, at 21–25 km/h. The dashboard's maths is not the cause: the raw roll wrapping from −π to +π is harmless to it (`gravityUpInSensorAxes()` goes through sine and cosine). What is wrong is the orientation the BNO08x itself reports: for several seconds it has pitch ≈ 0 and roll ≈ ±180°, a sensor lying upside down, while the bike is being ridden.
