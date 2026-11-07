@@ -3,6 +3,10 @@
   <img alt="Dialed" src="brand/export/one-colour/dialed-wordmark-mono-11212d-1200.png" width="300">
 </picture>
 
+<a href="docs/media/dialed-intro.mp4"><img src="docs/media/dialed-intro.gif" alt="Dialed in 17 seconds: the rear shock's travel on a real run, the landing at 0:25 where it bottomed out, the tuning suggestion it led to, and the run page it came from" width="100%"></a>
+
+<sub>A real run (RUN0048) on the dashboard: the rear shock bottoming out on a landing, and what to change. Click for the full-quality MP4.</sub>
+
 # Dialed
 
 DIY ESP32-based MTB suspension telemetry and tuning helper for enduro/downhill.

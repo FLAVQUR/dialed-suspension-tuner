@@ -42,6 +42,7 @@ New entries go at the end of their group, dated. An entry that is overturned sta
 - **Firmware and dashboard are always uploaded together** (2026-10-08, the rider). `pio run -t upload` does both. A warning when the two don't match was considered and turned down.
 - **Platform and libraries pinned to exact versions** (2026-10-08). A library upgrade is a deliberate change, and FastLED's needs its size checked first. See [README.md](../README.md).
 - **The nav, topbar and glass filter are repeated as markup in every page**, on purpose: built from a script they would pop in after the first paint. Removing the repetition would take a build step. See [dashboard.md](dashboard.md).
+- **The README's intro video is a GIF linking to the MP4**, both in `docs/media/` (2026-11-07). GitHub plays inline only videos uploaded through its web editor, which live on GitHub's servers rather than in the repository; a GIF plays inline from the repository itself. The GIF's colours are reduced, so the MP4 is the version to watch. No URL on the video's end card (the rider's call).
 
 ## Data and setup
 
