@@ -13,6 +13,7 @@ A DIY ESP32 MTB suspension telemetry and tuning helper: firmware in `src/` (Plat
 | A run's files, the `.JSON` keys, the API | [docs/data-formats.md](docs/data-formats.md) |
 | Any page in `data/` | [docs/dashboard.md](docs/dashboard.md) |
 | Colours, type, components, chart rules — before touching any UI | [docs/design-system.md](docs/design-system.md) |
+| The logo: versions, colours, files, how to rebuild them | [brand/README.md](brand/README.md) |
 | What the rides showed, the bike's setup and tuning | [docs/field-log.md](docs/field-log.md) |
 | Something misbehaving; testing on the device | [docs/troubleshooting.md](docs/troubleshooting.md) |
 | Before proposing anything | [docs/decisions.md](docs/decisions.md) — don't re-propose what is there |
@@ -100,6 +101,8 @@ tools/gzip_web_files.py  — build step: gzips data/ into the filesystem image (
 tools/upload_both.py     — makes "upload" send the dashboard after the firmware
 tools/bench/battery_drain.py — battery-life test: timed runs on a riding-day cadence until the battery
                            gives out; logs the voltage and checks and deletes each run
+brand/                   — the logo: build_logo.py generates master/, export_all.sh everything else:
+                           export/ (colour, one-colour, web icons), board/; README.md the rules
 todo.md                  — the task list; CHANGELOG.md what was done; docs/ how things work
 data/style.css           — colour roles (top of the file), components, wide-screen block (end)
 data/common.js           — every page: applyTheme/escapeHtml/formatDuration, BikeUI dialogs/toast,

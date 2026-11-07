@@ -590,6 +590,10 @@ body.device-offline .preflight { display: none; }
 /* Shown only beside the side rail (≥1024px, at the end of this file). */
 .wide-only { display: none; }
 
+/* The logo at the top of the side rail (brand/: the favicon, its own Ink
+   tile, so it reads on both themes). Not in the narrow top bar. */
+.rail-logo { display: none; }
+
 main {
     padding: 16px;
     max-width: 480px;
@@ -1743,14 +1747,19 @@ main.run-layout > .seg-tabs {
     :root {
         --rail-w: 76px;
         --rail-item-h: 58px;
-        /* Below the back arrow, on the pages that have one. */
-        --rail-nav-top: 12px;
+        /* Under the logo (12px padding + 44px + the topbar's 12px gap), and
+           under the back arrow too on the pages that have one. */
+        --rail-nav-top: 68px;
         --sticky-top: 16px;
     }
 
     body { padding-left: var(--rail-w); }
 
-    body:has(.topbar .back-link) { --rail-nav-top: 64px; }
+    body:has(.topbar .back-link) { --rail-nav-top: 120px; }
+
+    .rail-logo { display: block; flex: none; line-height: 0; border-radius: 10px; }
+
+    .rail-logo img { display: block; border-radius: 10px; }
 
     .topbar {
         position: fixed;

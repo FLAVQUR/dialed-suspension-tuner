@@ -1,0 +1,57 @@
+{
+  "brand": "Dialed",
+  "tagline": "MTB suspension telemetry",
+  "brief": "A DIY telemetry system that records how a mountain bike's suspension works on the trail, so its rider can adjust the setup from measured data instead of feel.",
+  "adjectives": [
+    "precise",
+    "honest",
+    "technical",
+    "calm"
+  ],
+  "criteria": "Success: reads as a d at 16 px in a browser tab, works in one colour and reversed on the dashboard's dark page, and says 'adjusted to the right click' without drawing a bike, a mountain or a spring.",
+  "mockups": [
+    "favicon-tab",
+    "app-icon",
+    "website",
+    "sticker",
+    "tshirt",
+    "social"
+  ],
+  "nav": [
+    "Runs",
+    "Compare",
+    "Trends",
+    "Settings"
+  ],
+  "brand_color": "#C6F135",
+  "tile_color": "#11212D",
+  "greyscale": false,
+  "final": true,
+  "designer": "Dialed",
+  "concepts": [
+    {
+      "name": "Dial d",
+      "symbol": "../master/dialed-symbol.svg",
+      "lockup": "../master/dialed-wordmark.svg",
+      "stacked": "../master/dialed-stacked.svg",
+      "symbol_on_tile": "../master/dialed-symbol-color.svg",
+      "stacked_on_tile": "../master/dialed-stacked-color.svg",
+      "symbol_on_dark": "../master/dialed-symbol-color.svg",
+      "lockup_on_dark": "../master/dialed-wordmark-color.svg",
+      "stacked_on_dark": "../master/dialed-stacked-color.svg",
+      "idea": "The d's bowl is an adjuster dial: one lime mark across its rim, set to the click that works.",
+      "rationale": [
+        "Ties the name to the act: 'dialed' is turning the clicker until the bike is right",
+        "The symbol is the first letter of the wordmark, so mark and name are one thing",
+        "Fog on Ink with one lime mark; in one colour the mark merges into the ring and the d stays whole",
+        "Lime matches none of the dashboard's data or status colours, and stays clear of Fox orange and Öhlins gold"
+      ]
+    }
+  ],
+  "recommendation": "Dial d: Fog on Ink, the mark in lime #C6F135; Ink alone on light backgrounds.",
+  "next_steps": [
+    "Add the favicon set to the dashboard (needs routes in serverInit())",
+    "Use the wordmark in the topbar",
+    "Trademark search before any public use"
+  ]
+}

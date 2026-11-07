@@ -1367,16 +1367,27 @@ void handleNotFound() {
 // path is a file, and with only the .gz on the filesystem it decides it
 // isn't — the route then matches every URI that merely starts with `uri`,
 // so the one for "/" would answer (with a 404) every GET meant for the API.
-static void serveWebFile(const char* uri, const char* path, const char* contentType) {
-    server.on(uri, HTTP_GET, [path, contentType]() {
-        String gz = String(path) + ".gz";
+//
+// An image (.png, .ico) is already compressed and goes into the image as it
+// is, so it is opened directly: looking for a .gz that isn't there makes the
+// framework log an error on every request. `maxAgeSeconds` lets the browser
+// keep a file that never changes between dashboard versions (the icons)
+// instead of asking this one-request-at-a-time server again on every page.
+static void serveWebFile(const char* uri, const char* path, const char* contentType,
+                         uint32_t maxAgeSeconds = 0) {
+    server.on(uri, HTTP_GET, [path, contentType, maxAgeSeconds]() {
+        String plain(path);
+        bool image = plain.endsWith(".png") || plain.endsWith(".ico");
+        String gz = plain + ".gz";
 
-        File f = LittleFS.open(LittleFS.exists(gz) ? gz : String(path), "r");
+        File f = LittleFS.open(!image && LittleFS.exists(gz) ? gz : plain, "r");
         if (!f || f.isDirectory()) {
             server.send(404, "text/plain", "Not found");
             return;
         }
 
+        if (maxAgeSeconds)
+            server.sendHeader("Cache-Control", "max-age=" + String(maxAgeSeconds));
         server.streamWebFile(f, contentType);
         f.close();
     });
@@ -1400,6 +1411,12 @@ bool serverInit() {
     serveWebFile("/common.js", "/common.js", "application/javascript");
     serveWebFile("/telemetry.js", "/telemetry.js", "application/javascript");
     serveWebFile("/version.json", "/version.json", "application/json");
+
+    // The logo's icons (brand/export/web, copied into data/ by brand/export_all.sh)
+    const uint32_t ICON_MAX_AGE = 7 * 24 * 3600;
+    serveWebFile("/favicon.svg", "/favicon.svg", "image/svg+xml", ICON_MAX_AGE);
+    serveWebFile("/favicon.ico", "/favicon.ico", "image/x-icon", ICON_MAX_AGE);
+    serveWebFile("/apple-touch-icon.png", "/apple-touch-icon.png", "image/png", ICON_MAX_AGE);
 
     server.on("/api/status", handleApiStatus);
     server.on("/api/time", HTTP_POST, handleApiTimeSet);

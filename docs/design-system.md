@@ -8,7 +8,7 @@ How the pages themselves work (layouts, the run page, the charts' behaviour) is 
 
 - **Desktop first.** Tablet, laptop and PC are the target; the phone is a fallback. Check every change at wide widths first.
 - **Charts get the height.** The analysis pages are walls of charts: nothing floats over them from 1024px up, and anything pinned has to earn its place (on the run page, only the map does).
-- **Colour is data or status, nothing else.** The chrome is neutral. A colour on screen is either a series or a state.
+- **Colour is data or status, nothing else.** The chrome is neutral. A colour on screen is either a series or a state. The one exception is the logo's lime mark, which belongs to the logo and to nothing else (see [Logo](#logo)).
 - **Say what's missing, don't hide it.** A gap in the data is shaded, a value read off a clipped sensor is shown as a floor (`≥11.7G`), a stretch with a lost orientation is greyed out and its values left out.
 - **English UI text.** Plain, specific sentences ("0.49 s missing, at 0:00.8"), not codes or jargon.
 
@@ -67,6 +67,21 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
 ### The background
 
 The fixed glow behind the glass (`--bg-blobs`) is in the palette's own greys and all cool. A warm one tinted the cards on its side and cost the orange and red data their contrast.
+
+## Logo
+
+"Dial d": a lowercase d whose bowl is an adjuster dial, Fog with a lime mark across its rim, on an Ink tile. Its versions, colours, files and rules are in [brand/README.md](../brand/README.md); this section is what matters for the pages.
+
+| Where | What | Size |
+|---|---|---|
+| Browser tab, iOS home screen | `favicon.svg`, `favicon.ico`, `apple-touch-icon.png`, linked from every page's `<head>` | |
+| Top of the side rail (from 1024px) | `.rail-logo`: `favicon.svg`, a link to the Dashboard | 44px |
+| Narrow top bar | none: the page title has the room | |
+
+- **Inside the app it is always the tile** (Ink, the Fog d, the lime mark). It reads on both themes, so nothing switches with `data-theme`.
+- **Use the file, don't redraw it**: no copy of the logo in CSS or inline SVG on a page.
+- **Lime `#C6F135` is not a token.** It is never a series, a status, a button or a highlight, so it has no place in `style.css`.
+- **The icons are made in `brand/`**: `brand/export_all.sh` builds them and copies them into `data/`. Change `brand/` and run it again, never `data/`. A new icon file also needs its own route in `serverInit()`.
 
 ## Type
 
