@@ -46,7 +46,7 @@
                 <div style="display:flex; gap:8px;">
                     <button class="btn ghost" style="flex:1;" onclick="saveBikeProfile()">Save As…</button>
                     <button class="btn ghost" style="flex:1;" onclick="renameBikeProfile()">Rename</button>
-                    <button class="btn danger" style="flex:1;" onclick="deleteBikeProfile()">Delete</button>
+                    <button class="btn ghost danger" style="flex:0 0 auto; margin-left:12px;" onclick="deleteBikeProfile()">Delete</button>
                 </div>
                 <details class="help">
                     <summary>What a profile includes</summary>
@@ -268,7 +268,7 @@
                 <div id="imuLive" class="stat-sub" style="text-align:left; margin-bottom:12px; font-variant-numeric:tabular-nums;">&nbsp;</div>
 
                 <button class="ghost" style="width:100%; margin-bottom:8px;" id="imuZeroBtn" onclick="zeroImu()">Zero IMU (bike upright and still)</button>
-                <button class="danger" style="width:100%;" onclick="clearImuZero()">Clear IMU Zero</button>
+                <button class="ghost danger" style="width:100%;" onclick="clearImuZero()">Clear IMU Zero</button>
                 <p class="stat-sub" id="imuActionStatus" style="text-align:center; min-height:16px; margin-top:8px;"></p>
 
                 <p class="stat-sub" style="margin-top:6px; margin-bottom:0;">
@@ -430,9 +430,10 @@
                     <input id="trendsRunCount" type="number" min="5" max="100" placeholder="20">
                 </div>
                 <p class="stat-sub" style="margin-top:6px;">
-                    How many of your most recent runs the Trends page loads and analyzes.
-                    Each one is a full CSV read, so a higher number means a slower page —
-                    5 to 100.
+                    How many of your most recent runs the Trends page shows, 5 to 100.
+                    Their figures are kept in each run's file, so the number hardly
+                    slows the page; a run recorded before 2026-11-07 is read in full
+                    once, the first time Trends shows it.
                 </p>
 
                 <p class="stat-sub" id="analysisConfigStatus" style="text-align:center; min-height:16px;"></p>
@@ -474,7 +475,7 @@
                 <div class="bar"><div class="bar-fill" id="storageFill"></div></div>
                 <p class="stat-sub" id="storageText">--</p>
 
-                <button class="danger" style="width:100%; margin-top:16px;" onclick="deleteAllRuns()">Delete All Runs</button>
+                <button class="ghost danger" style="width:100%; margin-top:16px;" onclick="deleteAllRuns()">Delete All Runs</button>
                 <p class="stat-sub" id="deleteAllStatus" style="text-align:center; min-height:16px;"></p>
             </div>
         </div>

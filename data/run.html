@@ -39,7 +39,9 @@
 
     .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
     @media (min-width: 480px) { .metric-grid { grid-template-columns: repeat(4, 1fr); } }
-    .event-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
+    /* No height cap: the list is the Tuning tab's main content, and capped at 260px it
+       scrolled in a box of its own with the rest of the tab empty (until 2026-11-07). */
+    .event-list { display: flex; flex-direction: column; gap: 6px; }
     .event-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); cursor: pointer; border-radius: 6px; padding: 6px 4px; }
     .event-row:hover, .event-row.is-located, .segment-row.is-located { background: var(--surface-alt); }
     .event-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -58,7 +60,7 @@
     .suggestion-list { display: flex; flex-direction: column; gap: 8px; }
     .suggestion-item { display: flex; gap: 10px; font-size: 13px; line-height: 1.4; }
     .suggestion-tag {
-        flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase;
+        flex-shrink: 0; font-size: 11px; font-weight: 700; text-transform: uppercase;
         letter-spacing: 0.03em; color: var(--text); background: var(--surface-alt); border: 1px solid var(--border);
         border-radius: 999px; padding: 2px 8px; height: fit-content; white-space: nowrap;
     }
@@ -370,14 +372,14 @@
                 </p>
                 <div class="stack" style="gap:18px;">
                     <div>
-                        <p class="stat-label" style="color:var(--series-front);">● Front</p>
+                        <p class="stat-label"><span style="color:var(--series-front);">●</span> Front</p>
                         <div class="chart-wrap">
                             <svg class="chart-svg" id="frontDamperMapChart" viewBox="0 0 300 170"></svg>
                             <div class="chart-tooltip" id="frontDamperMapTooltip"></div>
                         </div>
                     </div>
                     <div id="rearDamperMapBlock">
-                        <p class="stat-label" style="color:var(--series-rear);">● Rear</p>
+                        <p class="stat-label"><span style="color:var(--series-rear);">●</span> Rear</p>
                         <div class="chart-wrap">
                             <svg class="chart-svg" id="rearDamperMapChart" viewBox="0 0 300 170"></svg>
                             <div class="chart-tooltip" id="rearDamperMapTooltip"></div>
@@ -396,8 +398,8 @@
                     <div class="telemetry-label">
                         <p class="telemetry-name">Travel</p>
                         <div class="telemetry-minis">
-                            <div><span class="mini-label" style="color:var(--series-front);">● Front</span></div>
-                            <div id="travelLegendRear"><span class="mini-label" style="color:var(--series-rear);">● Rear</span></div>
+                            <div><span class="mini-label"><span style="color:var(--series-front);">●</span> Front</span></div>
+                            <div id="travelLegendRear"><span class="mini-label"><span style="color:var(--series-rear);">●</span> Rear</span></div>
                         </div>
                     </div>
                     <div class="chart-wrap">
@@ -1229,7 +1231,7 @@ function drawTimeAxis(from, to, ticks)
         const text = el('text', {
             x: x.toFixed(1), y: H - 9,
             'text-anchor': x - TIME_PAD_L < 18 ? 'start' : W - TIME_PAD_R - x < 18 ? 'end' : 'middle',
-            'font-size': 10.5, fill: COLOR_MUTED
+            'font-size': 11, fill: COLOR_MUTED
         });
         text.textContent = label(s);
         svg.appendChild(text);
@@ -1245,7 +1247,7 @@ function drawTimeAxis(from, to, ticks)
 
     const tag = el('g', { visibility: 'hidden' });
     const tagBox = el('rect', { y: 0, height: H - 5, rx: 4, fill: COLOR_ACCENT });
-    const tagText = el('text', { y: H - 9, 'text-anchor': 'middle', 'font-size': 10.5, 'font-weight': 700, fill: COLOR_ACCENT_TEXT });
+    const tagText = el('text', { y: H - 9, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: COLOR_ACCENT_TEXT });
     tag.appendChild(tagBox);
     tag.appendChild(tagText);
     svg.appendChild(tag);
@@ -1351,7 +1353,10 @@ function drawLineChart(svg, series, opts)
     // the height to nothing. So the two ends are labelled with what they
     // are — the lowest and highest value on show — and round values get a
     // gridline in between, with a label wherever one fits clear of the ends.
-    const Y_LABEL_GAP = 13;         // px between two labels' baselines
+    // px between two labels' baselines. 13 packed eleven labels (0-100%
+    // every 10%) into a tall travel row, which read as a column of noise;
+    // 20 gives that row 0/20/…/100 and a laptop-height row 0/50/100.
+    const Y_LABEL_GAP = 20;
 
     function yLine(v, labelled)
     {
@@ -1368,7 +1373,7 @@ function drawLineChart(svg, series, opts)
 
         if (!labelled) return;
 
-        const label = el('text', { x: padL - 6, y: (y + 3.5).toFixed(1), 'text-anchor': 'end', 'font-size': 10, fill: COLOR_MUTED });
+        const label = el('text', { x: padL - 6, y: (y + 4).toFixed(1), 'text-anchor': 'end', 'font-size': 11, fill: COLOR_MUTED });
         label.textContent = yFormat(v);
         svg.appendChild(label);
     }

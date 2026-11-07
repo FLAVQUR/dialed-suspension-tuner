@@ -99,6 +99,8 @@ src/system/version.cpp   — FIRMWARE_VERSION / FIRMWARE_BUILD, the only file th
 tools/gzip_web_files.py  — build step: gzips data/ into the filesystem image (buildfs/uploadfs)
                            and adds version.json
 tools/upload_both.py     — makes "upload" send the dashboard after the firmware
+tools/palette_swatches.py — draws docs/media/palette-dark.svg and palette-light.svg from style.css's
+                           tokens (shown in design-system.md); run again after any colour change
 tools/bench/battery_drain.py — battery-life test: timed runs on a riding-day cadence until the battery
                            gives out; logs the voltage and checks and deletes each run
 brand/                   — the logo: build_logo.py generates master/, export_all.sh everything else:

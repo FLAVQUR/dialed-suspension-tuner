@@ -141,8 +141,43 @@ function analyzeRun(name, run)
         frontAvgPct: frontMaxMM ? frontAvg / frontMaxMM * 100 : null,
         rearAvgPct: (isFullSusp && rearMaxMM) ? rearAvg / rearMaxMM * 100 : null,
         frontBOPerMin: frontMaxMM ? frontBOCount / totalMinutes : null,
-        rearBOPerMin: (isFullSusp && rearMaxMM) ? rearBOCount / totalMinutes : null
+        rearBOPerMin: (isFullSusp && rearMaxMM) ? rearBOCount / totalMinutes : null,
+        counts: { front: frontBOCount, rear: rearBOCount }
     };
+}
+
+// The same figures from the runs list alone, for a run whose .JSON has them
+// (stats: averages since the stats block existed, bottom-out counts since
+// 2026-11-07 or once filled in below) — no telemetry to download. Null when
+// it doesn't have them.
+function analyzeFromList(entry)
+{
+    if (typeof entry.avg_front_mm !== 'number' || typeof entry.bottom_outs_front !== 'number') return null;
+
+    const isFullSusp = entry.full_suspension !== false;
+    const frontMaxMM = entry.front_travel > 0 ? entry.front_travel : 0;
+    const rearMaxMM = entry.rear_travel > 0 ? entry.rear_travel : 0;
+    const totalMinutes = Math.max((entry.duration_s || 0) / 60, 1 / 60);
+
+    return {
+        name: entry.name, isFullSusp,
+        frontAvgPct: frontMaxMM ? entry.avg_front_mm / frontMaxMM * 100 : null,
+        rearAvgPct: (isFullSusp && rearMaxMM) ? entry.avg_rear_mm / rearMaxMM * 100 : null,
+        frontBOPerMin: frontMaxMM ? entry.bottom_outs_front / totalMinutes : null,
+        rearBOPerMin: (isFullSusp && rearMaxMM) ? entry.bottom_outs_rear / totalMinutes : null
+    };
+}
+
+// A run recorded before the device counted bottom-outs is read in full once,
+// and its counts handed back to be kept in its .JSON, so the next visit takes
+// them from the list. Best effort: if this fails, the run is read again then.
+function keepBottomOuts(name, counts)
+{
+    return fetch('/api/runs/bottom-outs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, front: counts.front, rear: counts.rear })
+    }).catch(() => {});
 }
 
 // A line+dots chart over an ordinal run index rather than continuous
@@ -543,12 +578,29 @@ async function loadTrendsForSelectedBike()
 
         const results = [];
 
+        // Most runs come straight from the list; only the ones without the
+        // figures in their .JSON are downloaded, and counted in the note.
+        const toRead = subset.filter(r => !analyzeFromList(r)).length;
+        let read = 0;
+
         for (let i = 0; i < subset.length; i++) {
-            document.getElementById('progressNote').textContent = `Loading run ${i + 1} of ${subset.length}…`;
+            const fromList = analyzeFromList(subset[i]);
+            if (fromList) {
+                results.push(fromList);
+                continue;
+            }
+
+            document.getElementById('progressNote').textContent =
+                `Reading run ${++read} of ${toRead} recorded before the device kept these figures — once only…`;
 
             try {
                 const run = await fetchRun(subset[i].name);
-                results.push(analyzeRun(subset[i].name, run));
+                const result = analyzeRun(subset[i].name, run);
+                results.push(result);
+
+                // Only a run with a stats block can keep them (the device
+                // refuses the rest, which have no averages either).
+                if (typeof subset[i].avg_front_mm === 'number') await keepBottomOuts(subset[i].name, result.counts);
             } catch (e) {
                 // Skip a run that fails to load rather than aborting the
                 // whole trend — one corrupted/unreadable file shouldn't

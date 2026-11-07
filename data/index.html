@@ -343,9 +343,12 @@ function updateData()
         // One badge, one line of detail. Signal quality only means
         // something once there's a fix — without one the HDOP is a
         // placeholder, and "No fix" next to "Poor signal" said it twice.
+        // No fix yet is waiting, not a fault (amber, as in the checklist
+        // above); red is kept for a module that isn't answering at all.
         const gpsBadge = document.getElementById('gpsBadge');
-        gpsBadge.className = 'badge ' + (data.gps.fix ? 'good' : 'bad');
-        gpsBadge.innerHTML = '<span class="dot"></span>' + (data.gps.fix ? 'Fix' : 'No fix');
+        const gpsState = !data.health.gps ? ['bad', 'Not responding'] : data.gps.fix ? ['good', 'Fix'] : ['warn', 'No fix'];
+        gpsBadge.className = 'badge ' + gpsState[0];
+        gpsBadge.innerHTML = '<span class="dot"></span>' + gpsState[1];
 
         document.getElementById('gpsDetail').innerText = data.gps.fix
             ? `${data.gps.satellites} satellites · ${hdopQuality(data.gps.hdop).text.toLowerCase()}`

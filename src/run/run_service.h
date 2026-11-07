@@ -98,6 +98,12 @@ namespace RunService
     // Same, for the optional name a rider gives a run (see RunInfo::title).
     bool setTitle(const String& name, const String& title);
 
+    // Fills in stats.bottom_outs_front / _rear of a run recorded before the
+    // device counted them, from what Trends worked out of its telemetry with
+    // the same rule. Returns false if the .JSON is missing, can't be parsed
+    // or has no stats block.
+    bool setBottomOuts(const String& name, uint16_t front, uint16_t rear);
+
     // Corrects fields of the setup a finished run was recorded with: click
     // counts, "volume_tokens", "pressure_psi", or "lockout" (see RunSetup).
     // The snapshot is whatever Settings held when the run ended, which is not

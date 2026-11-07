@@ -14,6 +14,15 @@ How the pages themselves work (layouts, the run page, the charts' behaviour) is 
 
 ## Colour
 
+Every colour token of both themes, on that theme's own page and card. The figure after each value is its contrast against the card (the map's colours: against the map tiles).
+
+![The dark theme's palette: neutrals, status, data and map colours, each with its token, value, contrast and job](media/palette-dark.svg)
+
+![The light theme's palette, laid out the same way](media/palette-light.svg)
+
+> [!IMPORTANT]
+> The two images are drawn from `data/style.css` by `tools/palette_swatches.py`, never by hand. After a colour change in the CSS, run it again (`~/.platformio/penv/Scripts/python.exe -I tools/palette_swatches.py`) and commit the two SVGs with the change. A new token only shows up once it is added to the script's `GROUPS`.
+
 ### Base palette
 
 Six blue-grey steps, the rider's choice (2026-10-25): `#06141B #11212D #253745 #4A5C6A #9BA8AB #CCD0CF`. Every neutral in both themes is one of them or a step between two, marked "between" in `style.css`.
@@ -35,7 +44,7 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
 
 ### Status
 
-`--good`, `--warn`, `--bad`, each with an `--on-*` for text on a solid fill. **Status only**: a check passing or failing, a run missing data, a destructive action, the recording dot. No chart series uses them. The one exception is deliberate: Compare's faster/slower colouring *is* a status. `--warn` (amber) is also the colour of anything the data can't be trusted for, such as the missing-data note and the gap shading.
+`--good`, `--warn`, `--bad`, each with an `--on-*` for text on a solid fill. **Red text takes `--bad-text`**, not `--bad` (2026-11-07): `#ef4444` is 4.4:1 on the dark card and 3.8:1 on a secondary button, under the 4.5:1 small text needs; `--bad-text` is at least 5.1:1 on every surface in both themes. Fills, dots and icons keep `--bad`. **Status only**: a check passing or failing, a run missing data, a destructive action, the recording dot. No chart series uses them. (Compare's faster/slower used `--good`/`--bad` until 2026-11-07; it has a diverging pair of its own now, below.) `--warn` (amber) is also the colour of anything the data can't be trusted for, such as the missing-data note and the gap shading.
 
 ### Data
 
@@ -47,7 +56,9 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
 | `--series-imu` (aqua) | what the IMU measures: lean, pitch, G-force |
 | `--series-highlight` (pink) | "this one, not that one": Run B in Compare, technical trail segments |
 | `--series-neutral` (`#9BA8AB`) | what the highlight is set against: Run A, transition segments, reference traces such as "Vertical" |
+| `--series-faster` (blue) / `--series-slower` (red) | Compare's diverging pair: where Run B was faster / slower than Run A |
 | `--map-ink` | lines drawn on the map tiles, which are light in both themes |
+| `--map-faster` / `--map-slower` | the diverging pair on the map: its light-surface steps in both themes, over a white casing |
 
 - **Within one chart: front + rear, or one hue + neutral.** Those are the combinations the palette is validated for, colour-blind vision included. Pink ↔ aqua and violet ↔ blue do **not** pass side by side, so never put them in the same chart.
 
@@ -55,12 +66,14 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
   |---|---|
   | front + rear | ✅ |
   | any one hue + neutral | ✅ |
+  | faster + slower (blue + red) | ✅ |
   | pink + aqua | ❌ |
   | violet + blue | ❌ |
   | any other two hues | ❌ not validated |
 - Blue, orange and violet have a darker step in the light theme (each clears 3:1 on white). Aqua and pink are the same in both.
 - The neutral is only 2.4:1 on the light card, so it always comes with a label ("Run A", "Vertical", the segment names).
-- **Text never takes a series colour.** Values, labels and legends stay in `--text` / `--text-muted`; a coloured mark beside them carries the identity.
+- **Text never takes a series colour.** Values, labels and legends stay in `--text` / `--text-muted`; a coloured mark beside them carries the identity (`<span style="color:var(--series-front)">●</span> Front`, or a badge's `.dot`). In the light theme the rear orange as text was 3.1:1, and the pink "Technical" badge about 3:1 (fixed 2026-11-07).
+- **The diverging pair** (2026-11-07) is blue against red, the dataviz skill's own: CVD ΔE 19–22 in both themes. The green/red it replaced was ΔE 7.4 for deuteranopia on the dark card, and no green against red passes. Its blue is the fork's; that is safe only because Compare never draws the fork in its series colour, so don't put the two on one page. It is **always on a solid line**: as translucent fills the two hues fall under the normal-vision floor (ΔE < 8 at 25–35% opacity), so a fill under the line is only a tint.
 - **A new hue is a palette change**, not a local decision. Validate it with the dataviz palette validator in both themes before using it.
 - Page scripts read the tokens once at load (`cssVar()` → `COLOR_FRONT` etc. in `run.html`, `COLOR_BORDER` etc. in `telemetry.js`). Never hard-code a hex in a script.
 
@@ -97,7 +110,8 @@ The fixed glow behind the glass (`--bg-blobs`) is in the palette's own greys and
 | Secondary text (`.stat-sub`), field labels, chips | 13px | |
 | Labels (`.stat-label`) | 12px, uppercase, 0.05em tracking, muted | |
 | Badges | 12px | 600 |
-| Nav and rail labels, chart axis text | 11px and below | |
+| Chart axis text, the run page's chart-row labels (Avg / Peak / Cursor), suggestion tags | 11px | |
+| Nav and rail labels | 11px and below | |
 
 Figures that update in place use `font-variant-numeric: tabular-nums`, so they don't jitter.
 
@@ -116,6 +130,7 @@ Figures that update in place use `font-variant-numeric: tabular-nums`, so they d
 | 768px | portrait tablet: the run page's map sits beside its segments (pinned when the window is at least 800px tall) |
 | 860px | content up to 1080px; two-column page stacks; Settings in two columns |
 | **1024px** | **the wide layout**: the side rail replaces the topbar and the floating nav, nothing floats over the content, the run page pins only its map. Kept at the end of `style.css` so it wins at equal specificity. |
+| 1280px | the Runs table's badges sit beside the run's name; below it they go under it, with 6px cell padding |
 | 1440px | the Runs table gets its roomier cell padding |
 
 A `1200px` rule capping the run page at 1500px is still in the CSS, but it never applies: the 1024px block comes later in the file and sets 1700px.
@@ -123,7 +138,7 @@ A `1200px` rule capping the run page at 1500px is still in the CSS, but it never
 ## Components
 
 - **Card** (`.card`, almost always `.card.glass`): surface, border, `--radius`, 16px padding. Glass is a frosted blur plus a lit rim in every browser. On Chromium (`html.glass-refract`) the floating chrome also refracts its backdrop through the inline `#glass-refract` SVG filter; cards don't, because over a smooth background there is nothing to bend.
-- **Buttons**: the default `button` is the primary one (`--accent` fill). `.ghost` is secondary (`--surface-alt`, bordered). `.danger` is destructive (`--bad` fill). `.link-btn` is an inline text action ("Edit setup"). `.icon-btn` is a square icon in a table row, with a `.danger` tint for delete.
+- **Buttons**: the default `button` is the primary one (`--accent` fill). `.ghost` is secondary (`--surface-alt`, bordered). `.danger` is destructive (`--bad` fill), for the moment the action is done: a confirm dialog's button, Stop Run. `.ghost.danger` (red text on a secondary button) is a destructive action sitting among a page's other controls — Delete a profile, Clear IMU Zero, Delete All Runs — so it is never the loudest thing on the card; set a little apart from its neighbours when they share a row. `.link-btn` is an inline text action ("Edit setup"). `.icon-btn` is a square icon in a table row, with a `.danger` tint for delete.
 - **Segmented tabs** (`.seg-tabs`): views inside a page (Run: Overview / Analysis / Tuning; Settings: Bike / Sensors / WiFi / System). Labelled, never icon-only, pinned under the top. The active tab takes `--accent`.
 - **Navigation**:
   - Below 1024px: a floating pill at the bottom (`.bottom-nav`), with floating action buttons stacked above it on the right (`.fab-stack`, `.fab-btn`, always icon plus label — a `title` tooltip never shows on touch).
@@ -143,10 +158,10 @@ A `1200px` rule capping the run page at 1500px is still in the CSS, but it never
 
 - **Two kinds of drawing.** Most charts use a 300-unit-wide viewBox stretched to fit, so anything sized in units grows with them: Trends and Compare size their line weights and text from the rendered width and redraw on resize (`rememberChart()`). The run page's time-series stack is drawn in real pixels at its rendered size. Either way, **draw a chart only once its card is visible**; a hidden card measures 0 wide.
 - **Marks**: data lines 1.25px with round joins and caps. Gridlines 1px in `--border`, the baseline in `--text-muted`. Histogram bars in the series colour. Points of a scatter are semi-transparent, not a solid heatmap.
-- **Axes**: the y axis ends at the data's own lowest and highest values, both labelled, with round gridlines in between. Travel always runs 0–100%. Axis text is `--text-muted`.
+- **Axes**: the y axis ends at the data's own lowest and highest values, both labelled, with round gridlines in between, at least 20px apart (a 150px travel row reads 0/20/…/100%, a laptop-height one 0/50/100%). Travel always runs 0–100%. Axis text is `--text-muted`.
 - **Hover**: a crosshair and a dot on the line chart; the value is read in the row's "Cursor" figure on the run page (no floating tooltip on a short row), in a tooltip on Trends and Compare. Hit areas are larger than the marks.
 - **Missing and untrusted data**: a gap in the samples is shaded `--warn` at 0.35 under the traces (never thinner than 2px), and the line breaks there instead of being drawn straight across. A stretch with a lost orientation is shaded `--series-neutral` at 0.22, and its lean, pitch and vertical G are not drawn. A peak read off a clipped sensor is written `≥`.
-- **Legends**: two or more series always have one; the run page's "Cursor" lines double as it. One series needs none, since the chart's title names it.
+- **Legends**: two or more series always have one, in the chart's own card (Compare repeats Run A / Run B under each chart); the run page's "Cursor" lines double as it. One series needs none, since the chart's title names it.
 - **Reduce without losing peaks**: long series are cut to 400 buckets keeping each bucket's minimum and maximum (`minMaxPoints()`), all of one chart's series together, so a peak is never dropped and a cursor reads every series at the same instant.
 
 ## Motion

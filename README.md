@@ -1,11 +1,13 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="brand/export/colour/dialed-wordmark-color-1200.png">
-  <img alt="Dialed" src="brand/export/one-colour/dialed-wordmark-mono-11212d-1200.png" width="300">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/export/colour/dialed-wordmark-color-1200.png">
+    <img alt="Dialed" src="brand/export/one-colour/dialed-wordmark-mono-11212d-1200.png" width="300">
+  </picture>
+</p>
 
-<a href="docs/media/dialed-intro.mp4"><img src="docs/media/dialed-intro.gif" alt="Dialed in 17 seconds: the rear shock's travel on a real run, the landing at 0:25 where it bottomed out, the tuning suggestion it led to, and the run page it came from" width="100%"></a>
+<img src="docs/media/dialed-intro.gif" alt="Dialed in 17 seconds: the rear shock's travel on a real run, the landing at 0:25 where it bottomed out, the tuning suggestion it led to, and the run page it came from" width="100%">
 
-<sub>A real run (RUN0048) on the dashboard: the rear shock bottoming out on a landing, and what to change. Click for the full-quality MP4.</sub>
+<sub>A real run (RUN0048) on the dashboard: the rear shock bottoming out on a landing, and what to change.</sub>
 
 # Dialed
 

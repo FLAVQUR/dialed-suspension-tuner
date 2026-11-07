@@ -626,6 +626,13 @@ static String runJson(const RunInfo& run, bool withSetup) {
         obj["max_speed_kmh"] = serialized(String(run.maxSpeedKmh, 1));
         obj["max_front_mm"] = serialized(String(run.maxFrontMM, 1));
         obj["max_rear_mm"] = serialized(String(run.maxRearMM, 1));
+        obj["avg_front_mm"] = serialized(String(run.avgFrontMM, 1));
+        obj["avg_rear_mm"] = serialized(String(run.avgRearMM, 1));
+
+        if (run.hasBottomOuts) {
+            obj["bottom_outs_front"] = run.bottomOutsFront;
+            obj["bottom_outs_rear"] = run.bottomOutsRear;
+        }
     }
 
     // Each run's setup more than doubles the reply, and only the pages that
@@ -674,8 +681,11 @@ void handleApiRuns() {
         server.beginResponse(200, "application/json");
 
         // `fw` because what a run's entry holds can change with the
-        // firmware: the dashboard drops what it kept when this does.
-        String piece = "{\"fw\":\"" + String(FIRMWARE_VERSION) + "\",\"total\":" + String(runs.size()) + ",\"runs\":[";
+        // firmware: the dashboard drops what it kept when this does. With
+        // the build time in it, since two builds of uncommitted changes share
+        // a version ("-dirty"): the entries kept before the bottom-out counts
+        // were added outlived the build that added them (2026-11-07).
+        String piece = "{\"fw\":\"" + String(FIRMWARE_VERSION) + " " + String(FIRMWARE_BUILD) + "\",\"total\":" + String(runs.size()) + ",\"runs\":[";
 
         for (size_t i = 0; i < runs.size(); i++) {
             piece += String(i == 0 ? "" : ",") + "[\"" + runs[i].name + "\",\"" + runs[i].stamp + "\"]";
@@ -925,6 +935,36 @@ void handleApiRunNotes() {
 
     if (!ok) {
         server.send(404, "text/plain", "Run not found");
+        return;
+    }
+
+    server.send(200, "text/plain", "OK");
+}
+
+// Trends' one-time fill-in for a run recorded before the device counted its
+// bottom-outs: { name, front, rear }, counted from the run's telemetry with
+// the same rule the device now uses while recording.
+void handleApiRunBottomOuts() {
+    JsonDocument doc;
+
+    if (!server.hasArg("plain") || deserializeJson(doc, server.arg("plain"))) {
+        server.send(400, "text/plain", "Invalid JSON");
+        return;
+    }
+
+    String name = doc["name"] | "";
+    bool nameOk = name.length() > 0 && name.length() <= 16;
+    for (size_t i = 0; nameOk && i < name.length(); i++)
+        nameOk = isalnum((unsigned char)name[i]);
+
+    if (!nameOk || !doc["front"].is<unsigned int>() || !doc["rear"].is<unsigned int>() ||
+        doc["front"].as<unsigned int>() > 9999 || doc["rear"].as<unsigned int>() > 9999) {
+        server.send(400, "text/plain", "Expected name, front, rear");
+        return;
+    }
+
+    if (!RunService::setBottomOuts(name, doc["front"].as<unsigned int>(), doc["rear"].as<unsigned int>())) {
+        server.send(404, "text/plain", "Run not found, or it has no stats");
         return;
     }
 
@@ -1423,6 +1463,7 @@ bool serverInit() {
     server.on("/api/runs", HTTP_GET, handleApiRuns);
     server.on("/api/runs", HTTP_DELETE, handleApiRunDelete);
     server.on("/api/runs/notes", HTTP_POST, handleApiRunNotes);
+    server.on("/api/runs/bottom-outs", HTTP_POST, handleApiRunBottomOuts);
     server.on("/api/runs/setup", HTTP_POST, handleApiRunSetup);
     server.on("/api/runs/clear", HTTP_POST, handleApiRunsClear);
     server.on("/api/runs/download", handleApiRunDownload);

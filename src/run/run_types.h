@@ -77,6 +77,15 @@ struct RunInfo {
     float maxSpeedKmh = 0;
     float maxFrontMM = 0;
     float maxRearMM = 0;
+    float avgFrontMM = 0;
+    float avgRearMM = 0;
+
+    // Bottom-out counts (stats.bottom_outs_front / _rear), what Trends needs
+    // besides the averages. False for a run recorded before they existed
+    // that Trends hasn't filled in yet.
+    bool hasBottomOuts = false;
+    uint16_t bottomOutsFront = 0;
+    uint16_t bottomOutsRear = 0;
 
     // True when this run's .JSON was reconstructed at boot because the
     // device never got to write it cleanly (e.g. power loss mid-recording)

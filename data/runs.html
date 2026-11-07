@@ -160,7 +160,7 @@ function runBadges(run)
     if (missing) flags.splice(1, 0, { cls: 'bad', label: missing.label, info: missing.info });
 
     return flags.map(flag =>
-        `<span class="badge ${flag.cls}" data-info="${flag.info}" style="margin-left:8px;"><span class="dot"></span>${flag.label}</span>`
+        `<span class="badge run-badge ${flag.cls}" data-info="${flag.info}"><span class="dot"></span>${flag.label}</span>`
     ).join('');
 }
 
@@ -229,14 +229,26 @@ function renderRunsTable(container, runs)
         : pct >= BOTTOM_OUT_PCT ? `<span class="peak-bottomed" title="Reached bottom-out depth (${BOTTOM_OUT_PCT}% or more)">${pct}%</span>`
         : `${pct}%`;
 
-    const head = RUN_COLUMNS.map(c => {
+    // With every run on the page from one bike (the usual case), a Bike
+    // column would repeat it on every row, and its width is what pushed the
+    // download and delete buttons out of the card below 1280px. The hint
+    // names the bike instead.
+    const bikeOf = r => `${r.bike_name || ''}|${r.front_travel}|${r.rear_travel}|${r.full_suspension}`;
+    const oneBike = runs.length > 0 && runs.every(r => bikeOf(r) === bikeOf(runs[0]));
+    const travelOf = r => r.full_suspension ? `${r.front_travel}/${r.rear_travel}mm` : `${r.front_travel}mm`;
+    const columns = oneBike ? RUN_COLUMNS.filter(c => c.key !== 'bike') : RUN_COLUMNS;
+    const bikeNote = oneBike && runs[0].bike_name
+        ? `All on ${escapeHtml(runs[0].bike_name)} <span class="muted">${travelOf(runs[0])}</span> &middot; `
+        : '';
+
+    const head = columns.map(c => {
         const arrow = c.key === sortKey ? (sortDir > 0 ? '▲' : '▼') : '';
         return `<th class="sortable${c.num ? ' num' : ''}${arrow ? ' sorted' : ''}" data-sort="${c.key}">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
     }).join('');
 
     const rows = runs.map(run => {
         const picked = selected.includes(run.name);
-        const travel = run.full_suspension ? `${run.front_travel}/${run.rear_travel}mm` : `${run.front_travel}mm`;
+        const travel = travelOf(run);
         const notes = run.notes ? run.notes.trim() : '';
         const size = formatSize(run.size_kb);
 
@@ -244,8 +256,8 @@ function renderRunsTable(container, runs)
             <tr data-run="${run.name}"${picked ? ' class="selected"' : ''}>
                 <td><input type="checkbox" class="run-pick" aria-label="Select ${run.name}"${picked ? ' checked' : ''}></td>
                 <td class="run-name"><a href="/run?name=${encodeURIComponent(run.name)}">${runLabel(run)}</a>${runBadges(run)}</td>
-                <td>${run.start_utc > 0 ? formatRunDate(run.start_utc) : dash}</td>
-                <td>${run.bike_name ? escapeHtml(run.bike_name) + ' ' : ''}<span class="muted">${travel}</span></td>
+                <td>${run.start_utc > 0 ? formatRunDate(run.start_utc).slice(0, -3) : dash}</td>
+                ${oneBike ? '' : `<td>${run.bike_name ? escapeHtml(run.bike_name) + ' ' : ''}<span class="muted">${travel}</span></td>`}
                 <td class="num">${formatDuration(run.duration_s)}</td>
                 <td class="num">${run.distance_km > 0 ? run.distance_km.toFixed(2) + ' km' : dash}</td>
                 <td class="num">${run.max_speed_kmh > 0 ? run.max_speed_kmh.toFixed(0) + ' km/h' : dash}</td>
@@ -262,7 +274,7 @@ function renderRunsTable(container, runs)
     const card = document.createElement('div');
     card.className = 'card glass runs-table-card';
     card.innerHTML = `
-        <p class="stat-sub runs-table-hint">Tick two runs to compare them, or any number to delete them &middot; click a column to sort &middot; amber peak = that end bottomed out</p>
+        <p class="stat-sub runs-table-hint">${bikeNote}Tick two runs to compare them, or any number to delete them &middot; click a column to sort &middot; amber peak = that end bottomed out</p>
         <table class="runs-table">
             <thead><tr><th><input type="checkbox" class="run-pick-all" title="Select every run on this page" aria-label="Select every run on this page"${runs.every(r => selected.includes(r.name)) ? ' checked' : ''}></th>${head}<th></th></tr></thead>
             <tbody>${rows}</tbody>

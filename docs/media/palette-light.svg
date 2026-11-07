@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="798" viewBox="0 0 1040 798" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+<rect width="1040" height="798" rx="16" fill="#E6E9E8"/>
+<text x="28" y="46" font-size="20" font-weight="700" fill="#06141B">Dialed — Light theme</text>
+<text x="1012" y="46" font-size="12" text-anchor="end" fill="#4A5C6A">contrast against the card; map colours against the map tiles</text>
+<rect x="28" y="62" width="984" height="190" rx="14" fill="#FAFBFB" stroke="#CCD0CF"/>
+<text x="48" y="94" font-size="12" font-weight="700" letter-spacing="0.05em" fill="#4A5C6A">NEUTRALS — THE BASE PALETTE</text>
+<rect x="48" y="108" width="44" height="44" rx="10" fill="#E6E9E8" stroke="#CCD0CF"/>
+<text x="102" y="121" font-size="13" font-weight="600" fill="#06141B">--bg</text>
+<text x="102" y="137" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#E6E9E8</text>
+<text x="102" y="152" font-size="11" fill="#4A5C6A">the page</text>
+<rect x="284" y="108" width="44" height="44" rx="10" fill="#FAFBFB" stroke="#CCD0CF"/>
+<text x="338" y="121" font-size="13" font-weight="600" fill="#06141B">--surface</text>
+<text x="338" y="137" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#FAFBFB</text>
+<text x="338" y="152" font-size="11" fill="#4A5C6A">cards, dialogs</text>
+<rect x="520" y="108" width="44" height="44" rx="10" fill="#EEF0F0" stroke="#CCD0CF"/>
+<text x="574" y="121" font-size="13" font-weight="600" fill="#06141B">--surface-alt</text>
+<text x="574" y="137" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#EEF0F0</text>
+<text x="574" y="152" font-size="11" fill="#4A5C6A">inputs, chips, secondary buttons</text>
+<rect x="756" y="108" width="44" height="44" rx="10" fill="#CCD0CF" stroke="#CCD0CF"/>
+<text x="810" y="121" font-size="13" font-weight="600" fill="#06141B">--border</text>
+<text x="810" y="137" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#CCD0CF · 1.5:1</text>
+<text x="810" y="152" font-size="11" fill="#4A5C6A">borders, gridlines</text>
+<rect x="48" y="170" width="44" height="44" rx="10" fill="#4A5C6A" stroke="none"/>
+<text x="102" y="183" font-size="13" font-weight="600" fill="#06141B">--text-muted</text>
+<text x="102" y="199" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#4A5C6A · 6.7:1</text>
+<text x="102" y="214" font-size="11" fill="#4A5C6A">labels, secondary text, axes</text>
+<rect x="284" y="170" width="44" height="44" rx="10" fill="#06141B" stroke="none"/>
+<text x="338" y="183" font-size="13" font-weight="600" fill="#06141B">--text</text>
+<text x="338" y="199" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#06141B · 18.0:1</text>
+<text x="338" y="214" font-size="11" fill="#4A5C6A">text</text>
+<rect x="520" y="170" width="44" height="44" rx="10" fill="#11212D" stroke="none"/>
+<text x="542" y="197" font-size="13" font-weight="700" text-anchor="middle" fill="#FAFBFB">Aa</text>
+<text x="574" y="183" font-size="13" font-weight="600" fill="#06141B">--accent</text>
+<text x="574" y="199" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#11212D · 15.8:1</text>
+<text x="574" y="214" font-size="11" fill="#4A5C6A">interaction: primary button, active tab</text>
+<rect x="28" y="270" width="984" height="128" rx="14" fill="#FAFBFB" stroke="#CCD0CF"/>
+<text x="48" y="302" font-size="12" font-weight="700" letter-spacing="0.05em" fill="#4A5C6A">STATUS — NEVER DATA</text>
+<rect x="48" y="316" width="44" height="44" rx="10" fill="#15803d" stroke="none"/>
+<text x="102" y="329" font-size="13" font-weight="600" fill="#06141B">--good</text>
+<text x="102" y="345" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#15803D · 4.8:1</text>
+<text x="102" y="360" font-size="11" fill="#4A5C6A">a check passing</text>
+<rect x="284" y="316" width="44" height="44" rx="10" fill="#b45309" stroke="none"/>
+<text x="338" y="329" font-size="13" font-weight="600" fill="#06141B">--warn</text>
+<text x="338" y="345" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#B45309 · 4.8:1</text>
+<text x="338" y="360" font-size="11" fill="#4A5C6A">waiting; data not to be trusted</text>
+<rect x="520" y="316" width="44" height="44" rx="10" fill="#dc2626" stroke="none"/>
+<text x="574" y="329" font-size="13" font-weight="600" fill="#06141B">--bad</text>
+<text x="574" y="345" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#DC2626 · 4.7:1</text>
+<text x="574" y="360" font-size="11" fill="#4A5C6A">a fault; destructive (fills, dots)</text>
+<rect x="756" y="316" width="44" height="44" rx="10" fill="#b91c1c" stroke="none"/>
+<text x="810" y="329" font-size="13" font-weight="600" fill="#06141B">--bad-text</text>
+<text x="810" y="345" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#B91C1C · 6.2:1</text>
+<text x="810" y="360" font-size="11" fill="#4A5C6A">red as text</text>
+<rect x="28" y="416" width="984" height="190" rx="14" fill="#FAFBFB" stroke="#CCD0CF"/>
+<text x="48" y="448" font-size="12" font-weight="700" letter-spacing="0.05em" fill="#4A5C6A">DATA — ONE JOB EACH</text>
+<rect x="48" y="462" width="44" height="44" rx="10" fill="#2a78d6" stroke="none"/>
+<text x="102" y="475" font-size="13" font-weight="600" fill="#06141B">--series-front</text>
+<text x="102" y="491" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#2A78D6 · 4.3:1</text>
+<text x="102" y="506" font-size="11" fill="#4A5C6A">the fork</text>
+<rect x="284" y="462" width="44" height="44" rx="10" fill="#eb6834" stroke="none"/>
+<text x="338" y="475" font-size="13" font-weight="600" fill="#06141B">--series-rear</text>
+<text x="338" y="491" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#EB6834 · 3.1:1</text>
+<text x="338" y="506" font-size="11" fill="#4A5C6A">the shock</text>
+<rect x="520" y="462" width="44" height="44" rx="10" fill="#4a3aa7" stroke="none"/>
+<text x="574" y="475" font-size="13" font-weight="600" fill="#06141B">--series-motion</text>
+<text x="574" y="491" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#4A3AA7 · 8.3:1</text>
+<text x="574" y="506" font-size="11" fill="#4A5C6A">GPS: speed, altitude</text>
+<rect x="756" y="462" width="44" height="44" rx="10" fill="#199e70" stroke="none"/>
+<text x="810" y="475" font-size="13" font-weight="600" fill="#06141B">--series-imu</text>
+<text x="810" y="491" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#199E70 · 3.3:1</text>
+<text x="810" y="506" font-size="11" fill="#4A5C6A">IMU: lean, pitch, G-force</text>
+<rect x="48" y="524" width="44" height="44" rx="10" fill="#d55181" stroke="none"/>
+<text x="102" y="537" font-size="13" font-weight="600" fill="#06141B">--series-highlight</text>
+<text x="102" y="553" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#D55181 · 3.8:1</text>
+<text x="102" y="568" font-size="11" fill="#4A5C6A">this one: Run B, technical</text>
+<rect x="284" y="524" width="44" height="44" rx="10" fill="#9BA8AB" stroke="none"/>
+<text x="338" y="537" font-size="13" font-weight="600" fill="#06141B">--series-neutral</text>
+<text x="338" y="553" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#9BA8AB · 2.4:1</text>
+<text x="338" y="568" font-size="11" fill="#4A5C6A">set against: Run A, reference</text>
+<rect x="520" y="524" width="44" height="44" rx="10" fill="#2a78d6" stroke="none"/>
+<text x="574" y="537" font-size="13" font-weight="600" fill="#06141B">--series-faster</text>
+<text x="574" y="553" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#2A78D6 · 4.3:1</text>
+<text x="574" y="568" font-size="11" fill="#4A5C6A">Compare: B faster here</text>
+<rect x="756" y="524" width="44" height="44" rx="10" fill="#e34948" stroke="none"/>
+<text x="810" y="537" font-size="13" font-weight="600" fill="#06141B">--series-slower</text>
+<text x="810" y="553" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#E34948 · 3.8:1</text>
+<text x="810" y="568" font-size="11" fill="#4A5C6A">Compare: B slower here</text>
+<rect x="28" y="624" width="984" height="128" rx="14" fill="#FAFBFB" stroke="#CCD0CF"/>
+<text x="48" y="656" font-size="12" font-weight="700" letter-spacing="0.05em" fill="#4A5C6A">MAP — OVER THE LIGHT TILES, IN BOTH THEMES</text>
+<rect x="48" y="670" width="44" height="44" rx="10" fill="#F2EFE9" stroke="#CCD0CF"/>
+<rect x="56" y="678" width="28" height="28" rx="6" fill="#253745"/>
+<text x="102" y="683" font-size="13" font-weight="600" fill="#06141B">--map-ink</text>
+<text x="102" y="699" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#253745 · 10.7:1</text>
+<text x="102" y="714" font-size="11" fill="#4A5C6A">Run A, markers</text>
+<rect x="284" y="670" width="44" height="44" rx="10" fill="#F2EFE9" stroke="#CCD0CF"/>
+<rect x="292" y="678" width="28" height="28" rx="6" fill="#2a78d6"/>
+<text x="338" y="683" font-size="13" font-weight="600" fill="#06141B">--map-faster</text>
+<text x="338" y="699" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#2A78D6 · 3.8:1</text>
+<text x="338" y="714" font-size="11" fill="#4A5C6A">B faster, over a white casing</text>
+<rect x="520" y="670" width="44" height="44" rx="10" fill="#F2EFE9" stroke="#CCD0CF"/>
+<rect x="528" y="678" width="28" height="28" rx="6" fill="#e34948"/>
+<text x="574" y="683" font-size="13" font-weight="600" fill="#06141B">--map-slower</text>
+<text x="574" y="699" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#E34948 · 3.4:1</text>
+<text x="574" y="714" font-size="11" fill="#4A5C6A">B slower, over a white casing</text>
+<text x="28" y="776" font-size="11" fill="#4A5C6A">Generated from data/style.css by tools/palette_swatches.py</text>
+</svg>

@@ -162,6 +162,17 @@ struct RunStatsAccumulator {
     // above a fixed speed threshold, applied to the run's total duration.
     uint32_t movingCount = 0;
 
+    // Bottom-outs per end, counted as telemetry.js's countBottomOuts() does
+    // (so Trends can read them here instead of downloading every run): one
+    // when the travel reaches BOTTOM_OUT_PCT of the end's travel, and the
+    // next only after it has come back under BOTTOM_OUT_RESET_PCT. The two
+    // thresholds are set in mm when the run starts — the travel can't
+    // change during a run.
+    float boFrontAtMM = 0, boFrontResetMM = 0;
+    float boRearAtMM = 0, boRearResetMM = 0;
+    bool boFrontArmed = true, boRearArmed = true;
+    uint16_t boFront = 0, boRear = 0;
+
     // Mirrors run.html's Analysis tab computeElevation(): a trailing 5-bucket
     // average over GPS altitude (to reject GPS altitude jitter), summing
     // only steps of at least 0.5m between consecutive smoothed values. The
@@ -185,6 +196,10 @@ static RunStatsAccumulator runStats;
 
 constexpr float G_TO_MS2 = 9.80665f;
 constexpr float MOVING_SPEED_KMH = 2.0f;
+// The dashboard's bottom-out rule (BOTTOM_OUT_PCT / BOTTOM_OUT_RESET_PCT in
+// run.html and compare.html, the literals in trends.html): keep them equal.
+constexpr float BOTTOM_OUT_PCT = 95.0f;
+constexpr float BOTTOM_OUT_RESET_PCT = 85.0f;
 constexpr float ELEV_MIN_STEP_M = 0.5f;
 constexpr int ELEV_SMOOTH_WINDOW = 5;
 
@@ -1326,6 +1341,8 @@ static void writeRunMeta(float durationSeconds) {
         stats["moving_s"] = serialized(String(durationSeconds * (runStats.movingCount / n), 1));
         stats["elev_gain_m"] = serialized(String(runStats.elevGainM, 1));
         stats["elev_loss_m"] = serialized(String(runStats.elevLossM, 1));
+        stats["bottom_outs_front"] = runStats.boFront;
+        stats["bottom_outs_rear"] = runStats.boRear;
     }
 
     // Everything about the bike itself (as opposed to this specific run)
@@ -1432,6 +1449,14 @@ static bool loadRunMeta(const String& runName, RunInfo& run) {
         run.maxSpeedKmh = stats["max_speed_kmh"] | 0.0f;
         run.maxFrontMM = stats["max_front_mm"] | 0.0f;
         run.maxRearMM = stats["max_rear_mm"] | 0.0f;
+        run.avgFrontMM = stats["avg_front_mm"] | 0.0f;
+        run.avgRearMM = stats["avg_rear_mm"] | 0.0f;
+
+        // Only in runs recorded since 2026-11-07, or filled in afterwards by
+        // Trends (setBottomOuts()).
+        run.hasBottomOuts = stats["bottom_outs_front"].is<unsigned int>() && stats["bottom_outs_rear"].is<unsigned int>();
+        run.bottomOutsFront = stats["bottom_outs_front"] | 0U;
+        run.bottomOutsRear = stats["bottom_outs_rear"] | 0U;
     }
 
     return true;
@@ -1452,6 +1477,33 @@ static bool setRunMetaString(const String& name, const char* key, const String& 
         return false;
 
     doc[key] = value;
+
+    File out = storageOpen(jsonPath(name).c_str());
+    if (!out)
+        return false;
+
+    serializeJson(doc, out);
+    storageClose(out);
+
+    return true;
+}
+
+bool RunService::setBottomOuts(const String& name, uint16_t front, uint16_t rear) {
+    File f = storageGet(jsonPath(name).c_str());
+    if (!f)
+        return false;
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, f);
+    f.close();
+
+    // A run with no stats block (recovered, or no sample at all) has no
+    // averages either, so Trends reads its telemetry whatever this says.
+    if (err || !doc["stats"].is<JsonObject>())
+        return false;
+
+    doc["stats"]["bottom_outs_front"] = front;
+    doc["stats"]["bottom_outs_rear"] = rear;
 
     File out = storageOpen(jsonPath(name).c_str());
     if (!out)
@@ -1848,6 +1900,10 @@ bool RunService::start() {
     lastWriteSuccessMs = runStartMs;
     writeEverStalledThisRun = false;
     runStats = RunStatsAccumulator{};
+    runStats.boFrontAtMM = suspensionGetMaxTravelMM(FRONT) * BOTTOM_OUT_PCT / 100.0f;
+    runStats.boFrontResetMM = suspensionGetMaxTravelMM(FRONT) * BOTTOM_OUT_RESET_PCT / 100.0f;
+    runStats.boRearAtMM = suspensionGetMaxTravelMM(REAR) * BOTTOM_OUT_PCT / 100.0f;
+    runStats.boRearResetMM = suspensionGetMaxTravelMM(REAR) * BOTTOM_OUT_RESET_PCT / 100.0f;
     imuDiagStart();
     batteryAtStart = readBatteryVoltage();
     batteryLowest = 0;
@@ -1960,6 +2016,16 @@ void RunService::log(
     runStats.sumFront += front_travel;
     runStats.sumRear += rear_travel;
     runStats.sumSpeed += speed;
+
+    // A travel of 0 mm (no calibration) never counts: the thresholds are 0 too.
+    if (runStats.boFrontAtMM > 0) {
+        if (runStats.boFrontArmed && front_travel >= runStats.boFrontAtMM) { runStats.boFront++; runStats.boFrontArmed = false; }
+        else if (!runStats.boFrontArmed && front_travel < runStats.boFrontResetMM) runStats.boFrontArmed = true;
+    }
+    if (runStats.boRearAtMM > 0) {
+        if (runStats.boRearArmed && rear_travel >= runStats.boRearAtMM) { runStats.boRear++; runStats.boRearArmed = false; }
+        else if (!runStats.boRearArmed && rear_travel < runStats.boRearResetMM) runStats.boRearArmed = true;
+    }
 
     if (alt < runStats.minAlt) runStats.minAlt = alt;
     if (alt > runStats.maxAlt) runStats.maxAlt = alt;

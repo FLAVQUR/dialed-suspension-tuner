@@ -23,6 +23,10 @@
     --good: #22c55e;
     --warn: #f59e0b;
     --bad: #ef4444;
+    /* --bad as text: #ef4444 is 4.4:1 on the card and 3.8:1 on a ghost
+       button, under the 4.5:1 small text needs. This one is 5.1:1 or more
+       on every surface. Fills, dots and icons keep --bad. */
+    --bad-text: #f87171;
     --on-good: #062b12;
     --on-warn: #2b1600;
     --on-bad: #2b0a0a;
@@ -52,8 +56,18 @@
     --series-highlight: #d55181;
     --series-neutral: #9BA8AB;
 
+    /* Compare's diverging pair: where Run B was faster / slower than Run A.
+       Blue against red, the dataviz skill's validated diverging pair (CVD
+       ΔE 19-22 in both themes); the green/red it replaced fell to 7.4 for
+       deuteranopia on the dark card. The blue is the fork's, and safe to
+       share because Compare never draws the fork in its series colour. */
+    --series-faster: #3987e5;
+    --series-slower: #e66767;
+
     /* Lines drawn on the map tiles, which are light in both themes. */
     --map-ink: #253745;
+    --map-faster: #2a78d6;      /* the pair's light-surface steps, drawn over a white casing */
+    --map-slower: #e34948;
     --radius: 14px;
     --nav-height: 60px;
     --tabs-height: 44px;
@@ -93,6 +107,7 @@
     --good: #15803d;            /* one step darker than before: 4.8:1 on #FAFBFB */
     --warn: #b45309;
     --bad: #dc2626;
+    --bad-text: #b91c1c;        /* 5.3:1 or more on every light surface (#dc2626: 3.9:1 on the page) */
     --on-good: #ffffff;
     --on-warn: #ffffff;
     --on-bad: #ffffff;
@@ -104,6 +119,8 @@
     --series-rear: #eb6834;
     --series-motion: #4a3aa7;
     --series-neutral: #9BA8AB;
+    --series-faster: #2a78d6;
+    --series-slower: #e34948;
     --skeleton-sweep: rgba(6, 20, 27, 0.05);
     --nav-shadow: rgba(6, 20, 27, 0.18);
     --card-glass: rgba(250, 251, 251, 0.5);
@@ -441,7 +458,7 @@ body.device-offline #recordBtn { opacity: 0.4; pointer-events: none; }
 .cal-msg:empty { display: none; }
 .cal-msg.good { color: var(--good); }
 .cal-msg.warn { color: var(--warn); }
-.cal-msg.bad { color: var(--bad); }
+.cal-msg.bad { color: var(--bad-text); }
 
 .cal-btn {
     min-height: 40px;
@@ -457,7 +474,7 @@ body.device-offline #recordBtn { opacity: 0.4; pointer-events: none; }
 button.ghost.cal-reset {
     width: 100%;
     margin-top: 18px;
-    color: var(--bad);
+    color: var(--bad-text);
 }
 
 /* Dashboard: GPS status line at the foot of the Recording card. */
@@ -749,11 +766,14 @@ body.is-loading .chart-wrap::after {
 
 .badge.good   { background: rgba(34, 197, 94, 0.15); color: var(--good); }
 .badge.warn   { background: rgba(245, 158, 11, 0.15); color: var(--warn); }
-.badge.bad    { background: rgba(239, 68, 68, 0.15);  color: var(--bad); }
+.badge.bad    { background: rgba(239, 68, 68, 0.15);  color: var(--bad-text); }
 .badge.accent { background: var(--selected-tint); color: var(--text); }
 
 /* Not states — data labels in the data colours (trail segment kinds). */
-.badge.highlight { background: rgba(213, 81, 129, 0.16); color: var(--series-highlight); }
+/* The series colour on the dot, never the text (pink text was ~3:1 on its
+   own tint in the light theme). */
+.badge.highlight { background: rgba(213, 81, 129, 0.16); color: var(--text); }
+.badge.highlight .dot { background: var(--series-highlight); }
 .badge.neutral   { background: rgba(155, 168, 171, 0.16); color: var(--text-muted); }
 
 .badge .dot {
@@ -878,6 +898,16 @@ button.ghost, .btn.ghost {
 button.danger, .btn.danger {
     background: var(--bad);
     color: var(--on-bad);
+}
+
+/* A destructive action sitting among a page's other controls (Delete a
+   profile, Delete All Runs): red text on a secondary button. The solid red is
+   kept for the moment the action is being done — a confirm dialog's button,
+   Stop Run — so it isn't the loudest thing on a settings card. */
+button.ghost.danger, .btn.ghost.danger {
+    background: var(--surface-alt);
+    color: var(--bad-text);
+    border: 1px solid var(--border);
 }
 
 /* Ticked boxes in the app's own interaction colour, not the browser's blue. */
@@ -1199,6 +1229,10 @@ input[type="number"], input[type="text"], input[type="password"], select {
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
         align-items: start;
+        /* <main> is stretched to the window's height (the footer's rule), and
+           without this its rows share out the spare height: on Trends, while
+           its runs load, the cards stood 260px apart. */
+        align-content: start;
     }
 
     .page-stack > .span-2 {
@@ -1382,7 +1416,7 @@ main.run-layout > .seg-tabs {
 }
 
 .telemetry-minis .mini-label {
-    font-size: 10px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     color: var(--text-muted);
@@ -1455,8 +1489,8 @@ main.run-layout > .seg-tabs {
    value while there is a cursor. */
 .time-stack .mini-sub {
     margin: 0;
-    font-size: 10px;
-    line-height: 12px;
+    font-size: 11px;
+    line-height: 14px;
     color: var(--text-muted);
     text-align: right;
     white-space: nowrap;
@@ -1653,6 +1687,18 @@ main.run-layout > .seg-tabs {
     text-decoration: none;
 }
 
+.run-badge { margin-left: 8px; }
+
+/* Below 1280px the table only fits beside the rail with a run's badges
+   under its name: beside it they made the Run column 214px wide, and the
+   download and delete buttons ended up outside the card at 1024px. */
+@media (max-width: 1279px) {
+    .runs-table td.run-name { white-space: normal; }
+    .runs-table th,
+    .runs-table td { padding-left: 6px; padding-right: 6px; }
+    .runs-table td.run-name .run-badge { display: flex; width: fit-content; margin: 4px 0 0; }
+}
+
 /* The RUN number next to a run the rider has named. */
 .run-number {
     margin-left: 4px;
@@ -1703,7 +1749,7 @@ main.run-layout > .seg-tabs {
 /* A page action that destroys something — Delete, once a run is ticked. The
    same tint as a row's own delete button, not the solid red of a dialog's. */
 .fab-btn.danger {
-    color: var(--bad);
+    color: var(--bad-text);
     background: rgba(239, 68, 68, 0.12);
     border-color: transparent;
 }

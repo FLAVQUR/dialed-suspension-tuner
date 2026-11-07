@@ -69,7 +69,7 @@ Written when the run stops (`writeRunMeta()` in `run_service.cpp`), and changed 
 | `imu_diag` | per second: `status` (0–3), `accuracy_deg`, `accel_clipped`; up to 15 minutes |
 | `battery_v` | `start`, `end`, `lowest` (V) |
 | `stopped_by` | `"low_battery"` when the [low-battery cutoff](hardware.md#the-low-battery-cutoff-2026-10-28) ended the run; absent when the rider or a timer did |
-| `stats` | accumulated while recording, so the run page shows its figures before the `.CSVB` arrives: `max/avg_front_mm`, `max/avg_rear_mm`, `max/avg_speed_kmh`, `max_lean_deg` / `max_pitch_deg` (**radians**, despite the name), `max_g`, `avg_g`, `min/max_alt_m`, `distance_km`, `moving_s`, `elev_gain_m`, `elev_loss_m` |
+| `stats` | accumulated while recording, so the run page shows its figures before the `.CSVB` arrives: `max/avg_front_mm`, `max/avg_rear_mm`, `max/avg_speed_kmh`, `max_lean_deg` / `max_pitch_deg` (**radians**, despite the name), `max_g`, `avg_g`, `min/max_alt_m`, `distance_km`, `moving_s`, `elev_gain_m`, `elev_loss_m`, and since 2026-11-07 `bottom_outs_front` / `bottom_outs_rear` (counted as `countBottomOuts()` does: reaching 95% of the end's travel, re-armed under 85%; filled in by Trends for runs recorded before) |
 | `bike` | the setup snapshot: `name`, `wheel_size`, `full_suspension`, `front_travel`, `rear_travel`, `rear_wheel_travel_mm`, and `front_suspension` / `rear_suspension`, each with `model` (the fork's or shock's make and model as typed in Settings; only when entered, since 2026-10-28), `lsc`, `hsc`, `lsr`, `hsr`, `volume_tokens`, `pressure_psi`, `sag_pct`, `has_lsc`…`has_hsr`, and, when set afterwards, `lockout` and `recorded` (the values before a correction) |
 
 The setup is whatever Settings held when the run ended. How it is read and corrected: [setup-change history](dashboard.md#setup-change-history-2026-10-08--on-the-device-checked-against-run004246-no-run-with-changed-clicks-or-pressure-yet).
@@ -88,9 +88,10 @@ One request at a time: while a run or a ZIP streams, everything else waits (see 
 | `/api/config` | GET, POST | Settings; POST takes form fields with the same names |
 | `/api/run/toggle` | POST | start or stop a run (a start is carried out 500ms later) |
 | `/api/run/timed` | POST | `seconds` (1–120): a run that stops by itself; answers with its name |
-| `/api/runs` | GET | `?index=1`: every run's name and stamp, from the directory alone. `?names=A,B`: those runs. `?offset=&limit=`: a page, newest first (25 by default, 50 at most). `&setup=1` adds each run's setup |
+| `/api/runs` | GET | `?index=1`: every run's name and stamp, from the directory alone, and `fw` (version and build time). `?names=A,B`: those runs. `?offset=&limit=`: a page, newest first (25 by default, 50 at most). `&setup=1` adds each run's setup |
 | `/api/runs` | DELETE | body `{"name": "RUN00xx"}` |
 | `/api/runs/notes` | POST | `{name, notes?, title?}`: only the fields sent change |
+| `/api/runs/bottom-outs` | POST | `{name, front, rear}`: fills in `stats.bottom_outs_*` of a run recorded before the device counted them (Trends sends it once per such run). 404 for a run with no `stats` block |
 | `/api/runs/setup` | POST | `{name, end, fields: {…}}` or `{name, end, field, value}`: corrects a run's recorded setup, all or nothing. `model` is text (at most 60 characters; empty removes it), the rest numbers, `lockout` true/false |
 | `/api/runs/clear` | POST | deletes every run |
 | `/api/runs/download` | GET | `file`: one file from the card |
@@ -110,4 +111,4 @@ One request at a time: while a run or a ZIP streams, everything else waits (see 
 | `/api/debug/loop` | GET | the loop profiler: `last_recording` has the row rate, the spacing histogram and each section's cost |
 | `/api/debug/log` | GET | the last 3KB of the core's and libraries' warnings; `?clear=1` empties it. Quiet when nothing is wrong: the responses that used to put a warning in it on every request no longer do (2026-10-28, [troubleshooting.md](troubleshooting.md)) |
 
-**`/api/runs` listing** now also returns `start_utc`, `title`, and — when the run has a `stats` block — `distance_km`, `max_speed_kmh`, `max_front_mm`, `max_rear_mm`. They are read from each run's `.JSON` at request time; nothing was added to the recording path for them.
+**`/api/runs` listing** now also returns `start_utc`, `title`, and — when the run has a `stats` block — `distance_km`, `max_speed_kmh`, `max_front_mm`, `max_rear_mm`, `avg_front_mm`, `avg_rear_mm`, and `bottom_outs_front` / `bottom_outs_rear` when the `.JSON` has them (2026-11-07, for Trends). They are read from each run's `.JSON` at request time; nothing was added to the recording path for them.

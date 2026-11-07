@@ -12,13 +12,18 @@
 <style>
     .legend-row { display: flex; gap: 18px; margin-top: 10px; font-size: 13px; color: var(--text-muted); flex-wrap: wrap; }
     .legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    /* Run A / Run B: under the run pickers and again under every chart that
+       draws both, so a chart scrolled far from the pickers still says which
+       colour is which run. */
+    .legend-dot.dot-a { background: var(--series-neutral); }
+    .legend-dot.dot-b { background: var(--series-highlight); }
     .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
     .compare-table th, .compare-table td { text-align: right; padding: 7px 4px; border-bottom: 1px solid var(--border); }
     .compare-table th:first-child, .compare-table td:first-child { text-align: left; color: var(--text-muted); }
     .compare-table th { font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
     .delta { font-size: 11px; margin-left: 4px; }
     .delta.better { color: var(--good); }
-    .delta.worse { color: var(--bad); }
+    .delta.worse { color: var(--bad-text); }
     .setup-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px; }
     .setup-cols .stat-sub { margin: 2px 0; }
     .setup-diff { color: var(--warn); font-weight: 700; }
@@ -57,9 +62,9 @@
                 <select id="runBSelect"></select>
             </div>
         </div>
-        <div class="legend-row">
-            <span><span class="legend-dot" id="legendDotA"></span><span id="legendLabelA">Run A</span></span>
-            <span><span class="legend-dot" id="legendDotB"></span><span id="legendLabelB">Run B</span></span>
+        <div class="legend-row run-legend">
+            <span><span class="legend-dot dot-a"></span><span class="legend-name-a">Run A</span></span>
+            <span><span class="legend-dot dot-b"></span><span class="legend-name-b">Run B</span></span>
         </div>
     </div>
 
@@ -68,8 +73,8 @@
         <p class="stat-sub" style="margin-top:-8px;" id="routeMapNote">Run A (dashed) vs Run B, colored by where B gained or lost time.</p>
         <div id="compareMap"></div>
         <div class="legend-row">
-            <span><span class="legend-dot" style="background:var(--good);"></span>Run B faster here</span>
-            <span><span class="legend-dot" style="background:var(--bad);"></span>Run B slower here</span>
+            <span><span class="legend-dot" style="background:var(--map-faster);"></span>Run B faster here</span>
+            <span><span class="legend-dot" style="background:var(--map-slower);"></span>Run B slower here</span>
         </div>
     </div>
 
@@ -79,6 +84,10 @@
         <div class="chart-wrap">
             <svg class="chart-svg" id="deltaChart" viewBox="0 0 300 140"></svg>
             <div class="chart-tooltip" id="deltaTooltip"></div>
+        </div>
+        <div class="legend-row">
+            <span><span class="legend-dot" style="background:var(--series-faster);"></span>Run B faster here</span>
+            <span><span class="legend-dot" style="background:var(--series-slower);"></span>Run B slower here</span>
         </div>
     </div>
 
@@ -121,6 +130,10 @@
             <svg class="chart-svg" id="frontHistChart" viewBox="0 0 300 120"></svg>
             <div class="chart-tooltip" id="frontHistTooltip"></div>
         </div>
+        <div class="legend-row run-legend">
+            <span><span class="legend-dot dot-a"></span><span class="legend-name-a">Run A</span></span>
+            <span><span class="legend-dot dot-b"></span><span class="legend-name-b">Run B</span></span>
+        </div>
     </div>
 
     <div class="card glass" id="rearHistCard" style="display:none;">
@@ -129,6 +142,10 @@
         <div class="chart-wrap">
             <svg class="chart-svg" id="rearHistChart" viewBox="0 0 300 120"></svg>
             <div class="chart-tooltip" id="rearHistTooltip"></div>
+        </div>
+        <div class="legend-row run-legend">
+            <span><span class="legend-dot dot-a"></span><span class="legend-name-a">Run A</span></span>
+            <span><span class="legend-dot dot-b"></span><span class="legend-name-b">Run B</span></span>
         </div>
     </div>
 
@@ -139,6 +156,10 @@
             <svg class="chart-svg" id="frontVelChart" viewBox="0 0 300 120"></svg>
             <div class="chart-tooltip" id="frontVelTooltip"></div>
         </div>
+        <div class="legend-row run-legend">
+            <span><span class="legend-dot dot-a"></span><span class="legend-name-a">Run A</span></span>
+            <span><span class="legend-dot dot-b"></span><span class="legend-name-b">Run B</span></span>
+        </div>
     </div>
 
     <div class="card glass" id="rearVelCard" style="display:none;">
@@ -147,6 +168,10 @@
         <div class="chart-wrap">
             <svg class="chart-svg" id="rearVelChart" viewBox="0 0 300 120"></svg>
             <div class="chart-tooltip" id="rearVelTooltip"></div>
+        </div>
+        <div class="legend-row run-legend">
+            <span><span class="legend-dot dot-a"></span><span class="legend-name-a">Run A</span></span>
+            <span><span class="legend-dot dot-b"></span><span class="legend-name-b">Run B</span></span>
         </div>
     </div>
 
@@ -188,11 +213,11 @@
 const COLOR_A = cssVar('--series-neutral');
 const COLOR_B = cssVar('--series-highlight');
 const COLOR_MAP_INK = cssVar('--map-ink');
-const COLOR_GOOD = cssVar('--good');
-const COLOR_BAD = cssVar('--bad');
+const COLOR_FASTER = cssVar('--series-faster');
+const COLOR_SLOWER = cssVar('--series-slower');
+const COLOR_MAP_FASTER = cssVar('--map-faster');
+const COLOR_MAP_SLOWER = cssVar('--map-slower');
 
-document.getElementById('legendDotA').style.background = COLOR_A;
-document.getElementById('legendDotB').style.background = COLOR_B;
 
 const params = new URLSearchParams(location.search);
 const presetA = params.get('a') || '';
@@ -363,10 +388,16 @@ function splitProfileByDistanceSegments(profile, segments)
     let currentCls = segments[0].cls;
     let currentPts = [profile.pts[0]];
 
+    // Past the last segment B has nothing to be compared with (the segments
+    // stop where the shorter run does): 'outside', drawn in B's own colour.
+    // It used to take the last segment's class, and paint the rest of a
+    // longer Run B as faster or slower throughout.
+    const comparedTo = segments[segments.length - 1].endDist;
+
     for (let i = 1; i < profile.pts.length; i++) {
         const d = profile.cumDist[i];
         while (segIdx < segments.length - 1 && d > segments[segIdx].endDist) segIdx++;
-        const cls = segments[segIdx].cls;
+        const cls = d > comparedTo ? 'outside' : segments[segIdx].cls;
 
         if (cls === currentCls) {
             currentPts.push(profile.pts[i]);
@@ -416,9 +447,13 @@ function drawCompareMap(profileA, profileB, deltaSegments)
         color: COLOR_MAP_INK, weight: 3, dashArray: '2,8', opacity: 0.8
     }).addTo(map);
 
+    // Each stretch of Run B over a white casing: on its own the line was
+    // lost against the wooded tiles (the old green was 1.3:1 on them).
     const groups = splitProfileByDistanceSegments(profileB, deltaSegments);
-    const lineLayersB = groups.map(g => L.polyline(g.points.map(p => [p.lat, p.lon]), {
-        color: g.cls === 'gaining' ? COLOR_GOOD : g.cls === 'losing' ? COLOR_BAD : COLOR_B,
+    const latLngs = g => g.points.map(p => [p.lat, p.lon]);
+    groups.forEach(g => L.polyline(latLngs(g), { color: '#ffffff', weight: 7, opacity: 0.85 }).addTo(map));
+    const lineLayersB = groups.map(g => L.polyline(latLngs(g), {
+        color: g.cls === 'gaining' ? COLOR_MAP_FASTER : g.cls === 'losing' ? COLOR_MAP_SLOWER : COLOR_B,
         weight: 4
     }).addTo(map));
 
@@ -512,9 +547,11 @@ function drawDeltaChart(series, labelB)
         svg.appendChild(label);
     });
 
-    // Filled per-segment (green where the gap is closing, red where it's
-    // opening) rather than one flat fill, so the shape alone tells the story
-    // without needing the tooltip.
+    // Coloured per segment (blue where the gap is closing, red where it's
+    // opening), so the shape alone tells the story without the tooltip. The
+    // line carries the colour, solid: as translucent fills the two hues were
+    // too close to tell apart (validator ΔE under 8 even in normal vision),
+    // so the fill under it is only a light tint of the same colour.
     const zeroY = Y(0);
     for (let i = 1; i < series.length; i++) {
         const x0 = X(series[i - 1].d), x1 = X(series[i].d);
@@ -523,13 +560,21 @@ function drawDeltaChart(series, labelB)
 
         svg.appendChild(el('polygon', {
             points: `${x0.toFixed(1)},${zeroY.toFixed(1)} ${x0.toFixed(1)},${y0.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)} ${x1.toFixed(1)},${zeroY.toFixed(1)}`,
-            fill: gaining ? COLOR_GOOD : COLOR_BAD, opacity: 0.25
+            fill: gaining ? COLOR_FASTER : COLOR_SLOWER, opacity: 0.18
         }));
     }
 
-    let d = '';
-    series.forEach((s, i) => { d += (i === 0 ? 'M' : 'L') + X(s.d).toFixed(1) + ',' + Y(s.delta).toFixed(1) + ' '; });
-    svg.appendChild(el('path', { d, fill: 'none', stroke: COLOR_MUTED, 'stroke-width': (1.5 * scale).toFixed(2), 'stroke-linejoin': 'round' }));
+    // One path per run of segments going the same way, so joins stay round.
+    const pt = s => X(s.d).toFixed(1) + ',' + Y(s.delta).toFixed(1);
+    for (let i = 1; i < series.length; ) {
+        const gaining = series[i].delta < series[i - 1].delta;
+        let d = 'M' + pt(series[i - 1]);
+        while (i < series.length && (series[i].delta < series[i - 1].delta) === gaining) d += ' L' + pt(series[i++]);
+        svg.appendChild(el('path', {
+            d, fill: 'none', stroke: gaining ? COLOR_FASTER : COLOR_SLOWER,
+            'stroke-width': (2 * scale).toFixed(2), 'stroke-linejoin': 'round', 'stroke-linecap': 'round'
+        }));
+    }
 
     const crosshair = el('line', { x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: COLOR_MUTED, 'stroke-width': 0.5, opacity: 0 });
     svg.appendChild(crosshair);
@@ -659,8 +704,8 @@ async function runComparison()
 
     if (!nameA || !nameB) return;
 
-    document.getElementById('legendLabelA').textContent = nameA;
-    document.getElementById('legendLabelB').textContent = nameB;
+    document.querySelectorAll('.legend-name-a').forEach(el => el.textContent = nameA);
+    document.querySelectorAll('.legend-name-b').forEach(el => el.textContent = nameB);
     document.getElementById('thA').textContent = nameA;
     document.getElementById('thB').textContent = nameB;
 
