@@ -94,6 +94,8 @@ src/web/dialed_web_server.h — WebServer subclass: beginResponse()/streamWebFil
 src/web/server.cpp       — one serveWebFile() route per web file (gzip; pages carry a theme cookie); /api/status, /api/time,
                            /api/config, /api/runs/*, /api/run/timed, /api/bikes/*,
                            /api/suspension/*, /api/imu*, /api/wifi/*, /api/debug/loop
+.github/workflows/build.yml — CI: firmware + filesystem image from a clean checkout, example secrets;
+                           the README's build badge
 tools/version_stamp.py   — build step: git describe + build time → include/version_stamp.h
 src/system/version.cpp   — FIRMWARE_VERSION / FIRMWARE_BUILD, the only file that includes the stamp
 tools/gzip_web_files.py  — build step: gzips data/ into the filesystem image (buildfs/uploadfs)

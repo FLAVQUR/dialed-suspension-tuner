@@ -1,0 +1,68 @@
+# Builds the firmware and the dashboard's filesystem image on every push to
+# main and every pull request, so the README's badge says whether a fresh
+# checkout still builds. Nothing is uploaded to a device.
+#
+# The checkout has no src/config/secrets.h (not in git): the example is
+# copied in its place. Its OTA password is a placeholder, so the firmware
+# built here is for checking the build, not for flashing a bike. The
+# firmware and filesystem images are kept as an artifact all the same.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version stamp is `git describe --tags`: it needs the history
+          # and the tags, not the single commit a checkout fetches by default.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The platform, toolchain and libraries are pinned in platformio.ini,
+      # so its hash is a good cache key.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      # The same PlatformIO Core as on the machine the firmware is uploaded from.
+      - name: Install PlatformIO
+        run: pip install platformio==6.2.0
+
+      - name: Use the example secrets
+        run: cp src/config/secrets.example.h src/config/secrets.h
+
+      # PlatformIO cleans the whole build directory when the project's file
+      # list changes between two runs, and include/version_stamp.h is created
+      # by the first build of a fresh checkout. Without it there beforehand,
+      # the buildfs step below wiped the firmware the step before had built.
+      # tools/version_stamp.py fills it in.
+      - name: Create the version stamp's header
+        run: touch include/version_stamp.h
+
+      - name: Build the firmware
+        run: pio run
+
+      - name: Build the dashboard image
+        run: pio run -t buildfs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dialed-${{ github.sha }}
+          path: |
+            .pio/build/esp32dev/firmware.bin
+            .pio/build/esp32dev/littlefs.bin
+          retention-days: 30
