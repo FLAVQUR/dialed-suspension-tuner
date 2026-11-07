@@ -102,5 +102,10 @@
 <text x="574" y="683" font-size="13" font-weight="600" fill="#06141B">--map-slower</text>
 <text x="574" y="699" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#E34948 · 3.4:1</text>
 <text x="574" y="714" font-size="11" fill="#4A5C6A">B slower, over a white casing</text>
+<rect x="756" y="670" width="44" height="44" rx="10" fill="#F2EFE9" stroke="#CCD0CF"/>
+<rect x="764" y="678" width="28" height="28" rx="6" fill="#858f96"/>
+<text x="810" y="683" font-size="13" font-weight="600" fill="#06141B">--map-even</text>
+<text x="810" y="699" font-size="12" fill="#4A5C6A" font-family="ui-monospace, Consolas, monospace">#858F96 · 2.9:1</text>
+<text x="810" y="714" font-size="11" fill="#4A5C6A">B even or not compared; 3.3:1 on its casing</text>
 <text x="28" y="776" font-size="11" fill="#4A5C6A">Generated from data/style.css by tools/palette_swatches.py</text>
 </svg>

@@ -1428,6 +1428,14 @@ static void serveWebFile(const char* uri, const char* path, const char* contentT
 
         if (maxAgeSeconds)
             server.sendHeader("Cache-Control", "max-age=" + String(maxAgeSeconds));
+
+        // A page is told the theme with the page itself, so its first script
+        // can apply it before anything is drawn. Without it, a browser's
+        // first visit (nothing in its localStorage yet) drew the run page's
+        // charts in the dark theme's colours until /api/config answered.
+        if (strcmp(contentType, "text/html") == 0)
+            server.sendHeader("Set-Cookie", "theme=" + settings.theme + "; Path=/; Max-Age=31536000; SameSite=Lax");
+
         server.streamWebFile(f, contentType);
         f.close();
     });

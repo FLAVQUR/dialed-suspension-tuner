@@ -5,7 +5,7 @@
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<script>try { const c = document.cookie.match(/(?:^|; )theme=(\w+)/); if ((c ? c[1] : localStorage.getItem('theme')) === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
 <title>Runs — Dialed</title>
 </head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="glass-refract" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves="2" seed="7" result="noise"/><feGaussianBlur in="noise" stdDeviation="2" result="soft"/><feDisplacementMap in="SourceGraphic" in2="soft" scale="70" xChannelSelector="R" yChannelSelector="G"/></filter></svg>
@@ -152,7 +152,9 @@ function runLabel(run)
         : run.name;
 }
 
-function runBadges(run)
+// pressable: on the table, where a badge sits beside the run's link; not on
+// a card, where it sits inside the link (a button can't be inside a link).
+function runBadges(run, pressable)
 {
     const missing = missingBadge(run);
     const flags = RUN_FLAGS.filter(flag => run[flag.key]);
@@ -160,10 +162,13 @@ function runBadges(run)
     if (missing) flags.splice(1, 0, { cls: 'bad', label: missing.label, info: missing.info });
 
     return flags.map(flag =>
-        `<span class="badge run-badge ${flag.cls}" data-info="${flag.info}"><span class="dot"></span>${flag.label}</span>`
+        `<span class="badge run-badge ${flag.cls}" data-info="${flag.info}"${pressable ? ' role="button" tabindex="0"' : ''}><span class="dot"></span>${flag.label}</span>`
     ).join('');
 }
 
+// Beside a peak that reached bottom-out depth, so the cell doesn't say it
+// by its amber colour alone.
+const PEAK_ICON = '<svg class="peak-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
 const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>';
 const DELETE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>';
 
@@ -182,6 +187,7 @@ let loaded = [];        // loaded[i]: the run at place i of the device's order, 
 let runsTotal = 0;      // how many runs the card holds, as of the last page fetched
 let page = 0;           // the page on screen, counted from 0 — kept in the address, see rememberView()
 let sortKey = 'name';
+let refocusSort = null; // the column whose header had keyboard focus when it was sorted
 let sortDir = -1;       // newest first — the order the device lists them in
 let selected = [];      // names of the ticked runs, on whichever page: two to compare, any number to delete
 
@@ -226,7 +232,7 @@ function renderRunsTable(container, runs)
     const dash = '<span class="muted">—</span>';
 
     const peakCell = pct => pct === null ? dash
-        : pct >= BOTTOM_OUT_PCT ? `<span class="peak-bottomed" title="Reached bottom-out depth (${BOTTOM_OUT_PCT}% or more)">${pct}%</span>`
+        : pct >= BOTTOM_OUT_PCT ? `<span class="peak-bottomed" title="Reached bottom-out depth (${BOTTOM_OUT_PCT}% or more)">${PEAK_ICON}${pct}%<span class="sr-only"> (bottomed out)</span></span>`
         : `${pct}%`;
 
     // With every run on the page from one bike (the usual case), a Bike
@@ -241,9 +247,13 @@ function renderRunsTable(container, runs)
         ? `All on ${escapeHtml(runs[0].bike_name)} <span class="muted">${travelOf(runs[0])}</span> &middot; `
         : '';
 
+    // Each header holds a real button, so a column can be sorted from the
+    // keyboard too, and aria-sort tells a screen reader which one is.
     const head = columns.map(c => {
-        const arrow = c.key === sortKey ? (sortDir > 0 ? '▲' : '▼') : '';
-        return `<th class="sortable${c.num ? ' num' : ''}${arrow ? ' sorted' : ''}" data-sort="${c.key}">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+        const sorted = c.key === sortKey;
+        const arrow = sorted ? (sortDir > 0 ? '▲' : '▼') : '';
+        const ariaSort = sorted ? (sortDir > 0 ? 'ascending' : 'descending') : 'none';
+        return `<th class="sortable${c.num ? ' num' : ''}${sorted ? ' sorted' : ''}" aria-sort="${ariaSort}"><button type="button" class="sort-btn" data-sort="${c.key}">${c.label}<span class="sort-arrow" aria-hidden="true">${arrow}</span></button></th>`;
     }).join('');
 
     const rows = runs.map(run => {
@@ -255,7 +265,7 @@ function renderRunsTable(container, runs)
         return `
             <tr data-run="${run.name}"${picked ? ' class="selected"' : ''}>
                 <td><input type="checkbox" class="run-pick" aria-label="Select ${run.name}"${picked ? ' checked' : ''}></td>
-                <td class="run-name"><a href="/run?name=${encodeURIComponent(run.name)}">${runLabel(run)}</a>${runBadges(run)}</td>
+                <td class="run-name"><a href="/run?name=${encodeURIComponent(run.name)}">${runLabel(run)}</a>${runBadges(run, true)}</td>
                 <td>${run.start_utc > 0 ? formatRunDate(run.start_utc).slice(0, -3) : dash}</td>
                 ${oneBike ? '' : `<td>${run.bike_name ? escapeHtml(run.bike_name) + ' ' : ''}<span class="muted">${travel}</span></td>`}
                 <td class="num">${formatDuration(run.duration_s)}</td>
@@ -274,19 +284,22 @@ function renderRunsTable(container, runs)
     const card = document.createElement('div');
     card.className = 'card glass runs-table-card';
     card.innerHTML = `
-        <p class="stat-sub runs-table-hint">${bikeNote}Tick two runs to compare them, or any number to delete them &middot; click a column to sort &middot; amber peak = that end bottomed out</p>
+        <p class="stat-sub runs-table-hint">${bikeNote}Tick two runs to compare them, or any number to delete them &middot; click a column to sort &middot; <span class="peak-bottomed">${PEAK_ICON}</span>peak = that end bottomed out</p>
         <table class="runs-table">
             <thead><tr><th><input type="checkbox" class="run-pick-all" title="Select every run on this page" aria-label="Select every run on this page"${runs.every(r => selected.includes(r.name)) ? ' checked' : ''}></th>${head}<th></th></tr></thead>
             <tbody>${rows}</tbody>
         </table>`;
 
     card.addEventListener('click', evt => {
-        const sortHeader = evt.target.closest('th[data-sort]');
+        const sortHeader = evt.target.closest('[data-sort]');
         if (sortHeader) {
             // Same column again flips the order; a new one starts ascending.
             sortDir = sortHeader.dataset.sort === sortKey ? -sortDir : 1;
             sortKey = sortHeader.dataset.sort;
             page = 0;
+            // The table is drawn again; keyboard focus goes back to the
+            // header it was on rather than to the top of the page.
+            refocusSort = evt.detail === 0 ? sortKey : null;
             showPage();
             return;
         }
@@ -336,7 +349,16 @@ function renderRunsTable(container, runs)
         renderRuns();
     });
 
+    // Enter or Space on a badge opens its explanation, as a click does.
+    card.addEventListener('keydown', pressOnKey);
+
     container.appendChild(card);
+
+    if (refocusSort) {
+        const btn = card.querySelector(`[data-sort="${refocusSort}"]`);
+        if (btn) btn.focus();
+        refocusSort = null;
+    }
 }
 
 // What the ticked runs can be used for, in the page's action buttons.

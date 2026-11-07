@@ -51,6 +51,7 @@ GROUPS = [
         ('--map-ink', 'Run A, markers'),
         ('--map-faster', 'B faster, over a white casing'),
         ('--map-slower', 'B slower, over a white casing'),
+        ('--map-even', 'B even or not compared; 3.3:1 on its casing'),
     ], 'tile'),
 ]
 

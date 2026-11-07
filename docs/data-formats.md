@@ -78,7 +78,7 @@ The setup is whatever Settings held when the run ended. How it is read and corre
 
 ## Web server API
 
-One request at a time: while a run or a ZIP streams, everything else waits (see the offline banner's rules in [dashboard.md](dashboard.md)). The pages are served gzipped, one route per file (`serveWebFile()`). A new file in `data/` needs its own route, i.e. a firmware build.
+One request at a time: while a run or a ZIP streams, everything else waits (see the offline banner's rules in [dashboard.md](dashboard.md)). The pages are served gzipped, one route per file (`serveWebFile()`). Each page (`text/html`) comes with `Set-Cookie: theme=dark|light` (`Path=/`, a year), the theme from Settings, so the page's first script can apply it before anything is drawn (2026-11-07). A new file in `data/` needs its own route, i.e. a firmware build.
 
 | Route | Method | What it does |
 |---|---|---|

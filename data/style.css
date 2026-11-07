@@ -68,6 +68,7 @@
     --map-ink: #253745;
     --map-faster: #2a78d6;      /* the pair's light-surface steps, drawn over a white casing */
     --map-slower: #e34948;
+    --map-even: #858f96;        /* B about even, or not compared: the pair's neutral midpoint (3.3:1 on the casing) */
     --radius: 14px;
     --nav-height: 60px;
     --tabs-height: 44px;
@@ -136,6 +137,15 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Keyboard focus, the same everywhere: a ring in the accent (the text
+   colour's family, 3:1 or more on every surface in both themes), shown only
+   when focus came from the keyboard — a click or a tap leaves none. Before
+   this it was each browser's own ring, which got lost on the glass cards. */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
 
 body {
     margin: 0;
@@ -1027,6 +1037,21 @@ input[type="number"], input[type="text"], input[type="password"], select {
 
 /* An end of the bike that reached bottom-out depth on that run. */
 .peak-bottomed { color: var(--warn); font-weight: 600; }
+/* On the Runs table, the icon in front of it: the amber isn't the only sign. */
+.peak-icon { width: 12px; height: 12px; margin-right: 3px; vertical-align: -1px; }
+
+/* Read out by a screen reader, not shown. */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
 
 .run-card-info { min-width: 0; flex: 1; }
 .run-card-info > div + div { margin-top: 2px; }
@@ -1165,7 +1190,11 @@ input[type="number"], input[type="text"], input[type="password"], select {
     flex: 1;
     min-width: 0;
     text-align: center;
+    /* Between two 44px buttons on a phone the field is ~55px wide: with the
+       usual 14px sides, "no dial" came out as "no c". */
+    padding: 0 4px;
 }
+.stepper input::placeholder { font-size: 13px; }
 
 .stepper-btn {
     width: 44px;
@@ -1648,6 +1677,22 @@ main.run-layout > .seg-tabs {
 .runs-table th.sortable:hover,
 .runs-table th.sorted { color: var(--text); }
 
+/* The button inside a sortable header (there for the keyboard) looks like
+   the header's own text. */
+.runs-table .sort-btn {
+    min-height: 0;
+    padding: 0;
+    border-radius: 2px;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
 .sort-arrow {
     display: inline-block;
     width: 12px;
@@ -1776,6 +1821,8 @@ main.run-layout > .seg-tabs {
 
     .compare-main > #routeMapCard,
     .compare-main > #deltaCard { grid-column: auto; }
+    /* Runs on different lines have no time chart: the map takes the row. */
+    .compare-main > #routeMapCard.alone { grid-column: 1 / -1; }
 
     /* ── Side rail ──
        The topbar becomes a narrow column down the left edge, so the whole

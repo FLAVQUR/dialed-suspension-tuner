@@ -9,14 +9,7 @@ How it is used:
 
 ## Now — without the bike
 
-From the UI/UX review of 2026-11-07 (the first four fixes are in the CHANGELOG):
-- [ ] **Compare doesn't notice two runs that took different lines.** It lines them up by distance from each one's start; RUN0057 and RUN0058 start 15 m apart and end ~360 m apart, so its "B gained 17 s" means nothing, and the page says it anyway. A check that B's position at each distance stays near A's (and a note, or a stop, where it doesn't) would catch it.
-- [ ] **Compare's map flickers between faster, slower and even**: 119 stretches over 400 m on that pair, because the deadband is applied to each 2 m step of a time difference that moves in whole GPS seconds. Classifying over windows of a few tens of metres would give the "small number of solid stretches" the code's comment intends.
-- [ ] **Keyboard**: things that only answer a pointer — the run page's segment and event rows (`bindLocateRow()`), the Runs table's sort headers (no `aria-sort` either), the run's name (click to rename), and the battery chip (`role="button"` without Enter/Space). `style.css` has no `:focus-visible` style, so focus is the browser's ring on glass, not checked. Low for one rider on mouse and touch; cheap to fix.
-- [ ] *(Low)* **The Runs table's amber peak is colour only**: the hint above the table explains it, the cell itself doesn't.
-- [ ] *(Low)* **A browser's first visit draws the run page's charts with the dark theme's colours in the light theme**: the page reads its colour tokens at load, before `/api/config` has told it the theme (no theme in `localStorage` yet). Seen headless with a fresh profile: dark gridlines on the light card; fine from the second visit.
-- [ ] **Not looked at in the review**: Trends (the headless capture never finished twice) and the phone layout (headless Chrome won't lay out a window under ~500px).
-
+Nothing at the moment.
 
 ## With the bike or on a real screen
 

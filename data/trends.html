@@ -5,7 +5,7 @@
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<script>try { const c = document.cookie.match(/(?:^|; )theme=(\w+)/); if ((c ? c[1] : localStorage.getItem('theme')) === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
 <title>Trends — Dialed</title>
 
 <style>
@@ -207,15 +207,25 @@ function drawTrendChart(svg, tooltip, series, opts)
     const H = opts.height || (pxWidth > 700 ? 100 : 140);
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-    const padL = 30, padR = 8, padT = 10, padB = 20;
-    const plotW = W - padL - padR;
-    const plotH = H - padT - padB;
+    // Axis text in the same stretched units, sized to come out at about
+    // 11px whatever the width — a fixed 4 units was under 5px on a phone
+    // (seen 2026-11-07). The left margin grows to hold the widest y label
+    // (about 0.55 of the font size per character).
+    const fontSize = Math.max(3, 11 * W / pxWidth);
+    const charW = fontSize * 0.55;
 
     const n = opts.count;
     const allVals = series.flatMap(s => s.points.map(p => p.y));
     let yMin = 0, yMax = Math.max(1, arrayMax(allVals));
     const yStep = niceStep(yMax - yMin, 4);
     yMax = Math.ceil(yMax / yStep) * yStep || yStep;
+
+    let yLabelChars = 0;
+    for (let v = 0; v <= yMax + 0.0001; v += yStep) yLabelChars = Math.max(yLabelChars, opts.yFormat(v).length);
+
+    const padL = Math.max(30, yLabelChars * charW + 10), padR = 8, padT = 10, padB = Math.max(20, fontSize + 10);
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
 
     const X = i => n > 1 ? padL + (i / (n - 1)) * plotW : padL + plotW / 2;
     const Y = v => padT + plotH - (v / yMax) * plotH;
@@ -224,7 +234,7 @@ function drawTrendChart(svg, tooltip, series, opts)
         const y = Y(v);
         svg.appendChild(el('line', { x1: padL, y1: y.toFixed(1), x2: W - padR, y2: y.toFixed(1), stroke: COLOR_BORDER, 'stroke-width': 0.5 }));
 
-        const label = el('text', { x: padL - 6, y: (y + 3).toFixed(1), 'text-anchor': 'end', 'font-size': 4, fill: COLOR_MUTED });
+        const label = el('text', { x: padL - 6, y: (y + fontSize * 0.35).toFixed(1), 'text-anchor': 'end', 'font-size': fontSize.toFixed(1), fill: COLOR_MUTED });
         label.textContent = opts.yFormat(v);
         svg.appendChild(label);
     }
@@ -252,18 +262,23 @@ function drawTrendChart(svg, tooltip, series, opts)
     // when there isn't — it used to be only the first and last, leaving the
     // points in between identifiable by hovering alone. The last run is
     // always labeled; a stepped label that would collide with it is dropped.
-    const LABEL_WIDTH = 24;
+    // The first label hangs to the right of its run and the last to the
+    // left, so one in between needs a label and a half of room from either.
+    const textW = opts.xFormat(n - 1).length * charW;
+    const LABEL_WIDTH = Math.max(24, textW + 2 * charW);
     const spacing = n > 1 ? plotW / (n - 1) : plotW;
     const step = Math.max(1, Math.ceil(LABEL_WIDTH / spacing));
+    const endRoom = LABEL_WIDTH + textW / 2;
 
     for (let i = 0; i < n; i++) {
         const isLast = i === n - 1;
-        if (!isLast && (i % step !== 0 || (n - 1 - i) * spacing < LABEL_WIDTH)) continue;
+        const between = i > 0 && !isLast;
+        if (between && (i % step !== 0 || i * spacing < endRoom || (n - 1 - i) * spacing < endRoom)) continue;
 
         const label = el('text', {
             x: X(i).toFixed(1), y: H - 5,
             'text-anchor': i === 0 ? 'start' : isLast && n > 1 ? 'end' : 'middle',
-            'font-size': 4, fill: COLOR_MUTED
+            'font-size': fontSize.toFixed(1), fill: COLOR_MUTED
         });
         label.textContent = opts.xFormat(i);
         svg.appendChild(label);

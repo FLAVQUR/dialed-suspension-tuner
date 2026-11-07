@@ -6,7 +6,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<script>try { const c = document.cookie.match(/(?:^|; )theme=(\w+)/); if ((c ? c[1] : localStorage.getItem('theme')) === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
 <title>Run — Dialed</title>
 
 <style>
@@ -44,6 +44,8 @@
     .event-list { display: flex; flex-direction: column; gap: 6px; }
     .event-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); cursor: pointer; border-radius: 6px; padding: 6px 4px; }
     .event-row:hover, .event-row.is-located, .segment-row.is-located { background: var(--surface-alt); }
+    /* The focus ring inside the row: outside it, the list's edge cut its sides off. */
+    .event-row:focus-visible, .segment-row:focus-visible { outline-offset: -2px; border-radius: 6px; }
     .event-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .event-row .value { color: var(--text); font-weight: 600; }
     .card-header { display: flex; justify-content: space-between; align-items: baseline; }
@@ -579,6 +581,19 @@ document.getElementById('runTitle').textContent = runName || 'Run';
 document.getElementById('runHeading').textContent = runName || 'Run';
 document.getElementById('compareLink').href = '/compare?a=' + encodeURIComponent(runName);
 
+// The run's name renames it when clicked — and from the keyboard too: Tab
+// reaches it, Enter or Space renames. It stays a heading (no role="button",
+// which would hide that from a screen reader); its title says what it does.
+['runTitle', 'runHeading'].forEach(id => {
+    const heading = document.getElementById(id);
+    heading.tabIndex = 0;
+    heading.addEventListener('keydown', evt => {
+        if (evt.key !== 'Enter' && evt.key !== ' ') return;
+        evt.preventDefault();
+        renameRun();
+    });
+});
+
 function showView(name)
 {
     document.getElementById('tabOverview').classList.toggle('active', name === 'overview');
@@ -638,6 +653,13 @@ function bindLocateRow(row, time, span)
     row.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') broadcastTime(time); });
     row.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') restoreHover(); });
 
+    // The keyboard gets the same: Tab onto a row shows where it is, as
+    // hovering does, and Enter or Space zooms to it, as a click does.
+    makePressable(row);
+    row.setAttribute('aria-pressed', 'false');
+    row.addEventListener('focus', () => broadcastTime(time));
+    row.addEventListener('blur', () => restoreHover());
+
     row.addEventListener('click', () => {
         if (row.classList.contains('is-located')) {
             setZoom(null);
@@ -649,6 +671,7 @@ function bindLocateRow(row, time, span)
         setZoom(span);          // also drops whichever row was selected before
 
         row.classList.add('is-located');
+        row.setAttribute('aria-pressed', 'true');
         pinnedTime = time;
         broadcastTime(time);
 
@@ -912,7 +935,10 @@ function setZoom(range)
     if (range && range.to - range.from < MIN_ZOOM_SPAN_S) return;
 
     // The selected row, if any, was selected for the zoom this replaces.
-    document.querySelectorAll('.is-located').forEach(row => row.classList.remove('is-located'));
+    document.querySelectorAll('.is-located').forEach(row => {
+        row.classList.remove('is-located');
+        row.setAttribute('aria-pressed', 'false');
+    });
     pinnedTime = null;
 
     zoomRange = range;

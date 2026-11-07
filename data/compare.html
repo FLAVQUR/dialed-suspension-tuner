@@ -6,7 +6,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script>try { if (localStorage.getItem('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+<script>try { const c = document.cookie.match(/(?:^|; )theme=(\w+)/); if ((c ? c[1] : localStorage.getItem('theme')) === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
 <title>Compare Runs — Dialed</title>
 
 <style>
@@ -71,10 +71,12 @@
     <div class="card glass span-2" id="routeMapCard" style="display:none;">
         <h3 style="margin-top:0;">Route Comparison</h3>
         <p class="stat-sub" style="margin-top:-8px;" id="routeMapNote">Run A (dashed) vs Run B, colored by where B gained or lost time.</p>
+        <p class="stat-sub" id="linesNote" style="display:none; margin-top:-4px; color:var(--warn);"></p>
         <div id="compareMap"></div>
-        <div class="legend-row">
+        <div class="legend-row" id="routeMapLegend">
             <span><span class="legend-dot" style="background:var(--map-faster);"></span>Run B faster here</span>
             <span><span class="legend-dot" style="background:var(--map-slower);"></span>Run B slower here</span>
+            <span><span class="legend-dot" style="background:var(--map-even);"></span>About even, or not compared</span>
         </div>
     </div>
 
@@ -88,6 +90,7 @@
         <div class="legend-row">
             <span><span class="legend-dot" style="background:var(--series-faster);"></span>Run B faster here</span>
             <span><span class="legend-dot" style="background:var(--series-slower);"></span>Run B slower here</span>
+            <span><span class="legend-dot" style="background:var(--text-muted);"></span>About even</span>
         </div>
     </div>
 
@@ -217,6 +220,7 @@ const COLOR_FASTER = cssVar('--series-faster');
 const COLOR_SLOWER = cssVar('--series-slower');
 const COLOR_MAP_FASTER = cssVar('--map-faster');
 const COLOR_MAP_SLOWER = cssVar('--map-slower');
+const COLOR_MAP_EVEN = cssVar('--map-even');
 
 
 const params = new URLSearchParams(location.search);
@@ -287,9 +291,21 @@ function renderSetupPair(elA, elB, setupA, setupB)
 // descents this tool targets); a run that loops back over its own path
 // would confuse "distance travelled" with "distance from start" and isn't
 // handled.
+//
+// One point per GPS fix, not per row: the GPS gives a new position once a
+// second, so ~500 rows in a row carry the same one. Kept, they made the time
+// at a given distance move in steps of a whole second — the time difference
+// went up and down by a second every few metres, and the map flickered
+// between faster and slower (119 stretches over 400 m on one pair). Each fix
+// is taken at the first row that carries it.
 function buildDistanceProfile(rows)
 {
-    const pts = rows.filter(r => r.lat !== 0 && r.lon !== 0);
+    const pts = [];
+    for (const r of rows) {
+        if (r.lat === 0 || r.lon === 0) continue;
+        const last = pts[pts.length - 1];
+        if (!last || last.lat !== r.lat || last.lon !== r.lon) pts.push(r);
+    }
     if (pts.length < 2) return null;
 
     const t0 = pts[0].t;
@@ -328,15 +344,79 @@ function timeAtDistance(profile, d)
     return tSec[lo] + frac * (tSec[hi] - tSec[lo]);
 }
 
+// Where a profile's track is once it has covered d metres, interpolated
+// between the two fixes around it.
+function positionAtDistance(profile, d)
+{
+    const { cumDist, pts } = profile;
+    const n = cumDist.length;
+
+    if (d <= 0) return pts[0];
+    if (d >= cumDist[n - 1]) return pts[n - 1];
+
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (cumDist[mid] <= d) lo = mid; else hi = mid;
+    }
+
+    const f = (d - cumDist[lo]) / (cumDist[hi] - cumDist[lo] || 1);
+    return {
+        lat: pts[lo].lat + f * (pts[hi].lat - pts[lo].lat),
+        lon: pts[lo].lon + f * (pts[hi].lon - pts[lo].lon)
+    };
+}
+
+// Lining the runs up by distance only means something while both are on
+// the same line: at the same distance from each one's start they should be
+// at the same place. This walks along both and finds where they stop being.
+//
+// Measured on the rides of October 2026 (105 pairs): runs down the same
+// trail were at most 57 m apart at the same distance (GPS, and distance
+// that piles up a little differently on each); runs on different lines at
+// least 105 m. So: more than 75 m apart for 20 m of trail is "apart", and
+// the shared part ends where they were last within 30 m of each other.
+const LINES_APART_M = 75;
+const LINES_APART_FOR_M = 20;
+const LINES_NEAR_M = 30;
+const LINES_STEP_M = 5;
+// Shared for less than this, there's nothing worth comparing.
+const LINES_MIN_SHARED_M = 100;
+
+function findSharedDistance(profileA, profileB)
+{
+    const maxDist = Math.min(profileA.totalDist, profileB.totalDist);
+    const gapAt = d => {
+        const a = positionAtDistance(profileA, d), b = positionAtDistance(profileB, d);
+        return haversineMeters(a.lat, a.lon, b.lat, b.lon);
+    };
+
+    let lastNear = 0, apartFrom = null;
+    for (let d = 0; d <= maxDist; d += LINES_STEP_M) {
+        const gap = gapAt(d);
+        if (gap <= LINES_NEAR_M) lastNear = d;
+
+        if (gap <= LINES_APART_M) { apartFrom = null; continue; }
+        if (apartFrom === null) apartFrom = d;
+        if (d - apartFrom >= LINES_APART_FOR_M) {
+            // How far apart they get from there on, for the note.
+            let maxGap = gap;
+            for (let e = d; e <= maxDist; e += LINES_STEP_M) maxGap = Math.max(maxGap, gapAt(e));
+            return { shared: lastNear, maxDist, parted: true, maxGap };
+        }
+    }
+
+    return { shared: maxDist, maxDist, parted: false, maxGap: 0 };
+}
+
 // Resamples both runs onto a shared set of distance checkpoints spanning
-// the shorter of the two tracks — comparing past where the shorter run
-// stopped recording wouldn't mean anything — and takes the elapsed time
+// the part they have in common — the shorter of the two tracks, or less
+// where they part ways (findSharedDistance()) — and takes the elapsed time
 // each run needed to reach each checkpoint. delta = timeB - timeA: positive
 // means B took longer to reach that point on the trail (B behind A there),
 // negative means B got there faster (B ahead).
-function computeTimeDelta(profileA, profileB, numSamples)
+function computeTimeDelta(profileA, profileB, numSamples, maxDist)
 {
-    const maxDist = Math.min(profileA.totalDist, profileB.totalDist);
     const series = [];
 
     for (let i = 0; i <= numSamples; i++) {
@@ -347,27 +427,34 @@ function computeTimeDelta(profileA, profileB, numSamples)
     return series;
 }
 
-// Groups the resampled checkpoints into stretches where B is consistently
-// gaining or losing time on A (ignoring GPS-noise-level slope wobble below
-// the deadband), so the map can be colored in a small number of solid
-// stretches instead of flickering point-to-point.
-const DELTA_SLOPE_DEADBAND_S = 0.15;
+// Groups the checkpoints into stretches where B is gaining or losing time
+// on A, so the map and the chart are coloured in a small number of solid
+// stretches. Judged over windows of DELTA_WINDOW_M, not from one checkpoint
+// to the next: with a fix every ~5 m, a 2 m step is all GPS noise. Within
+// DELTA_DEADBAND_S_PER_100M either way (5% of the pace at 5 m/s) is "even".
+// On the October rides that gives about a dozen stretches over 500 m.
+const DELTA_WINDOW_M = 25;
+const DELTA_DEADBAND_S_PER_100M = 1;
 
 function classifyDeltaSegments(deltaSeries)
 {
     const segments = [];
+    if (deltaSeries.length < 2) return segments;
+
+    const stepM = deltaSeries[1].d - deltaSeries[0].d;
+    const n = Math.max(1, Math.round(DELTA_WINDOW_M / (stepM || 1)));
     let current = null;
 
-    for (let i = 1; i < deltaSeries.length; i++) {
-        const d0 = deltaSeries[i - 1], d1 = deltaSeries[i];
-        const slope = d1.delta - d0.delta;
-        const cls = slope > DELTA_SLOPE_DEADBAND_S ? 'losing' : slope < -DELTA_SLOPE_DEADBAND_S ? 'gaining' : 'even';
+    for (let i = 0; i < deltaSeries.length - 1; i += n) {
+        const s0 = deltaSeries[i], s1 = deltaSeries[Math.min(deltaSeries.length - 1, i + n)];
+        const per100 = (s1.delta - s0.delta) / ((s1.d - s0.d) || 1) * 100;
+        const cls = per100 > DELTA_DEADBAND_S_PER_100M ? 'losing' : per100 < -DELTA_DEADBAND_S_PER_100M ? 'gaining' : 'even';
 
         if (!current || current.cls !== cls) {
             if (current) segments.push(current);
-            current = { cls, startDist: d0.d, endDist: d1.d };
+            current = { cls, startDist: s0.d, endDist: s1.d };
         } else {
-            current.endDist = d1.d;
+            current.endDist = s1.d;
         }
     }
 
@@ -381,7 +468,7 @@ function classifyDeltaSegments(deltaSeries)
 // of time.
 function splitProfileByDistanceSegments(profile, segments)
 {
-    if (!segments.length) return [{ cls: 'even', points: profile.pts }];
+    if (!segments.length) return [{ cls: 'outside', points: profile.pts }];
 
     const groups = [];
     let segIdx = 0;
@@ -389,9 +476,10 @@ function splitProfileByDistanceSegments(profile, segments)
     let currentPts = [profile.pts[0]];
 
     // Past the last segment B has nothing to be compared with (the segments
-    // stop where the shorter run does): 'outside', drawn in B's own colour.
-    // It used to take the last segment's class, and paint the rest of a
-    // longer Run B as faster or slower throughout.
+    // stop where the shorter run does, or where the two part ways):
+    // 'outside', drawn in B's own colour. It used to take the last
+    // segment's class, and paint the rest of a longer Run B as faster or
+    // slower throughout.
     const comparedTo = segments[segments.length - 1].endDist;
 
     for (let i = 1; i < profile.pts.length; i++) {
@@ -449,11 +537,17 @@ function drawCompareMap(profileA, profileB, deltaSegments)
 
     // Each stretch of Run B over a white casing: on its own the line was
     // lost against the wooded tiles (the old green was 1.3:1 on them).
+    // About even and not compared are grey, the pair's neutral midpoint:
+    // in B's pink they were hard to tell from the red even in full colour
+    // (validator ΔE 7.8).
     const groups = splitProfileByDistanceSegments(profileB, deltaSegments);
     const latLngs = g => g.points.map(p => [p.lat, p.lon]);
     groups.forEach(g => L.polyline(latLngs(g), { color: '#ffffff', weight: 7, opacity: 0.85 }).addTo(map));
     const lineLayersB = groups.map(g => L.polyline(latLngs(g), {
-        color: g.cls === 'gaining' ? COLOR_MAP_FASTER : g.cls === 'losing' ? COLOR_MAP_SLOWER : COLOR_B,
+        // With nothing compared at all (runs on different lines), B is
+        // simply B, in its own colour.
+        color: !deltaSegments.length ? COLOR_B
+            : g.cls === 'gaining' ? COLOR_MAP_FASTER : g.cls === 'losing' ? COLOR_MAP_SLOWER : COLOR_MAP_EVEN,
         weight: 4
     }).addTo(map));
 
@@ -487,9 +581,9 @@ function drawCompareMap(profileA, profileB, deltaSegments)
     map.addControl(new RecenterControl());
 }
 
-function drawDeltaChart(series, labelB)
+function drawDeltaChart(series, segments, labelB)
 {
-    rememberChart('deltaChart', () => drawDeltaChart(series, labelB));
+    rememberChart('deltaChart', () => drawDeltaChart(series, segments, labelB));
 
     const svg = document.getElementById('deltaChart');
     const tooltip = document.getElementById('deltaTooltip');
@@ -507,10 +601,10 @@ function drawDeltaChart(series, labelB)
     const H = pxWidth > 700 ? 100 : 140;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-    // Axis text is in the same stretched units: at half the page's width
-    // (next to the map) the usual 4 would come out under 9px, so it's
-    // sized to stay around 11px there. Left alone on a phone.
-    const fontSize = pxWidth >= 500 ? Math.max(4, 11 * W / pxWidth).toFixed(1) : 4;
+    // Axis text is in the same stretched units, so it's sized to come out
+    // at about 11px whatever the width. It used to be left at 4 units on a
+    // phone, which is under 5px there (seen 2026-11-07).
+    const fontSize = Math.max(4, 11 * W / pxWidth).toFixed(1);
 
     const padL = 32, padR = 8, padT = 10, padB = 20;
     const plotW = W - padL - padR;
@@ -547,34 +641,31 @@ function drawDeltaChart(series, labelB)
         svg.appendChild(label);
     });
 
-    // Coloured per segment (blue where the gap is closing, red where it's
-    // opening), so the shape alone tells the story without the tooltip. The
-    // line carries the colour, solid: as translucent fills the two hues were
-    // too close to tell apart (validator ΔE under 8 even in normal vision),
-    // so the fill under it is only a light tint of the same colour.
-    const zeroY = Y(0);
-    for (let i = 1; i < series.length; i++) {
-        const x0 = X(series[i - 1].d), x1 = X(series[i].d);
-        const y0 = Y(series[i - 1].delta), y1 = Y(series[i].delta);
-        const gaining = series[i].delta < series[i - 1].delta;
-
-        svg.appendChild(el('polygon', {
-            points: `${x0.toFixed(1)},${zeroY.toFixed(1)} ${x0.toFixed(1)},${y0.toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)} ${x1.toFixed(1)},${zeroY.toFixed(1)}`,
-            fill: gaining ? COLOR_FASTER : COLOR_SLOWER, opacity: 0.18
-        }));
-    }
-
-    // One path per run of segments going the same way, so joins stay round.
+    // Coloured by the same stretches as the map (classifyDeltaSegments()):
+    // blue where the gap is closing, red where it's opening, grey where
+    // it's about even — so the shape alone tells the story without the
+    // tooltip, and the chart and the map agree. The line carries the
+    // colour, solid: as translucent fills the two hues were too close to
+    // tell apart (validator ΔE under 8 even in normal vision), so the fill
+    // under it is only a light tint of the same colour.
+    const zeroY = Y(0).toFixed(1);
     const pt = s => X(s.d).toFixed(1) + ',' + Y(s.delta).toFixed(1);
-    for (let i = 1; i < series.length; ) {
-        const gaining = series[i].delta < series[i - 1].delta;
-        let d = 'M' + pt(series[i - 1]);
-        while (i < series.length && (series[i].delta < series[i - 1].delta) === gaining) d += ' L' + pt(series[i++]);
+    segments.forEach(seg => {
+        const pts = series.filter(s => s.d >= seg.startDist - 1e-6 && s.d <= seg.endDist + 1e-6);
+        if (pts.length < 2) return;
+        const color = seg.cls === 'gaining' ? COLOR_FASTER : seg.cls === 'losing' ? COLOR_SLOWER : COLOR_MUTED;
+
+        if (seg.cls !== 'even') {
+            svg.appendChild(el('polygon', {
+                points: `${X(pts[0].d).toFixed(1)},${zeroY} ${pts.map(pt).join(' ')} ${X(pts[pts.length - 1].d).toFixed(1)},${zeroY}`,
+                fill: color, opacity: 0.18
+            }));
+        }
         svg.appendChild(el('path', {
-            d, fill: 'none', stroke: gaining ? COLOR_FASTER : COLOR_SLOWER,
+            d: 'M' + pts.map(pt).join(' L'), fill: 'none', stroke: color,
             'stroke-width': (2 * scale).toFixed(2), 'stroke-linejoin': 'round', 'stroke-linecap': 'round'
         }));
-    }
+    });
 
     const crosshair = el('line', { x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: COLOR_MUTED, 'stroke-width': 0.5, opacity: 0 });
     svg.appendChild(crosshair);
@@ -730,16 +821,39 @@ async function runComparison()
         const profileB = buildDistanceProfile(runB.rows);
 
         if (profileA && profileB) {
-            const deltaSeries = computeTimeDelta(profileA, profileB, 200);
-            const deltaSegments = classifyDeltaSegments(deltaSeries);
+            // Time is only compared over the part both runs share; runs
+            // on different lines get the map alone, and a note saying why.
+            const lines = findSharedDistance(profileA, profileB);
+            const sameLine = lines.shared >= LINES_MIN_SHARED_M;
+            const km = m => (m / 1000).toFixed(2) + ' km';
+            const routeNote = document.getElementById('routeMapNote');
+            const linesNote = document.getElementById('linesNote');
 
+            let deltaSeries = null, deltaSegments = [];
+            if (sameLine) {
+                deltaSeries = computeTimeDelta(profileA, profileB, 200, lines.shared);
+                deltaSegments = classifyDeltaSegments(deltaSeries);
+            }
+
+            routeNote.textContent = sameLine
+                ? 'Run A (dashed) vs Run B, colored by where B gained or lost time.'
+                : 'Run A (dashed) and Run B.';
+            document.getElementById('routeMapLegend').style.display = sameLine ? '' : 'none';
+            linesNote.textContent = !lines.parted ? ''
+                : sameLine
+                    ? `The runs part ways ${km(lines.shared)} in (up to ${Math.round(lines.maxGap)} m apart after that), so time is compared up to there.`
+                    : `These runs aren't on the same line — at the same distance from each start they're up to ${Math.round(lines.maxGap)} m apart — so their times can't be compared.`;
+            linesNote.style.display = lines.parted ? '' : 'none';
+
+            document.getElementById('routeMapCard').classList.toggle('alone', !sameLine);
             drawCompareMap(profileA, profileB, deltaSegments);
 
             // Shown before drawing, not after: the chart sizes its line
             // from the width it's rendered at, and a hidden card has none.
-            document.getElementById('deltaCard').style.display = '';
-            drawDeltaChart(deltaSeries, nameB);
+            document.getElementById('deltaCard').style.display = sameLine ? '' : 'none';
+            if (sameLine) drawDeltaChart(deltaSeries, deltaSegments, nameB);
         } else {
+            document.getElementById('linesNote').style.display = 'none';
             drawCompareMap(null, null, []);
             document.getElementById('deltaCard').style.display = 'none';
         }

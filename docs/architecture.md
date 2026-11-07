@@ -53,7 +53,7 @@ flowchart LR
 | NVS (flash) | live settings, suspension calibration, IMU zero, WiFi |
 | SD card | runs (`.CSV`, `.JSON`, `.CSVB`), bike profiles (`/bikes/*.json`) |
 | LittleFS (flash) | the web pages only, gzipped at build time |
-| Browser `localStorage` | the runs list, kept by stamp; the last theme seen |
+| Browser `localStorage` | the runs list, kept by stamp; the last theme seen (a page reads the `theme` cookie the device sends with it first) |
 
 - **The clock** comes from GPS, NTP or the browser, the most trusted one available (see [the clock and run dates](#the-clock-and-run-dates-added-2026-10-0607--field-validated-2026-10-10)). Durations never depend on it.
 

@@ -59,6 +59,7 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
 | `--series-faster` (blue) / `--series-slower` (red) | Compare's diverging pair: where Run B was faster / slower than Run A |
 | `--map-ink` | lines drawn on the map tiles, which are light in both themes |
 | `--map-faster` / `--map-slower` | the diverging pair on the map: its light-surface steps in both themes, over a white casing |
+| `--map-even` (`#858f96`) | the pair's neutral midpoint on the map: Run B about even, or not compared |
 
 - **Within one chart: front + rear, or one hue + neutral.** Those are the combinations the palette is validated for, colour-blind vision included. Pink ↔ aqua and violet ↔ blue do **not** pass side by side, so never put them in the same chart.
 
@@ -73,7 +74,7 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
 - Blue, orange and violet have a darker step in the light theme (each clears 3:1 on white). Aqua and pink are the same in both.
 - The neutral is only 2.4:1 on the light card, so it always comes with a label ("Run A", "Vertical", the segment names).
 - **Text never takes a series colour.** Values, labels and legends stay in `--text` / `--text-muted`; a coloured mark beside them carries the identity (`<span style="color:var(--series-front)">●</span> Front`, or a badge's `.dot`). In the light theme the rear orange as text was 3.1:1, and the pink "Technical" badge about 3:1 (fixed 2026-11-07).
-- **The diverging pair** (2026-11-07) is blue against red, the dataviz skill's own: CVD ΔE 19–22 in both themes. The green/red it replaced was ΔE 7.4 for deuteranopia on the dark card, and no green against red passes. Its blue is the fork's; that is safe only because Compare never draws the fork in its series colour, so don't put the two on one page. It is **always on a solid line**: as translucent fills the two hues fall under the normal-vision floor (ΔE < 8 at 25–35% opacity), so a fill under the line is only a tint.
+- **The diverging pair** (2026-11-07) is blue against red, the dataviz skill's own: CVD ΔE 19–22 in both themes. The green/red it replaced was ΔE 7.4 for deuteranopia on the dark card, and no green against red passes. Its blue is the fork's; that is safe only because Compare never draws the fork in its series colour, so don't put the two on one page. It is **always on a solid line**: as translucent fills the two hues fall under the normal-vision floor (ΔE < 8 at 25–35% opacity), so a fill under the line is only a tint. **Its midpoint is a grey** ("about even"): `--text-muted` on the chart, `--map-even` on the map (2026-11-07). Run B's pink there was ΔE 7.8 from the red even in normal vision.
 - **A new hue is a palette change**, not a local decision. Validate it with the dataviz palette validator in both themes before using it.
 - Page scripts read the tokens once at load (`cssVar()` → `COLOR_FRONT` etc. in `run.html`, `COLOR_BORDER` etc. in `telemetry.js`). Never hard-code a hex in a script.
 
@@ -110,7 +111,7 @@ The fixed glow behind the glass (`--bg-blobs`) is in the palette's own greys and
 | Secondary text (`.stat-sub`), field labels, chips | 13px | |
 | Labels (`.stat-label`) | 12px, uppercase, 0.05em tracking, muted | |
 | Badges | 12px | 600 |
-| Chart axis text, the run page's chart-row labels (Avg / Peak / Cursor), suggestion tags | 11px | |
+| Chart axis text, the run page's chart-row labels (Avg / Peak / Cursor), suggestion tags | 11px, at every width (a stretched chart works its units out from its width) | |
 | Nav and rail labels | 11px and below | |
 
 Figures that update in place use `font-variant-numeric: tabular-nums`, so they don't jitter.
@@ -148,6 +149,8 @@ A `1200px` rule capping the run page at 1500px is still in the CSS, but it never
 - **Badges** (`.badge.good / .warn / .bad / .accent`): a pill with a tinted background and the status colour as text. A badge with `data-info` gets an "i" and opens a note on tap.
 - **Fields**: label above, 44px input on `--surface-alt`. A dial that doesn't exist on the bike is a **blank** field; 0 is a real setting.
 - **Help**: long explanations are collapsed behind `<details class="help">`.
+- **Keyboard focus**: one ring everywhere, `:focus-visible` — 2px `--accent`, 2px out (inside a list row, 2px in, or the list's edge cuts it off). Only keyboard focus shows it. Anything that answers a click and isn't a `<button>` or `<a>` gets `makePressable()` (`common.js`): Tab reaches it, Enter and Space press it. Prefer a real `<button>`, styled to look like what it replaces, as the Runs table's sort headers do.
+- **Not by colour alone**: a state shown by a colour also gets a shape or a word — the amber bottomed-out peak in the Runs table has a warning icon in front, the cards say "(bottomed out)". Text a screen reader should hear but nobody needs to see goes in `.sr-only`.
 - **Dialogs**: `BikeUI.confirm / prompt / alert / toast` in `common.js`, on a native `<dialog>`. Never the browser's `confirm()` / `prompt()` / `alert()`. A destructive confirm puts the focus on Cancel.
 - **Banner** (`.conn-banner`): full-width, under the topbar or beside the rail, `--warn` when the device can't be reached, neutral (`.info`) when the disconnect is expected (recording with WiFi off). It pushes the page down rather than covering it.
 - **Recording dot** (`.rec-pulse`): a `--bad` dot with a ring spreading out from it, on the Dashboard while a run records. Steady under reduced motion.

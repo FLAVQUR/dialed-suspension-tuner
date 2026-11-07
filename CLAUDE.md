@@ -91,7 +91,7 @@ src/bikes/bikes.cpp      — bike profiles (/bikes/*.json on the SD): save/activ
                            syncActive(), which keeps the active one equal to the live settings
 src/web/dialed_web_server.h — WebServer subclass: beginResponse()/streamWebFile(), the framework's
                            send() without its "content length is zero" warning
-src/web/server.cpp       — one serveWebFile() route per web file (gzip); /api/status, /api/time,
+src/web/server.cpp       — one serveWebFile() route per web file (gzip; pages carry a theme cookie); /api/status, /api/time,
                            /api/config, /api/runs/*, /api/run/timed, /api/bikes/*,
                            /api/suspension/*, /api/imu*, /api/wifi/*, /api/debug/loop
 tools/version_stamp.py   — build step: git describe + build time → include/version_stamp.h
@@ -107,7 +107,8 @@ brand/                   — the logo: build_logo.py generates master/, export_a
                            export/ (colour, one-colour, web icons), board/; README.md the rules
 todo.md                  — the task list; CHANGELOG.md what was done; docs/ how things work
 data/style.css           — colour roles (top of the file), components, wide-screen block (end)
-data/common.js           — every page: applyTheme/escapeHtml/formatDuration, BikeUI dialogs/toast,
+data/common.js           — every page: applyTheme/escapeHtml/formatDuration, makePressable() (Enter/Space
+                           on what isn't a button), BikeUI dialogs/toast,
                            connection + battery chips, offline banner, browser-time offer,
                            the runs list, kept in localStorage and refreshed by stamp (fetchRunsPage(),
                            fetchAllRuns())
@@ -124,7 +125,8 @@ data/run.html            — single-run page: minMaxPoints(), the time-series st
                            addSetupContext(), renderMissing() / renderOrientationLoss() (the notes
                            under the stats), editRecordedSetup() (the "Edit setup" dialog),
                            aiPrompt() / copyForAi() (the "Copy for AI" prompt)
-data/compare.html        — A/B of two runs: route + time gained, setup diff, histograms
+data/compare.html        — A/B of two runs: route + time gained (only where both are on the same line,
+                           findSharedDistance()), setup diff, histograms
 data/trends.html         — one bike's setup history, and sag and bottom-outs per minute across its runs
 data/settings.html       — bike profiles + setup (autosave), guided calibration + IMU zero
                            (Sensors tab), wifi, system

@@ -23,6 +23,29 @@ function escapeHtml(s)
     }[c]));
 }
 
+// For something that isn't a button but acts like one when clicked (a list
+// row, a heading that renames, a chip): reachable with Tab, announced as a
+// button, and Enter or Space click it. Only for elements built one by one;
+// markup made as a string gets role/tabindex in the string and a delegated
+// listener (pressOnKey() below).
+function makePressable(el)
+{
+    if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    el.addEventListener('keydown', pressOnKey);
+}
+
+// A keydown listener: Enter or Space on a [role="button"] that isn't a real
+// button clicks it. Space would otherwise scroll the page.
+function pressOnKey(evt)
+{
+    if (evt.key !== 'Enter' && evt.key !== ' ') return;
+    const el = evt.target.closest('[role="button"]');
+    if (!el || el.tagName === 'BUTTON' || el.tagName === 'A') return;
+    evt.preventDefault();
+    el.click();
+}
+
 // How a duration is written everywhere in the app — "1:37", "1:04:20" —
 // so a run reads the same in the Runs list, on its own page and in Compare.
 function formatDuration(s)
@@ -669,8 +692,8 @@ function build()
 
     chip.addEventListener('click', evt => togglePopover('conn', evt));
 
-    battery.setAttribute('role', 'button');
-    battery.tabIndex = 0;
+    makePressable(battery);
+    battery.setAttribute('aria-label', 'Battery');
     battery.style.cursor = 'pointer';
     battery.addEventListener('click', evt => togglePopover('battery', evt));
 
