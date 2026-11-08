@@ -13,8 +13,8 @@ BNO08x imu;
 
 // A dedicated HSPI instance, separate from the SD card's (default/VSPI)
 // bus — so IMU reads and SD writes never contend for the same physical
-// SPI peripheral across the two cores. See RunService's SD-writer task in
-// run_service.cpp for the other half of this split.
+// SPI peripheral across the two cores. See the SD writer task in
+// run_writer.cpp for the other half of this split.
 static SPIClass imuSpi(HSPI);
 
 // The BNO08x library stores rotation-vector and accelerometer reports in

@@ -90,6 +90,9 @@ def main():
               f"duration {meta.get('duration_s')}s for a {args.seconds}s run")
         rate = written / args.seconds if args.seconds else 0
         check(rate > 400, f'{written} rows written ({rate:.0f} a second)')
+        print(f"  info writer: spill {meta.get('spill_rows')} rows (max used {meta.get('spill_max')}), "
+              f"heap free {meta.get('heap_free_recording')}, SD retries ok {meta.get('sd_retry_ok')}, "
+              f"recoveries {meta.get('sd_recovered')} (longest {meta.get('sd_recover_max_ms')} ms)")
         stats = meta.get('stats') or {}
         check('max_front_mm' in stats and 'bottom_outs_front' in stats and 'bottom_outs_rear' in stats,
               'stats with bottom-out counts')

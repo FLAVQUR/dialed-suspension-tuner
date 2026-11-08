@@ -22,7 +22,7 @@ How a run gets onto the card, why writes failed and how that was fixed, and what
 
 ## What the failures are (found 2026-10-11)
 
-Not a failed write. After every write the framework's SD driver asks the card for its status (CMD13) and fails the write unless the answer is zero. On this card the answer now and then contains a stray `0x03` — as the second status byte, or as the first, where the driver logs it as `token error [13] 0x3` — after a write whose every data block the card had accepted, CRC included. The driver returns an error, FatFS latches it on the open file, and from there on it is the "failed sync" that `run_service.cpp` recovers from by reopening the file and replaying the rows.
+Not a failed write. After every write the framework's SD driver asks the card for its status (CMD13) and fails the write unless the answer is zero. On this card the answer now and then contains a stray `0x03` — as the second status byte, or as the first, where the driver logs it as `token error [13] 0x3` — after a write whose every data block the card had accepted, CRC included. The driver returns an error, FatFS latches it on the open file, and from there on it is the "failed sync" that `run_writer.cpp` recovers from by reopening the file and replaying the rows.
 
 **The fix**: `sdWriteStatusOk()` in `lib/SD/src/sd_diskio.cpp` asks for the status again (up to four times) and only fails the write if the card repeats itself. `0x03` is not one of that byte's error bits (0x04 error, 0x08 CC error, 0x10 card ECC failed), and its bit 0, "card is locked", cannot be true of a card nothing ever locked. On every occurrence so far the second answer was clean.
 
@@ -54,7 +54,7 @@ The writer used to keep taking rows off the queue while the card was away, into 
 
 ## Spill buffer (2026-10-26)
 
-On 2026-10-25 the card stopped for 1.36s over three writes in RUN0057, no write failing, and 151 rows were dropped: the queue covers 0.9s. The queue can't simply be deeper — it comes from the heap WiFi needs, at boot. But with the radio off for a run (`wifiOffWhileRecording`, the default), the WiFi driver's memory is free, so **each run takes a second buffer behind the queue and gives it back before the radio comes up again** (`spillTake()` / `spillGiveBack()` in `run_service.cpp`).
+On 2026-10-25 the card stopped for 1.36s over three writes in RUN0057, no write failing, and 151 rows were dropped: the queue covers 0.9s. The queue can't simply be deeper — it comes from the heap WiFi needs, at boot. But with the radio off for a run (`wifiOffWhileRecording`, the default), the WiFi driver's memory is free, so **each run takes a second buffer behind the queue and gives it back before the radio comes up again** (`spillTake()` / `spillGiveBack()` in `run_writer.cpp`).
 
 - **Rows go into it only once the queue is full**, and every row after that goes into it too until it is empty again. The writer takes from the queue first and from the spill only when the queue is empty, so it sees every row in the order it was sampled. One producer (`log()`, core 1), one consumer (the writer, core 0): a ring with an atomic index each side, no lock.
 - **stop()'s drain marker** can reach the queue while the spill still holds older rows; the writer holds it back until the spill is empty (`takeRow()`).
@@ -108,7 +108,7 @@ Checked with a test build that faked a failure every 37 flushes and cut the file
 
 ## Recovery mechanism
 
-In `src/run/run_service.cpp`:
+In `src/run/run_writer.cpp` (since 2026-11-08; until then all of it was in `run_service.cpp`), which `run_service.cpp` drives through `run_writer.h`: `open()` a run, `takeSpill()`, `push()` every sample, `drain()`, `close()`, and `report()` for the `.JSON`.
 
 ```mermaid
 flowchart TD

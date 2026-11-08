@@ -82,9 +82,10 @@ src/gps/gps.cpp          — NMEA decoding (bounded non-blocking read, values ca
 src/system/clock.cpp     — wall-clock time from GPS / NTP / browser, most trusted source wins
 src/connectivity/network.cpp — STA/AP state machine; starts NTP when the home network connects
 src/logger/logger.cpp    — one row per suspension sample, stamped with the time it was due
-src/run/run_service.cpp  — the recorder: start/stop (incl. timed runs), the live stats, the SD writer task
-                           (detect/retry/reopen/replay), the spill buffer behind the queue (radio off),
-                           row formatting, writing the run's .JSON (stats, start_utc, battery_v)
+src/run/run_service.cpp  — the recorder: start/stop (incl. timed runs), the live stats, writing the run's
+                           .JSON (stats, start_utc, battery_v)
+src/run/run_writer.cpp   — the SD writer: the queue and its task (detect/retry/reopen/replay), the spill
+                           buffer behind the queue (radio off), row formatting; run_writer.h is its interface
 src/run/run_files.cpp    — the runs on the card: listing (rootFileNames()), reading and editing a finished
                            run's .JSON (notes, title, setup, bottom-outs), deleting, orphaned-run recovery
 src/run/run_compact.cpp  — the .CSVB, written from the .CSV after a run (writeCompactCsv())

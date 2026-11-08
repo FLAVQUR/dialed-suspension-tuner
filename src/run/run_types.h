@@ -109,12 +109,12 @@ struct RunInfo {
 
     // Samples that were taken but never reached the SD card, because the
     // writer had fallen too far behind to take them (see rowsDropped in
-    // run_service.cpp). The run is complete in time but has gaps. 0 on any
+    // run_writer.cpp). The run is complete in time but has gaps. 0 on any
     // run recorded before the count was kept.
     uint32_t rowsDropped = 0;
 
     // Samples the writer took and never got onto the card (see rowsLost in
-    // run_service.cpp), and the samples that did get there. Only runs
+    // run_writer.cpp), and the samples that did get there. Only runs
     // recorded since 2026-10-11 have a rows_lost; hasRowsLost tells those
     // apart from a run that simply lost nothing. With rowsDropped and the
     // duration they say how much of a run is missing (runMissingSeconds()
