@@ -3,7 +3,7 @@
 #include "config/pins.h"
 #include "run/run_service.h"
 #include "connectivity/network.h"
-#include "led/led.h"
+#include "ui/led.h"
 
 // Polling the pin from loop() can miss a short press entirely if loop() is
 // ever blocked elsewhere (e.g. streaming a CSV download over the web

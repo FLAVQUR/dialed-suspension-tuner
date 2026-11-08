@@ -64,8 +64,10 @@ src/config/pins.h        — pin table, with the reason for each move
 src/suspension/suspension.cpp — KPM12J reading (mV), the sample clock, two-point calibration,
                            auto-extending max
 src/system/fast_adc.cpp  — calibrated ADC1 read without analogReadMilliVolts()'s per-call setup
-src/system/loop_profiler.cpp — per-section timing of loop() and row spacing (GET /api/debug/loop)
-src/system/log_capture.cpp — keeps the core's and libraries' warnings in memory (GET /api/debug/log)
+src/debug/loop_profiler.cpp — per-section timing of loop() and row spacing (GET /api/debug/loop)
+src/debug/log_capture.cpp — keeps the core's and libraries' warnings in memory (GET /api/debug/log)
+src/ui/button.cpp        — the device's button: presses timed in an interrupt, so a busy loop() misses none
+src/ui/led.cpp           — the status LED (FastLED), written only when its colour changes (and once a second)
 src/imu/imu.cpp          — BNO08x on its own HSPI bus (imuTask, core 0); returns radians;
                            Zero IMU rest measurement + bike-frame angles; imu_diag, the
                            per-second record of how sure the sensor is of its orientation

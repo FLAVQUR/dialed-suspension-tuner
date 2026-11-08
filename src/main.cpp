@@ -1,18 +1,17 @@
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
-#include "button/button.h"
 #include "connectivity/network.h"
 #include "connectivity/ota.h"
 #include "web/server.h"
 #include "gps/gps.h"
 #include "imu/imu.h"
 #include "storage/storage.h"
-#include "led/led.h"
-#include "button/button.h"
+#include "ui/led.h"
+#include "ui/button.h"
 #include "system/system.h"
-#include "system/loop_profiler.h"
-#include "system/log_capture.h"
+#include "debug/loop_profiler.h"
+#include "debug/log_capture.h"
 #include "power/battery.h"
 #include "power/low_battery.h"
 #include "logger/logger.h"

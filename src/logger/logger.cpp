@@ -3,7 +3,7 @@
 #include "gps/gps.h"
 #include "imu/imu.h"
 #include "system/system.h"
-#include "system/loop_profiler.h"
+#include "debug/loop_profiler.h"
 #include "suspension/suspension.h"
 
 // A CSV row is logged for every suspension sample — one row, one fresh

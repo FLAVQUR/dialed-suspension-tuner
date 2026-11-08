@@ -12,7 +12,7 @@
 #include "run/run_service.h"
 #include "gps/gps.h"
 #include "imu/imu.h"
-#include "led/led.h"
+#include "ui/led.h"
 
 // Long enough that a dip — the radio coming back after a run, a burst of web
 // requests — never fires it: the smoothed voltage has to stay under for this
