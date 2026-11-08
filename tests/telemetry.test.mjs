@@ -77,13 +77,19 @@ test('RUN0058: no gaps, no orientation lost', () => {
     assert.deepEqual(plain(runs.RUN0058.rows.orientationLost), []);
 });
 
-// RUN0050's .JSON says no rows were dropped, but its telemetry has a 0.4s
-// hole (198 rows at 500 Hz) — found writing these tests; see todo.md.
-test('RUN0050: a 0.4s gap at 59.5s, and one second of orientation lost at 20.2s', () => {
-    const gaps = get('findGaps')(runs.RUN0050.rows);
+// RUN0050 was recorded on firmware v0.1.0-2 (2026-10-08), before rows the
+// writer lost were counted (rows_lost, docs/sd-card.md): its rows_written
+// still includes the 198 an SD recovery lost at 59.5s. Its .JSON flags the
+// run all the same — incomplete, 11 recoveries, a last gap of 20,351 bytes,
+// which at about 103 bytes a line is those 198 rows.
+test('RUN0050: a 0.4s gap from before rows_lost, flagged, and one second of orientation lost at 20.2s', () => {
+    const { meta, rows } = runs.RUN0050;
+    const gaps = get('findGaps')(rows);
     assert.equal(gaps.length, 1);
     near(gaps[0].at, 59.5, 0.05, 'gap at (s)');
     near(gaps[0].s, 0.396, 0.01, 'gap (s)');
+    assert.equal(meta.rows_written - rows.length, Math.round(gaps[0].s * 500), 'the rows missing are the gap');
+    assert.ok(meta.incomplete && meta.sd_recovered > 0 && !('rows_lost' in meta), 'flagged, from before rows_lost');
 
     const lost = runs.RUN0050.rows.orientationLost;
     assert.equal(lost.length, 1);

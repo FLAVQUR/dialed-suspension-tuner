@@ -30,7 +30,7 @@ Arrays and objects made inside the context have that context's prototypes, which
 
 | Run | Why this one |
 |---|---|
-| RUN0050 | a 0.4s gap the `.JSON` does not count, and a second of orientation lost; shares 0.21 km with RUN0058 |
+| RUN0050 | recorded on firmware v0.1.0-2, before `rows_lost`: a 0.4s gap an SD recovery left, which its `.JSON` flags (`incomplete`, 11 recoveries) but still counts in `rows_written`; a second of orientation lost; shares 0.21 km with RUN0058 |
 | RUN0057 | a card stall: 151 rows dropped, which its gaps add up to; 2 rear bottom-outs |
 | RUN0058 | a clean run; the one whose run page the segment test was read from |
 
@@ -39,6 +39,6 @@ To add one: `curl "http://<device>/api/runs/telemetry?name=RUN00NN" | gzip -9 -n
 <details>
 <summary>How the tests were checked</summary>
 
-With the bottom-out threshold changed from 95 to 90 in `telemetry.js`, two tests fail: the thresholds against the firmware's, and RUN0057's bottom-out count. Writing them found RUN0050's uncounted gap (in `todo.md`) and the bottom-out thresholds written out in five places in the dashboard: four now use the pair declared in `telemetry.js`; `runs.html`, which does not load it, keeps its own `BOTTOM_OUT_PCT`.
+With the bottom-out threshold changed from 95 to 90 in `telemetry.js`, two tests fail: the thresholds against the firmware's, and RUN0057's bottom-out count. Writing them found the bottom-out thresholds written out in five places in the dashboard: four now use the pair declared in `telemetry.js`; `runs.html`, which does not load it, keeps its own `BOTTOM_OUT_PCT`.
 
 </details>
