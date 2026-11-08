@@ -197,7 +197,7 @@ static RunStatsAccumulator runStats;
 constexpr float G_TO_MS2 = 9.80665f;
 constexpr float MOVING_SPEED_KMH = 2.0f;
 // The dashboard's bottom-out rule (BOTTOM_OUT_PCT / BOTTOM_OUT_RESET_PCT in
-// run.html and compare.html, the literals in trends.html): keep them equal.
+// web/telemetry.js): keep them equal — tests/telemetry.test.mjs checks.
 constexpr float BOTTOM_OUT_PCT = 95.0f;
 constexpr float BOTTOM_OUT_RESET_PCT = 85.0f;
 constexpr float ELEV_MIN_STEP_M = 0.5f;

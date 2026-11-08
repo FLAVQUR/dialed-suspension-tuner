@@ -747,7 +747,6 @@ function analyzeRun(run)
     const frontAvg = average(frontVals);
     const rearAvg = average(rearVals);
 
-    const BOTTOM_OUT_PCT = 95, BOTTOM_OUT_RESET_PCT = 85;
     const frontBO = countBottomOuts(rows, 'front', frontMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT);
     const rearBO = isFullSusp ? countBottomOuts(rows, 'rear', rearMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT) : [];
 

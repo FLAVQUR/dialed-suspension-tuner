@@ -474,6 +474,15 @@ function computeVelocityHistogram(vels, numBins, forcedMaxAbs)
     return { binWidth, start, counts: counts.map(c => c / total * 100) };
 }
 
+// The bottom-out rule, for every page that counts them: a bottom-out is
+// travel reaching BOTTOM_OUT_PCT of the end's travel, and the next one counts
+// only after travel has come back under BOTTOM_OUT_RESET_PCT. The firmware
+// counts them too, into each run's .JSON (run_service.cpp, same names); the
+// tests check the two pairs are equal. runs.html, which does not load this
+// file, has its own BOTTOM_OUT_PCT for the peak badge.
+const BOTTOM_OUT_PCT = 95;
+const BOTTOM_OUT_RESET_PCT = 85;
+
 // Debounced crossing-detector: a hit that pushes past the threshold and
 // briefly bounces just under it (ADC/EMA noise near the calibrated max)
 // should count as one bottom-out, not several. Re-arms only once travel

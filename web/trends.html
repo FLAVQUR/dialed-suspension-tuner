@@ -133,8 +133,8 @@ function analyzeRun(name, run)
     const frontAvg = average(rows.map(r => r.front));
     const rearAvg = average(rows.map(r => r.rear));
 
-    const frontBOCount = countBottomOuts(rows, 'front', frontMaxMM, 95, 85).length;
-    const rearBOCount = isFullSusp ? countBottomOuts(rows, 'rear', rearMaxMM, 95, 85).length : 0;
+    const frontBOCount = countBottomOuts(rows, 'front', frontMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT).length;
+    const rearBOCount = isFullSusp ? countBottomOuts(rows, 'rear', rearMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT).length : 0;
 
     return {
         name, isFullSusp,

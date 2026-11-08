@@ -2110,8 +2110,8 @@ function computeSegmentStats(rows, seg, frontMaxMM, rearMaxMM)
         speedAvg,
         peakG,
         peakClipped,
-        frontBO: countBottomOuts(slice, 'front', frontMaxMM, 95, 85).length,
-        rearBO: countBottomOuts(slice, 'rear', rearMaxMM, 95, 85).length
+        frontBO: countBottomOuts(slice, 'front', frontMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT).length,
+        rearBO: countBottomOuts(slice, 'rear', rearMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT).length
     };
 }
 
@@ -3732,7 +3732,6 @@ async function load()
         document.getElementById('rearAvgSag').textContent = rearMaxMM ? (rearAvg / rearMaxMM * 100).toFixed(0) + '%' : '--';
         document.getElementById('rearAvgSagMM').textContent = sagSubText(rearAvg, rearStaticSag);
 
-        const BOTTOM_OUT_PCT = 95, BOTTOM_OUT_RESET_PCT = 85;
         const frontBOTimes = countBottomOuts(rows, 'front', frontMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT);
         const rearBOTimes = isFullSusp ? countBottomOuts(rows, 'rear', rearMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT) : [];
 

@@ -35,6 +35,7 @@ A DIY ESP32 MTB suspension telemetry and tuning helper: firmware in `src/` (Plat
 pio run               # build the firmware
 pio run -t upload     # OTA: the firmware, then the dashboard — always both
 pio run -t uploadfs   # the dashboard only (LittleFS holds nothing but the web files)
+node --test "tests/*.test.mjs"   # the dashboard's maths, against three real runs (also in CI)
 ```
 
 - Uploading after a build needs no confirmation. Always firmware **and** dashboard together (`pio run -t upload`); after a commit, upload again so the version stamp has no `-dirty`.
@@ -111,6 +112,8 @@ enclosure/               — the enclosure's 3D models (the STL is local only, *
                            compact way to publish it, see todo.md); renders of them in render/
 brand/                   — the logo: build_logo.py generates master/, export_all.sh everything else:
                            export/ (colour, one-colour, web icons), board/; README.md the rules
+tests/                   — node:test, no dependencies: load-web.mjs loads web/*.js into a vm with a stand-in
+                           DOM; fixtures/ holds three runs (.CSVB.gz + .JSON); see tests/README.md
 todo.md                  — the task list; CHANGELOG.md what was done; docs/ how things work
 web/style.css           — colour roles (top of the file), components, wide-screen block (end)
 web/common.js           — every page: applyTheme/escapeHtml/formatDuration, makePressable() (Enter/Space
