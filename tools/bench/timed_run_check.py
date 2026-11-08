@@ -107,6 +107,14 @@ def main():
         lines = [l for l in csv.split('\n') if l.strip()]
         check(lines and lines[0].startswith('timestamp'), '.CSV header')
         check(len(lines) - 1 == written, f'.CSV rows {len(lines) - 1} = rows written {written}')
+
+        # Editing a finished run's .JSON: a note and a title, read back, the rest untouched.
+        edit = {'name': run, 'notes': 'bench check', 'title': 'Bench'}
+        request(base, '/api/runs/notes', json.dumps(edit).encode(), 'POST', 'application/json')
+        edited = json.loads(request(base, f'/api/runs/download?file={run}.JSON'))
+        check(edited.get('notes') == 'bench check' and edited.get('title') == 'Bench', 'note and title saved')
+        check(edited.get('rows_written') == written and edited.get('stats') == meta.get('stats'),
+              'the rest of the .JSON unchanged')
     except Exception as e:
         check(False, f'reading the run: {e}')
 
