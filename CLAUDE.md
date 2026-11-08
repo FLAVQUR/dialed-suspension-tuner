@@ -1,6 +1,6 @@
 # Dialed — working notes for Claude
 
-A DIY ESP32 MTB suspension telemetry and tuning helper: firmware in `src/` (PlatformIO, Arduino), a web dashboard in `data/` served by the device from LittleFS. It records suspension travel, IMU and GPS at 500Hz to an SD card. One rider builds and rides it. The project is past the plumbing phase: the work now is reading real trail data and tuning the suspension. See [README.md](README.md) for what it is and how to build it.
+A DIY ESP32 MTB suspension telemetry and tuning helper: firmware in `src/` (PlatformIO, Arduino), a web dashboard in `web/` served by the device from LittleFS. It records suspension travel, IMU and GPS at 500Hz to an SD card. One rider builds and rides it. The project is past the plumbing phase: the work now is reading real trail data and tuning the suspension. See [README.md](README.md) for what it is and how to build it.
 
 ## Where to read what
 
@@ -11,7 +11,7 @@ A DIY ESP32 MTB suspension telemetry and tuning helper: firmware in `src/` (Plat
 | Pins, sensors, calibration, the IMU's mounting and maths | [docs/hardware.md](docs/hardware.md) |
 | Anything touching the SD card or a run's integrity | [docs/sd-card.md](docs/sd-card.md) |
 | A run's files, the `.JSON` keys, the API | [docs/data-formats.md](docs/data-formats.md) |
-| Any page in `data/` | [docs/dashboard.md](docs/dashboard.md) |
+| Any page in `web/` | [docs/dashboard.md](docs/dashboard.md) |
 | Colours, type, components, chart rules — before touching any UI | [docs/design-system.md](docs/design-system.md) |
 | The logo: versions, colours, files, how to rebuild them | [brand/README.md](brand/README.md) |
 | What the rides showed, the bike's setup and tuning | [docs/field-log.md](docs/field-log.md) |
@@ -47,7 +47,7 @@ pio run -t uploadfs   # the dashboard only (LittleFS holds nothing but the web f
 - **Git**: commit only when asked, straight on `main` (the repository's practice), ending the message with the `Co-Authored-By` trailer. Push only when asked.
 - **Pushing from an agent's shell**: git there cannot ask for credentials. The first `fetch` was run by hand in a terminal, which stored the GitHub login in Windows Credential Manager; everything since goes through without a prompt. If pushes start failing with "Cannot prompt", that stored login is gone and the same step is needed again.
 - **Never start an open-ended run from a test**: with WiFi off while recording, only the device's button can stop it. Use `POST /api/run/timed` (`seconds=N`, 1–120), then delete that run — only that one, by the name the call returned. Don't leave piles of bench runs on the card.
-- **A new file in `data/` needs its own route** in `serverInit()`, i.e. a firmware build.
+- **A new file in `web/` needs its own route** in `serverInit()`, i.e. a firmware build.
 - **Page scripts must not declare a top-level `const`/`let` with a name `common.js` or `telemetry.js` already uses** — that is a SyntaxError and the whole page script stops.
 - **Checking pages headless**: Chrome (`--headless=new --screenshot … --window-size=…`, its own `--user-data-dir` in the scratchpad). Edge's headless stopped producing output after an update. `--window-size=W` lays the page out about 16px narrower first, so a page measured at exactly 1024px is first drawn in the narrow layout; screenshot at 1040 for a 1024px viewport. See [docs/troubleshooting.md](docs/troubleshooting.md#how-to-test-and-work-on-the-device).
 
@@ -98,38 +98,40 @@ src/web/server.cpp       — one serveWebFile() route per web file (gzip; pages 
                            the README's build badge
 tools/version_stamp.py   — build step: git describe + build time → include/version_stamp.h
 src/system/version.cpp   — FIRMWARE_VERSION / FIRMWARE_BUILD, the only file that includes the stamp
-tools/gzip_web_files.py  — build step: gzips data/ into the filesystem image (buildfs/uploadfs)
+tools/gzip_web_files.py  — build step: gzips web/ into the filesystem image (buildfs/uploadfs)
                            and adds version.json
 tools/upload_both.py     — makes "upload" send the dashboard after the firmware
 tools/palette_swatches.py — draws docs/media/palette-dark.svg and palette-light.svg from style.css's
                            tokens (shown in design-system.md); run again after any colour change
 tools/bench/battery_drain.py — battery-life test: timed runs on a riding-day cadence until the battery
                            gives out; logs the voltage and checks and deletes each run
+enclosure/               — the enclosure's 3D models (the STL is local only, *.stl ignored until there is a
+                           compact way to publish it, see todo.md); renders of them in render/
 brand/                   — the logo: build_logo.py generates master/, export_all.sh everything else:
                            export/ (colour, one-colour, web icons), board/; README.md the rules
 todo.md                  — the task list; CHANGELOG.md what was done; docs/ how things work
-data/style.css           — colour roles (top of the file), components, wide-screen block (end)
-data/common.js           — every page: applyTheme/escapeHtml/formatDuration, makePressable() (Enter/Space
+web/style.css           — colour roles (top of the file), components, wide-screen block (end)
+web/common.js           — every page: applyTheme/escapeHtml/formatDuration, makePressable() (Enter/Space
                            on what isn't a button), BikeUI dialogs/toast,
                            connection + battery chips, offline banner, browser-time offer,
                            the runs list, kept in localStorage and refreshed by stamp (fetchRunsPage(),
                            fetchAllRuns())
-data/telemetry.js        — run/compare/trends: .CSVB decoding + IMU maths (RAD_TO_DEG, bikeBasis(),
+web/telemetry.js        — run/compare/trends: .CSVB decoding + IMU maths (RAD_TO_DEG, bikeBasis(),
                            bikeAngles(), verticalG()), findOrientationLoss(), findGaps(),
                            accelClipped()/formatPeakG(), suspension figures, setupFields(),
                            the setup history (setupHistory(), setupEpochs()), SVG chart primitives
-data/index.html          — dashboard: Start Run + pre-ride checklist, live suspension
-data/runs.html           — runs table (wide) / cards (narrow), paged (25 a page, Previous / numbers /
+web/index.html          — dashboard: Start Run + pre-ride checklist, live suspension
+web/runs.html           — runs table (wide) / cards (narrow), paged (25 a page, Previous / numbers /
                            Next), ticking for Compare (two) and "Delete N" (any number)
-data/run.html            — single-run page: minMaxPoints(), the time-series stack (shared axis,
+web/run.html            — single-run page: minMaxPoints(), the time-series stack (shared axis,
                            fitTimeCharts(), drawLineChart()), chart zoom, linked views,
                            computeActivitySegments(), detectHarshEvents(), generateSuggestions(),
                            addSetupContext(), renderMissing() / renderOrientationLoss() (the notes
                            under the stats), editRecordedSetup() (the "Edit setup" dialog),
                            aiPrompt() / copyForAi() (the "Copy for AI" prompt)
-data/compare.html        — A/B of two runs: route + time gained (only where both are on the same line,
+web/compare.html        — A/B of two runs: route + time gained (only where both are on the same line,
                            findSharedDistance()), setup diff, histograms
-data/trends.html         — one bike's setup history, and sag and bottom-outs per minute across its runs
-data/settings.html       — bike profiles + setup (autosave), guided calibration + IMU zero
+web/trends.html         — one bike's setup history, and sag and bottom-outs per minute across its runs
+web/settings.html       — bike profiles + setup (autosave), guided calibration + IMU zero
                            (Sensors tab), wifi, system
 ```

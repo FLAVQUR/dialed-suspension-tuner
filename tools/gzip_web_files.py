@@ -1,8 +1,8 @@
 # Gzips the dashboard's files on their way into the device's filesystem image.
 #
-# data/ stays as it is written — plain HTML, CSS and JS, which is also what
+# web/ stays as it is written — plain HTML, CSS and JS, which is also what
 # the page tests read. When PlatformIO builds the LittleFS image (buildfs,
-# uploadfs), this script makes a copy of data/ under the build directory with
+# uploadfs), this script makes a copy of web/ under the build directory with
 # every text file replaced by its .gz, and points the image builder at that
 # copy instead. The firmware serves x.gz with "Content-Encoding: gzip" when it
 # is asked for x (serveWebFile() in src/web/server.cpp), so nothing in the
@@ -70,7 +70,7 @@ if FS_TARGETS & set(COMMAND_LINE_TARGETS):
     print("Web files gzipped for the filesystem image: %.0f KB -> %.0f KB" % (before / 1024, after / 1024))
 
     # Which code these pages are, for Settings to show next to the firmware's
-    # (the values come from version_stamp.py). Only in the image: data/ has
+    # (the values come from version_stamp.py). Only in the image: web/ has
     # no such file.
     # Gzipped like the rest: serveWebFile() looks for the .gz first, and the
     # framework logs an error for every lookup of a file that isn't there.

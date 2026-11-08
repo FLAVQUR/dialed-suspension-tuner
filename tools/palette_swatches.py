@@ -1,4 +1,4 @@
-"""Draws the dashboard's palette, one SVG per theme, from data/style.css.
+"""Draws the dashboard's palette, one SVG per theme, from web/style.css.
 
     ~/.platformio/penv/Scripts/python.exe -I tools/palette_swatches.py
 
@@ -15,7 +15,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSS = os.path.join(ROOT, 'data', 'style.css')
+CSS = os.path.join(ROOT, 'web', 'style.css')
 OUT = os.path.join(ROOT, 'docs', 'media')
 
 # What is drawn, in order: (group title, [(token, job)], what the contrast
@@ -154,7 +154,7 @@ def draw(tokens, theme_name):
             f'<text x="{width - PAD}" y="{PAD + 18}" font-size="12" text-anchor="end" fill="{muted}">{esc(note)}</text>\n'
             + '\n'.join(parts) +
             f'\n<text x="{PAD}" y="{height - PAD + 6}" font-size="11" fill="{muted}">'
-            f'Generated from data/style.css by tools/palette_swatches.py</text>\n</svg>\n')
+            f'Generated from web/style.css by tools/palette_swatches.py</text>\n</svg>\n')
 
 
 def main():

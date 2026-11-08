@@ -14,8 +14,11 @@ platformio.local.ini
 # Written by tools/version_stamp.py on every build
 include/version_stamp.h
 
-# Local copies kept before a big change, for going back by hand (git has the history)
-backups/
+# The enclosure's models stay local until there is a compact way to publish them (todo.md)
+enclosure/*.stl
+
+# What stays on this machine only: render projects and their source media, local copies
+local/
 
 # Claude Code per-machine settings
 .claude/settings.local.json

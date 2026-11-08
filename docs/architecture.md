@@ -4,7 +4,7 @@ How the system is put together — device and browser — and then the firmware 
 
 ## Project
 
-**Dialed** — a DIY ESP32-based MTB suspension telemetry and tuning helper for enduro/downhill. (The project was called "Bike Telemetry", and the dashboard "Bike Logger", until 2026-10-08.) It logs GPS, IMU and suspension travel (two **KPM12J linear position sensors** — 200mm stroke at the front, 75mm at the rear) to CSV at **500Hz** (exactly, since the sampling loop was rewritten on 2026-10-07; ~385Hz before that), with a web dashboard served by the device itself (`data/*.html`) and firmware in `src/`.
+**Dialed** — a DIY ESP32-based MTB suspension telemetry and tuning helper for enduro/downhill. (The project was called "Bike Telemetry", and the dashboard "Bike Logger", until 2026-10-08.) It logs GPS, IMU and suspension travel (two **KPM12J linear position sensors** — 200mm stroke at the front, 75mm at the rear) to CSV at **500Hz** (exactly, since the sampling loop was rewritten on 2026-10-07; ~385Hz before that), with a web dashboard served by the device itself (`web/*.html`) and firmware in `src/`.
 
 The original idea of two rotary potentiometers used as string-pots was abandoned; the KPM12J sensors bolt alongside the fork/shock and their rod follows the travel directly.
 

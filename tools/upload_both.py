@@ -3,7 +3,7 @@
 # The two are separate uploads, and a device with the firmware of one commit
 # and the pages of another is a problem waiting to be found on a trail. So
 # "upload" always does both, whether or not the pages changed; "uploadfs" on
-# its own still exists for a change that only touched data/.
+# its own still exists for a change that only touched web/.
 #
 # Listed as a post: script in platformio.ini — the "upload" target has to
 # exist before something can be attached to it.

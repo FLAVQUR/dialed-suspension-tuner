@@ -35,7 +35,7 @@ To rebuild everything: `sh brand/export_all.sh` from the repository root. It nee
 The favicon is the colour logo **on its Ink tile**, so it shows in a light browser tab as well as a dark one. The app icons are full-bleed Ink squares; the phone rounds the corners itself.
 
 > [!IMPORTANT]
-> **The dashboard uses three of these**: `favicon.svg`, `favicon.ico` and `apple-touch-icon.png`. `export_all.sh` copies them into `data/`, and each has its own route in `serverInit()`; a fourth would need a route too (a firmware build). The manifest and the 192/512px icons are not used: they only serve "install as app", which browsers offer on HTTPS only (see [decisions.md](../docs/decisions.md#dashboard)). How they are served is in [dashboard.md](../docs/dashboard.md#files-and-scripts).
+> **The dashboard uses three of these**: `favicon.svg`, `favicon.ico` and `apple-touch-icon.png`. `export_all.sh` copies them into `web/`, and each has its own route in `serverInit()`; a fourth would need a route too (a firmware build). The manifest and the 192/512px icons are not used: they only serve "install as app", which browsers offer on HTTPS only (see [decisions.md](../docs/decisions.md#dashboard)). How they are served is in [dashboard.md](../docs/dashboard.md#files-and-scripts).
 
 ## Construction
 

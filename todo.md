@@ -9,7 +9,8 @@ How it is used:
 
 ## Now — without the bike
 
-Nothing at the moment.
+- [ ] **Publish the enclosure's models in a compact form.** The master box's STL is not in git (`enclosure/*.stl` is ignored): 29 MB for one binary STL, and the model is not finished yet (the rider, 2026-11-08). Measured on it: 586,152 triangles in 14 bodies ([enclosure/README.md](enclosure/README.md#what-is-in-the-stl)); 269,916 of them (46%) are the bought parts — the two M8 connectors, the two buttons and the LED — which are not printed; gzip takes the whole file to 9.9 MB. Ways to look at: export only the printed parts, one file each; 3MF (zipped, vertices shared) instead of STL; the files as assets of a GitHub release rather than in the repository's history. The turntable render needs the full model, bought parts included, and can keep reading a local copy.
+- [ ] **Tests for the dashboard's maths.** What turns a run into tuning advice is in `web/telemetry.js` and the run page: `.CSVB` decoding, the bottom-out count (which must agree with the firmware's, `stats.bottom_outs_front/rear`), sag, `findGaps()`, `findOrientationLoss()`, `findSharedDistance()`. A mistake there gives wrong advice with no error anywhere. The shape: Node's own `node:test`, no dependencies, two or three real runs as fixtures with today's figures as the expected values, run by the GitHub workflow. In `tests/` at the root, not `test/`, which PlatformIO's test runner takes for C++ tests. `telemetry.js` is a browser script with globals, so it is loaded into a `vm` context. Firmware unit tests were weighed and left out (2026-11-08): most of it is hardware glue, and the bench checks on the device cover it.
 
 ## With the bike or on a real screen
 

@@ -1,6 +1,6 @@
 # Dialed — Design system
 
-The rules every page in `data/` follows, so that a new page or chart looks like the rest of the app. **`data/style.css` is the source of truth for every value**: its tokens are at the top of the file, its components in the middle, and the wide-screen layout at the end. This file says what each token and component is *for*, and the rules that go with it. When a value changes, change it in the CSS. This file only needs an edit when a rule changes.
+The rules every page in `web/` follows, so that a new page or chart looks like the rest of the app. **`web/style.css` is the source of truth for every value**: its tokens are at the top of the file, its components in the middle, and the wide-screen layout at the end. This file says what each token and component is *for*, and the rules that go with it. When a value changes, change it in the CSS. This file only needs an edit when a rule changes.
 
 How the pages themselves work (layouts, the run page, the charts' behaviour) is in [dashboard.md](dashboard.md).
 
@@ -21,7 +21,7 @@ Every colour token of both themes, on that theme's own page and card. The figure
 ![The light theme's palette, laid out the same way](media/palette-light.svg)
 
 > [!IMPORTANT]
-> The two images are drawn from `data/style.css` by `tools/palette_swatches.py`, never by hand. After a colour change in the CSS, run it again (`~/.platformio/penv/Scripts/python.exe -I tools/palette_swatches.py`) and commit the two SVGs with the change. A new token only shows up once it is added to the script's `GROUPS`.
+> The two images are drawn from `web/style.css` by `tools/palette_swatches.py`, never by hand. After a colour change in the CSS, run it again (`~/.platformio/penv/Scripts/python.exe -I tools/palette_swatches.py`) and commit the two SVGs with the change. A new token only shows up once it is added to the script's `GROUPS`.
 
 ### Base palette
 
@@ -95,7 +95,7 @@ The fixed glow behind the glass (`--bg-blobs`) is in the palette's own greys and
 - **Inside the app it is always the tile** (Ink, the Fog d, the lime mark). It reads on both themes, so nothing switches with `data-theme`.
 - **Use the file, don't redraw it**: no copy of the logo in CSS or inline SVG on a page.
 - **Lime `#C6F135` is not a token.** It is never a series, a status, a button or a highlight, so it has no place in `style.css`.
-- **The icons are made in `brand/`**: `brand/export_all.sh` builds them and copies them into `data/`. Change `brand/` and run it again, never `data/`. A new icon file also needs its own route in `serverInit()`.
+- **The icons are made in `brand/`**: `brand/export_all.sh` builds them and copies them into `web/`. Change `brand/` and run it again, never `web/`. A new icon file also needs its own route in `serverInit()`.
 
 ## Type
 

@@ -71,5 +71,5 @@ rm -rf "$B"
 
 # The dashboard's icons: favicon (SVG, and ICO for browsers without SVG favicons) and the iOS home-screen icon.
 # Each has its own route in serverInit() (src/web/server.cpp); a new one needs a route too.
-cp $W/favicon.svg $W/favicon.ico $W/apple-touch-icon.png data/
-echo "brand/ rebuilt, icons copied into data/"
+cp $W/favicon.svg $W/favicon.ico $W/apple-touch-icon.png web/
+echo "brand/ rebuilt, icons copied into web/"
