@@ -125,7 +125,8 @@ web/telemetry.js        — run/compare/trends: .CSVB decoding + IMU maths (RAD_
 web/index.html          — dashboard: Start Run + pre-ride checklist, live suspension
 web/runs.html           — runs table (wide) / cards (narrow), paged (25 a page, Previous / numbers /
                            Next), ticking for Compare (two) and "Delete N" (any number)
-web/run.html            — single-run page: minMaxPoints(), the time-series stack (shared axis,
+web/run.html            — single-run page: markup and the page's own CSS; its script is web/run.js
+web/run.js              — the run page's script: minMaxPoints(), the time-series stack (shared axis,
                            fitTimeCharts(), drawLineChart()), chart zoom, linked views,
                            computeActivitySegments(), detectHarshEvents(), generateSuggestions(),
                            addSetupContext(), renderMissing() / renderOrientationLoss() (the notes

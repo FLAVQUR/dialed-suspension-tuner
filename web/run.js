@@ -1,0 +1,4058 @@
+// The run page's script (run.html). Loaded after common.js and telemetry.js; its
+// top-level names share their global scope, so none may repeat one of theirs.
+
+const COLOR_FRONT = cssVar('--series-front');
+const COLOR_REAR = cssVar('--series-rear');
+// One colour per kind of measurement, not per chart (see the data-colour
+// notes at the top of style.css): everything off the GPS shares one, and
+// everything off the IMU another. A chart's own label says which trace it
+// is; the colour says where the number comes from.
+const COLOR_MOTION = cssVar('--series-motion');
+const COLOR_IMU = cssVar('--series-imu');
+const COLOR_SPEED = COLOR_MOTION;
+const COLOR_ALT = COLOR_MOTION;
+const COLOR_LEAN = COLOR_IMU;
+const COLOR_PITCH = COLOR_IMU;
+const COLOR_GFORCE = COLOR_IMU;
+const COLOR_HIGHLIGHT = cssVar('--series-highlight');
+const COLOR_NEUTRAL = cssVar('--series-neutral');
+const COLOR_MAP_INK = cssVar('--map-ink');
+
+// Interaction only — the hover marker, the zoom brush, the route's
+// start/end dots. Never a data series.
+const COLOR_ACCENT = cssVar('--accent');
+const COLOR_ACCENT_TEXT = cssVar('--accent-text');
+const COLOR_TECHNICAL = COLOR_HIGHLIGHT;   // the stretches worth looking at — "high activity", not a value judgement
+const COLOR_TRANSITION = COLOR_NEUTRAL;    // everything in between
+
+const params = new URLSearchParams(location.search);
+const runName = params.get('name') || '';
+document.getElementById('runTitle').textContent = runName || 'Run';
+document.getElementById('runHeading').textContent = runName || 'Run';
+document.getElementById('compareLink').href = '/compare?a=' + encodeURIComponent(runName);
+
+// The run's name renames it when clicked — and from the keyboard too: Tab
+// reaches it, Enter or Space renames. It stays a heading (no role="button",
+// which would hide that from a screen reader); its title says what it does.
+['runTitle', 'runHeading'].forEach(id => {
+    const heading = document.getElementById(id);
+    heading.tabIndex = 0;
+    heading.addEventListener('keydown', evt => {
+        if (evt.key !== 'Enter' && evt.key !== ' ') return;
+        evt.preventDefault();
+        renameRun();
+    });
+});
+
+function showView(name)
+{
+    document.getElementById('tabOverview').classList.toggle('active', name === 'overview');
+    document.getElementById('tabAnalysis').classList.toggle('active', name === 'analysis');
+    document.getElementById('tabTuning').classList.toggle('active', name === 'tuning');
+    document.getElementById('tabBtnOverview').classList.toggle('active', name === 'overview');
+    document.getElementById('tabBtnAnalysis').classList.toggle('active', name === 'analysis');
+    document.getElementById('tabBtnTuning').classList.toggle('active', name === 'tuning');
+
+    // On a phone the stats card and map sit above the tab content, so
+    // switching views from the top of the page would change something
+    // that's entirely off-screen — bring it into view instead.
+    const content = document.querySelector('.run-content');
+    if (content.getBoundingClientRect().top > window.innerHeight * 0.75)
+        content.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // The time-series charts are drawn at the size they're shown at, and
+    // have none while their tab is hidden.
+    if (name === 'overview') refitTimeStack();
+}
+
+// The moment a selected segment or event row points at. Unlike a hover it
+// stays marked on the map and the charts when the pointer moves on, until
+// another row is picked or the zoom changes.
+let pinnedTime = null;
+
+// What every "the pointer has left" handler does: back to the selected
+// row's moment if there is one, otherwise nothing marked.
+function restoreHover()
+{
+    if (pinnedTime !== null) broadcastTime(pinnedTime); else clearAllHover();
+}
+
+// Scrolls the page so the time-series charts are in view, resting under
+// their pinned axis — unless they already are.
+function revealTimeStack()
+{
+    const rect = document.getElementById('timeStack').getBoundingClientRect();
+    const top = timeAxisPinnedTop();
+
+    if (rect.top >= top && rect.bottom <= window.innerHeight) return;
+
+    window.scrollBy({ top: rect.top - top, behavior: 'smooth' });
+}
+
+// Shared by the segment and event lists. Hovering a row (mouse) previews
+// its moment on the map and the charts. Clicking or tapping it goes further:
+// the time-series charts zoom to `span` — the segment itself, or a few
+// seconds around an event — with their Avg/Peak figures worked out again for
+// just that part of the ride, and the row stays selected. Clicking the
+// selected row once more goes back to the whole run.
+//
+// time: the row's moment (ms, as in the telemetry rows' own `t`).
+// span: { from, to } in seconds since the start of the run.
+function bindLocateRow(row, time, span)
+{
+    row.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') broadcastTime(time); });
+    row.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') restoreHover(); });
+
+    // The keyboard gets the same: Tab onto a row shows where it is, as
+    // hovering does, and Enter or Space zooms to it, as a click does.
+    makePressable(row);
+    row.setAttribute('aria-pressed', 'false');
+    row.addEventListener('focus', () => broadcastTime(time));
+    row.addEventListener('blur', () => restoreHover());
+
+    row.addEventListener('click', () => {
+        if (row.classList.contains('is-located')) {
+            setZoom(null);
+            return;
+        }
+
+        // The charts live on the Overview tab; the event list doesn't.
+        showView('overview');
+        setZoom(span);          // also drops whichever row was selected before
+
+        row.classList.add('is-located');
+        row.setAttribute('aria-pressed', 'true');
+        pinnedTime = time;
+        broadcastTime(time);
+
+        revealTimeStack();
+    });
+}
+
+// A response body as an ArrayBuffer, like res.arrayBuffer(), but calling
+// onProgress(bytesSoFar, totalBytes) as it arrives. totalBytes is 0 when the
+// device didn't say how long the body is.
+async function readWithProgress(res, onProgress)
+{
+    if (!res.body || !res.body.getReader) return res.arrayBuffer();
+
+    const total = Number(res.headers.get('Content-Length')) || 0;
+    const reader = res.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        chunks.push(value);
+        loaded += value.length;
+        onProgress(loaded, total);
+    }
+
+    const out = new Uint8Array(loaded);
+    let offset = 0;
+    chunks.forEach(chunk => { out.set(chunk, offset); offset += chunk.length; });
+
+    return out.buffer;
+}
+
+function decimate(rows, maxPoints)
+{
+    if (rows.length <= maxPoints) return rows;
+
+    const step = Math.ceil(rows.length / maxPoints);
+    const out = [];
+
+    for (let i = 0; i < rows.length; i += step) out.push(rows[i]);
+    if (out[out.length - 1] !== rows[rows.length - 1]) out.push(rows[rows.length - 1]);
+
+    return out;
+}
+
+// Cuts one plotted value down to what a chart can usefully draw without
+// losing its extremes. decimate() above keeps every Nth sample, and on a
+// whole run N is around a hundred — a suspension hit that peaks and is gone
+// again inside those hundred samples simply isn't in the picture, so the
+// trace could top out well below the "Peak" figure printed next to it.
+// Here the samples are split into `buckets` equal spans and each one
+// contributes its lowest and its highest sample, in the order they
+// happened: every peak and every dip survives, at twice the points.
+//
+// Takes every value a chart plots at once and returns one list of points
+// per value, all built from the same samples: a chart's readout gives its
+// series off at one moment, and two series reduced separately would each
+// answer with their own nearby extreme, moments apart (a total-G and a
+// vertical-G that can't both be true at once).
+const CHART_BUCKETS = 400;
+
+function minMaxPoints(rows, t0, values, buckets)
+{
+    const pointsOf = kept => values.map(value => kept.map(r => ({ x: (r.t - t0) / 1000, y: value(r) })));
+
+    if (rows.length <= buckets * 2) return pointsOf(rows);
+
+    const kept = [];
+    const size = rows.length / buckets;
+
+    for (let b = 0; b < buckets; b++) {
+        const from = Math.floor(b * size);
+        const to = Math.min(rows.length, Math.floor((b + 1) * size));
+        const picked = new Set();
+
+        values.forEach(value => {
+            // A value can be null (lean, pitch and vertical G where the
+            // sensor's orientation was lost): skipped for the extremes, and
+            // one null row kept so the line breaks there.
+            let lo = -1, hi = -1, loV = 0, hiV = 0, firstNull = -1;
+
+            for (let i = from; i < to; i++) {
+                const v = value(rows[i]);
+                if (v === null) { if (firstNull < 0) firstNull = i; continue; }
+                if (lo < 0 || v < loV) { loV = v; lo = i; }
+                if (hi < 0 || v > hiV) { hiV = v; hi = i; }
+            }
+
+            if (lo >= 0) { picked.add(lo); picked.add(hi); }
+            if (firstNull >= 0) picked.add(firstNull);
+        });
+
+        Array.from(picked).sort((a, b) => a - b).forEach(i => kept.push(rows[i]));
+    }
+
+    return pointsOf(kept);
+}
+
+function toPct(mm, maxMM)
+{
+    return maxMM ? (mm / maxMM * 100) : 0;
+}
+
+// Maps the device's precomputed "stats" object (written once at
+// RunService::stop() — see run_service.cpp) onto the same shape
+// computeStats() returns from a full CSV pass, so both can feed
+// renderStats() interchangeably.
+function statsFromMeta(s, durationS, hasImuReference)
+{
+    return {
+        maxFront: s.max_front_mm, maxRear: s.max_rear_mm,
+        avgFront: s.avg_front_mm, avgRear: s.avg_rear_mm,
+        maxSpeed: s.max_speed_kmh, avgSpeed: s.avg_speed_kmh,
+        // Despite the names, max_lean_deg/max_pitch_deg are radians (see
+        // RAD_TO_DEG) — and rounded to 1 decimal on the device (~5.7° steps),
+        // so load() overwrites these with values taken from the decoded rows
+        // once they arrive; this is just the instant first paint.
+        // With an IMU zero reference these raw sensor peaks are not the
+        // bike's lean/pitch, so leave the tiles blank (renderStats shows
+        // "--") until the corrected values come from the decoded rows.
+        maxLean: hasImuReference ? null : s.max_lean_deg * RAD_TO_DEG,
+        maxPitch: hasImuReference ? null : s.max_pitch_deg * RAD_TO_DEG,
+        maxGForce: s.max_g, avgGForce: s.avg_g,
+        minAlt: s.min_alt_m, maxAlt: s.max_alt_m,
+        distanceKm: s.distance_km,
+        durationS
+    };
+}
+
+function computeStats(rows)
+{
+    let maxFront = 0, maxRear = 0, maxSpeed = 0;
+    let sumSpeed = 0, sumFront = 0, sumRear = 0, sumGForce = 0, distance = 0;
+    let maxLean = 0, maxPitch = 0, maxGForce = 0, maxGClipped = false;
+    let minAlt = Infinity, maxAlt = -Infinity;
+    let prev = null;
+
+    for (const r of rows) {
+        if (r.front > maxFront) maxFront = r.front;
+        if (r.rear > maxRear) maxRear = r.rear;
+        if (r.speed > maxSpeed) maxSpeed = r.speed;
+        sumSpeed += r.speed;
+        sumFront += r.front;
+        sumRear += r.rear;
+
+        if (r.alt < minAlt) minAlt = r.alt;
+        if (r.alt > maxAlt) maxAlt = r.alt;
+
+        // null where the sensor's orientation was lost (findOrientationLoss()).
+        if (r.roll !== null && Math.abs(r.roll) > maxLean) maxLean = Math.abs(r.roll);
+        if (r.pitch !== null && Math.abs(r.pitch) > maxPitch) maxPitch = Math.abs(r.pitch);
+
+        const gForce = Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2;
+        if (gForce > maxGForce) { maxGForce = gForce; maxGClipped = accelClipped(r); }
+        sumGForce += gForce;
+
+        if (r.lat !== 0 && r.lon !== 0) {
+            if (prev) distance += haversineMeters(prev.lat, prev.lon, r.lat, r.lon);
+            prev = r;
+        }
+    }
+
+    const n = rows.length || 1;
+
+    return {
+        maxFront, maxRear, maxSpeed, maxLean, maxPitch, maxGForce, maxGClipped,
+        avgFront: sumFront / n,
+        avgRear: sumRear / n,
+        avgSpeed: sumSpeed / n,
+        avgGForce: sumGForce / n,
+        minAlt: rows.length ? minAlt : 0,
+        maxAlt: rows.length ? maxAlt : 0,
+        distanceKm: distance / 1000,
+        durationS: rows.length ? (rows[rows.length - 1].t - rows[0].t) / 1000 : 0
+    };
+}
+
+// A moment on a chart, to the tenth of a second ("0:12.4") — whole seconds
+// can't tell samples apart once a chart is zoomed in.
+function formatChartTime(s)
+{
+    const whole = Math.floor(s);
+    return `${formatDuration(whole)}.${Math.floor((s - whole) * 10)}`;
+}
+
+// Compact clock form for event/segment log timestamps ("3:45").
+function formatClock(s)
+{
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+function percentile(values, p)
+{
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const idx = Math.min(sorted.length - 1, Math.floor(p / 100 * sorted.length));
+    return sorted[idx];
+}
+
+function arrayMin(arr)
+{
+    let m = Infinity;
+    for (let i = 0; i < arr.length; i++) if (arr[i] < m) m = arr[i];
+    return m;
+}
+
+// Charts (and, now, hovering an event/segment row in the Analysis tab)
+// share one index into `chartRows` — moving any one of them broadcasts the
+// nearest index to every registered view, so the crosshair, readouts and
+// GPS marker all move together, like the linked-cursor pattern in
+// dedicated telemetry tools.
+let linkedViews = [];
+
+// Keyed by the chart's svg id so a chart redrawn in place never leaves a
+// stale, duplicate entry pointing at detached DOM from a previous draw.
+function registerLinkedView(key, view)
+{
+    linkedViews = linkedViews.filter(v => v.key !== key);
+    linkedViews.push({ key, ...view });
+}
+
+// Views are addressed by time (ms, as in the rows' own `t`) rather than by a
+// shared sample index: once the time-series charts can be zoomed they hold
+// their own, finer set of points for the visible span, while the map keeps
+// the whole run — a single index no longer means the same sample in both.
+// Each view finds its own nearest point.
+function broadcastTime(t)
+{
+    linkedViews.forEach(v => v.onTime(t));
+}
+
+// For callers that think in whole-run overview samples (playback, and the
+// event/segment rows via nearestChartIndex()).
+function broadcastIndex(idx)
+{
+    if (playbackRows[idx]) broadcastTime(playbackRows[idx].t);
+}
+
+// ── Chart zoom ─────────────────────────────────────────────────────────────
+// Dragging across any time-series chart zooms all of them to that span and
+// redraws them from the full-resolution samples inside it — the whole-run
+// view shows 400 points however long the ride was, so this is also the way
+// to see what the suspension actually did in a given second. Clicking a
+// segment or an event zooms to it the same way (see bindLocateRow()).
+let chartT0 = 0;               // `t` of the run's first sample; chart x is seconds since then
+let zoomRange = null;          // { from, to } in those seconds, or null for the whole run
+let redrawTimeCharts = null;   // set by load() once the data is in
+let showZoomOnTimeline = null; // set by drawSegmentTimeline()
+let showZoomOnMap = null;      // set by whichever of the two route drawings is in use
+
+const MIN_ZOOM_DRAG = 0.02;    // of the plot's width — less than this is a click, not a drag
+const MIN_ZOOM_SPAN_S = 0.25;
+
+function setZoom(range)
+{
+    if (range && range.to - range.from < MIN_ZOOM_SPAN_S) return;
+
+    // The selected row, if any, was selected for the zoom this replaces.
+    document.querySelectorAll('.is-located').forEach(row => {
+        row.classList.remove('is-located');
+        row.setAttribute('aria-pressed', 'false');
+    });
+    pinnedTime = null;
+
+    zoomRange = range;
+    clearAllHover();
+    drawTimeStack();
+    updateZoomBar();
+}
+
+// The time axis already says which part of the run is on show, so its label
+// cell only adds how long that is — and, with no zoom, that there is one.
+function updateZoomBar()
+{
+    const span = zoomRange ? zoomRange.to - zoomRange.from : 0;
+
+    document.getElementById('zoomText').textContent = zoomRange
+        ? `Zoomed · ${span < 60 ? span.toFixed(1) + ' s' : formatDuration(Math.round(span))}`
+        : 'Drag a chart to zoom';
+
+    document.getElementById('zoomResetBtn').style.display = zoomRange ? '' : 'none';
+    document.getElementById('timeStack').classList.toggle('is-zoomed', !!zoomRange);
+
+    if (showZoomOnTimeline) showZoomOnTimeline(zoomRange);
+    if (showZoomOnMap) showZoomOnMap(zoomRange);
+}
+
+function clearAllHover()
+{
+    linkedViews.forEach(v => v.onClear());
+}
+
+// Events/segments are detected against the full-resolution `rows`, but the
+// map/charts share an index into the decimated `chartRows` — this finds
+// the nearest decimated sample to a given event timestamp so hovering a
+// log row can still move the shared crosshair/marker correctly.
+function nearestChartIndex(chartRows, t)
+{
+    let idx = 0, best = Infinity;
+    for (let i = 0; i < chartRows.length; i++) {
+        const diff = Math.abs(chartRows[i].t - t);
+        if (diff < best) { best = diff; idx = i; }
+    }
+    return idx;
+}
+
+// Peak combined-magnitude G (see gVals in load()) within a short window
+// around a given timestamp — used to attach "how hard was it" to an event
+// that already has a clear rider-facing meaning (a bottom-out, a jump
+// landing), instead of a standalone "hard impact" Notable Events entry
+// with no action of its own attached to it. Combined magnitude, not an
+// isolated vertical component: ax/ay/az are the BNO08x's raw body-frame
+// accelerometer report (imu.cpp), not gravity/world-frame corrected, so a
+// hard corner or steep pitch mixes lean into any single axis. Magnitude
+// needs no orientation assumptions at all, which is why the plain "how hard
+// was it" labels stay on it; verticalG() is the better signal for harshness
+// specifically and is used there instead. See docs/dashboard.md's tuning-engine
+// design notes for the fuller investigation.
+const PEAK_G_WINDOW_MS = 175;
+
+function peakGNear(rows, gVals, t)
+{
+    let peak = 0;
+    for (let i = 0; i < rows.length; i++) {
+        if (Math.abs(rows[i].t - t) <= PEAK_G_WINDOW_MS && gVals[i] > peak) peak = gVals[i];
+    }
+    return peak;
+}
+
+// The same peak as text, "≥" in front when the reading it came from hit the
+// accelerometer's ceiling (see accelClipped() in telemetry.js).
+function peakGNearText(rows, gVals, t)
+{
+    let peak = 0, clipped = false;
+    for (let i = 0; i < rows.length; i++) {
+        if (Math.abs(rows[i].t - t) <= PEAK_G_WINDOW_MS && gVals[i] > peak) { peak = gVals[i]; clipped = accelClipped(rows[i]); }
+    }
+    return formatPeakG(peak, clipped);
+}
+
+// Play button: animates the shared linked-view crosshair from start to end
+// over a fixed wall-clock duration, not real time — a 40-minute ride would
+// otherwise take 40 minutes to "watch". Works off whatever chartRows load()
+// last set, so it's available regardless of which tab is active, since the
+// map/route card sits outside the tab system.
+let playbackRows = [];
+let playbackRAF = null;
+let playbackStartMs = 0;
+let playbackElapsedMs = 0;
+let playbackPlaying = false;
+const PLAYBACK_DURATION_MS = 20000;
+
+function setPlayIcon(playing)
+{
+    document.getElementById('playIcon').innerHTML = playing
+        ? '<rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/>'
+        : '<path d="M8 5v14l11-7z"/>';
+    document.getElementById('playBtn').title = playing ? 'Pause' : 'Play route';
+}
+
+function stopPlayback()
+{
+    if (playbackRAF) cancelAnimationFrame(playbackRAF);
+    playbackRAF = null;
+
+    if (playbackPlaying) playbackElapsedMs += performance.now() - playbackStartMs;
+    playbackPlaying = false;
+    setPlayIcon(false);
+}
+
+function playbackStep(now)
+{
+    const elapsed = playbackElapsedMs + (now - playbackStartMs);
+    const frac = Math.min(1, elapsed / PLAYBACK_DURATION_MS);
+
+    broadcastIndex(Math.round(frac * (playbackRows.length - 1)));
+
+    if (frac >= 1) {
+        playbackRAF = null;
+        playbackPlaying = false;
+        playbackElapsedMs = 0;
+        setPlayIcon(false);
+        return;
+    }
+
+    playbackRAF = requestAnimationFrame(playbackStep);
+}
+
+function togglePlayback()
+{
+    if (!playbackRows.length) return;
+
+    if (playbackPlaying) {
+        stopPlayback();
+        return;
+    }
+
+    playbackPlaying = true;
+    setPlayIcon(true);
+    playbackStartMs = performance.now();
+    playbackRAF = requestAnimationFrame(playbackStep);
+}
+
+// ── The time-series stack ──────────────────────────────────────────────────
+// The Overview tab's charts: one row per measurement, all on the same time
+// span. Everything about them is arranged around one goal — as many traces
+// on screen at once as will fit:
+//
+//  - Rows are only as tall as they need to be. fitTimeCharts() sizes them so
+//    that the whole stack fits in the window when it can, within a floor
+//    (below which a trace stops being readable) and a ceiling.
+//  - There is one time axis for all of them, pinned in view while the rows
+//    scroll past, instead of an axis under each. Every chart carries faint
+//    gridlines at that axis's ticks.
+//  - The value under the cursor is shown beside each chart, next to its
+//    Avg/Peak, not in a floating tooltip: on a row this short a tooltip
+//    would cover the very part of the trace being pointed at.
+//
+// Unlike the page's other charts — drawn into a 300-unit viewBox that the
+// browser stretches — these are drawn in real pixels: the viewBox is the
+// size the chart is rendered at. A short, wide chart then keeps 1px rules
+// and undistorted text, which a stretched drawing can't.
+const TIME_CHART_IDS = ['frontChart', 'rearChart', 'speedChart', 'leanChart', 'pitchChart', 'gforceChart', 'altChart'];
+
+const TIME_PAD_L = 46;          // px — shared by every chart and the axis, so their plots line up
+const TIME_PAD_R = 10;
+const TIME_CHART_MIN_H = 52;
+const TIME_CHART_MAX_H = 150;
+const TIME_ROW_EXTRA = 9;       // a row's own 2 × 4px padding and 1px rule (see .time-stack in style.css)
+
+let timeStackDrawn = { width: 0, height: 0 };   // the size the charts were last drawn for
+
+// Where the time axis comes to rest once the stack has been scrolled up
+// under it, in px from the top of the window.
+function timeAxisPinnedTop()
+{
+    const tabs = document.querySelector('.seg-tabs');
+    const map = document.getElementById('gpsCard');
+
+    // A portrait tablet pins the map above the tab content (see style.css);
+    // anything wider has it in a column of its own, beside the charts.
+    if (window.innerWidth < 1024 && getComputedStyle(map).position === 'sticky')
+        return (parseFloat(getComputedStyle(map).top) || 0) + map.offsetHeight + 8;
+
+    return (parseFloat(getComputedStyle(tabs).top) || 0) + tabs.offsetHeight + 8;
+}
+
+// Chooses the charts' height for the window as it is now and hands it to the
+// CSS (the loading placeholders use it too, so nothing jumps when the data
+// arrives). Returns that height in px.
+function fitTimeCharts()
+{
+    const stack = document.getElementById('timeStack');
+    const map = document.getElementById('gpsCard');
+    const pinnedTop = timeAxisPinnedTop();
+
+    // Under a pinned map the axis's resting place depends on how tall the
+    // map card turned out, which the stylesheet can't know. Everywhere else
+    // its own calc() does the job (and follows the offline banner).
+    if (window.innerWidth < 1024 && getComputedStyle(map).position === 'sticky')
+        stack.style.setProperty('--time-axis-top', pinnedTop + 'px');
+    else
+        stack.style.removeProperty('--time-axis-top');
+
+    const rows = TIME_CHART_IDS
+        .filter(id => document.getElementById(id).closest('.telemetry-row').style.display !== 'none').length;
+
+    const axis = document.getElementById('timeAxisRow').offsetHeight || 30;
+
+    // Below 1024px the page's nav floats over the bottom of the window.
+    const nav = document.querySelector('.bottom-nav').getBoundingClientRect();
+    const floatingNav = nav.top > window.innerHeight / 2 ? window.innerHeight - nav.top + 8 : 0;
+
+    const available = window.innerHeight - pinnedTop - axis - floatingNav - 12;
+    const height = Math.round(Math.max(TIME_CHART_MIN_H, Math.min(TIME_CHART_MAX_H, available / rows - TIME_ROW_EXTRA)));
+
+    stack.style.setProperty('--time-chart-h', height + 'px');
+    return height;
+}
+
+// Draws the stack for the zoom and the window as they are now.
+function drawTimeStack()
+{
+    const height = fitTimeCharts();
+    if (!redrawTimeCharts) return;
+
+    const width = Math.round(document.getElementById('timeAxis').getBoundingClientRect().width);
+    timeStackDrawn = { width, height };
+
+    // Nothing to measure while another tab is on show — refitTimeStack()
+    // comes back here once Overview is.
+    if (!width) return;
+
+    redrawTimeCharts(zoomRange, height);
+    restoreHover();
+}
+
+// Redraws the stack if the size it was drawn for is no longer the size it
+// has: the window was resized, a scrollbar came or went, or Overview has
+// just become the tab on show.
+function refitTimeStack()
+{
+    const height = fitTimeCharts();
+    const width = Math.round(document.getElementById('timeAxis').getBoundingClientRect().width);
+
+    if (!redrawTimeCharts || !width) return;
+    if (width === timeStackDrawn.width && height === timeStackDrawn.height) return;
+
+    drawTimeStack();
+}
+
+// Run once, before any data: gives every row its "Cursor" readout next to
+// Avg/Peak (so the label column's layout doesn't move when the charts
+// arrive), sizes the rows, and keeps them sized.
+function initTimeStack()
+{
+    TIME_CHART_IDS.forEach(id => {
+        const cell = document.createElement('div');
+        cell.className = 'mini-cursor';
+        cell.innerHTML = '<span class="mini-label">Cursor</span><span class="mini-value">–</span>';
+
+        document.getElementById(id).closest('.telemetry-row').querySelector('.telemetry-minis').appendChild(cell);
+    });
+
+    fitTimeCharts();
+
+    let timer = null;
+    const refitSoon = () => { clearTimeout(timer); timer = setTimeout(refitTimeStack, 150); };
+
+    // The window's height matters as much as its width here, and the map
+    // card's height too where the axis rests under it.
+    window.addEventListener('resize', refitSoon);
+
+    if (window.ResizeObserver) {
+        const observer = new ResizeObserver(refitSoon);
+        observer.observe(document.getElementById('timeStack'));
+        observer.observe(document.getElementById('gpsCard'));
+    }
+}
+
+// Where the shared axis puts its ticks for a span drawn plotW px wide: the
+// smallest "round" step that still leaves the labels room to breathe.
+function timeTicks(from, to, plotW)
+{
+    const STEPS = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+    const maxTicks = Math.max(2, Math.floor(plotW / 90));
+    const step = STEPS.find(s => (to - from) / s <= maxTicks) || STEPS[STEPS.length - 1];
+
+    const values = [];
+    for (let k = Math.ceil(from / step - 1e-9); k * step <= to + 1e-9; k++) values.push(Math.round(k * step * 10) / 10);
+
+    return { step, values };
+}
+
+// The one time axis the whole stack shares. Besides the ticks it carries a
+// tag that follows the cursor, which is where the hovered moment's time is
+// read — the readouts beside the charts only give values.
+function drawTimeAxis(from, to, ticks)
+{
+    const svg = document.getElementById('timeAxis');
+    svg.innerHTML = '';
+
+    const W = Math.round(svg.getBoundingClientRect().width);
+    const H = 22;                   // .time-axis-row .chart-svg in style.css
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const plotW = W - TIME_PAD_L - TIME_PAD_R;
+    const X = s => TIME_PAD_L + ((s - from) / ((to - from) || 1)) * plotW;
+
+    // Whole seconds read as m:ss; a step under a second needs the tenths.
+    const label = ticks.step >= 1 ? formatDuration : formatChartTime;
+
+    const labels = ticks.values.map(s => {
+        const x = X(s);
+
+        svg.appendChild(el('line', { x1: x.toFixed(1), y1: H - 5, x2: x.toFixed(1), y2: H, stroke: COLOR_MUTED, 'stroke-width': 1 }));
+
+        const text = el('text', {
+            x: x.toFixed(1), y: H - 9,
+            'text-anchor': x - TIME_PAD_L < 18 ? 'start' : W - TIME_PAD_R - x < 18 ? 'end' : 'middle',
+            'font-size': 11, fill: COLOR_MUTED
+        });
+        text.textContent = label(s);
+        svg.appendChild(text);
+
+        const box = text.getBBox();
+        return { text, from: box.x, to: box.x + box.width };
+    });
+
+    // A tick label the cursor's tag would half-cover steps aside for it.
+    const showLabels = (from, to) => labels.forEach(l => {
+        l.text.setAttribute('visibility', l.to > from - 3 && l.from < to + 3 ? 'hidden' : 'visible');
+    });
+
+    const tag = el('g', { visibility: 'hidden' });
+    const tagBox = el('rect', { y: 0, height: H - 5, rx: 4, fill: COLOR_ACCENT });
+    const tagText = el('text', { y: H - 9, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: COLOR_ACCENT_TEXT });
+    tag.appendChild(tagBox);
+    tag.appendChild(tagText);
+    svg.appendChild(tag);
+
+    registerLinkedView('timeAxis', {
+        onTime(t) {
+            const s = (t - chartT0) / 1000;
+            if (s < from || s > to) { this.onClear(); return; }
+
+            tagText.textContent = formatChartTime(s);
+
+            const w = tagText.textContent.length * 6.3 + 12;
+            const cx = Math.max(w / 2, Math.min(W - w / 2, X(s)));
+
+            tagBox.setAttribute('x', (cx - w / 2).toFixed(1));
+            tagBox.setAttribute('width', w.toFixed(1));
+            tagText.setAttribute('x', cx.toFixed(1));
+            tag.setAttribute('visibility', 'visible');
+
+            showLabels(cx - w / 2, cx + w / 2);
+        },
+        onClear() {
+            tag.setAttribute('visibility', 'hidden');
+            showLabels(0, -Infinity);
+        }
+    });
+}
+
+// One chart of the stack, in real pixels (see the notes above).
+//
+// opts: height (px); from / to (the time span every chart shares, seconds);
+// ticks (the shared axis's tick times, drawn here as gridlines); yFormat for
+// the y axis and readFormat (yFormat if absent) for the readout; includeZero;
+// yMax, a value the y axis reaches whatever the data does; minSpan, the
+// least it may cover.
+//
+// The first series is the one the chart is about, and its value is the
+// Cursor readout. Any further series gets a line of its own under the
+// row's figures, which doubles as the chart's legend.
+function drawLineChart(svg, series, opts)
+{
+    svg.innerHTML = '';
+
+    const W = Math.round(svg.getBoundingClientRect().width);
+    const H = opts.height;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const padL = TIME_PAD_L, padR = TIME_PAD_R, padT = 7, padB = 5;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    // The span comes from the caller rather than from this chart's own first
+    // and last points: each chart keeps different samples (see
+    // minMaxPoints()), and a few milliseconds' difference at either end
+    // would put the same moment at slightly different x from one row to the
+    // next — and off the shared axis.
+    const xMin = opts.from, xMax = opts.to;
+
+    // The y axis includes 0 (the baseline) by default, and can extend below
+    // it for signed data like lean angle or pitch. Pass includeZero:false
+    // for values where 0 isn't a meaningful reference (e.g. altitude) —
+    // otherwise a large constant offset flattens the real variation.
+    const includeZero = opts.includeZero !== false;
+    let yMin = includeZero ? 0 : Infinity;
+    let yMax = includeZero ? 0 : -Infinity;
+    series.forEach(s => s.points.forEach(p => {
+        if (p.y === null) return;
+        if (p.y < yMin) yMin = p.y;
+        if (p.y > yMax) yMax = p.y;
+    }));
+
+    // A chart whose values are all missing still needs an axis.
+    if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
+
+    if (typeof opts.yMax === 'number' && opts.yMax > yMax) yMax = opts.yMax;
+
+    // Zoomed in far enough, a value barely changes — a second of altitude
+    // is a few centimetres — and an axis fitted to that would blow sensor
+    // noise up to the full height of the chart. minSpan is the least the
+    // axis may cover; a chart that starts at zero keeps doing so.
+    const short = (opts.minSpan || 1e-6) - (yMax - yMin);
+
+    if (short > 0) {
+        if (includeZero && yMin === 0) yMax += short;
+        else { yMin -= short / 2; yMax += short / 2; }
+    }
+
+    // "-0°" for a value that only rounds to zero.
+    const unsigned = text => text.replace(/^-(?=0(\.0+)?\D*$)/, '');
+    const yFormat = v => unsigned(opts.yFormat(v));
+    const readFormat = v => unsigned((opts.readFormat || opts.yFormat)(v));
+
+    const X = x => padL + ((x - xMin) / ((xMax - xMin) || 1)) * plotW;
+    const Y = y => padT + plotH - ((y - yMin) / (yMax - yMin)) * plotH;
+
+    opts.ticks.forEach(s => {
+        const x = X(s).toFixed(1);
+        svg.appendChild(el('line', { x1: x, y1: padT, x2: x, y2: padT + plotH, stroke: COLOR_BORDER, 'stroke-width': 1, opacity: 0.55 }));
+    });
+
+    // The y axis ends where the data does, not at the next round number: on
+    // a chart this short, rounding 47 km/h up to 60 would hand a fifth of
+    // the height to nothing. So the two ends are labelled with what they
+    // are — the lowest and highest value on show — and round values get a
+    // gridline in between, with a label wherever one fits clear of the ends.
+    // px between two labels' baselines. 13 packed eleven labels (0-100%
+    // every 10%) into a tall travel row, which read as a column of noise;
+    // 20 gives that row 0/20/…/100 and a laptop-height row 0/50/100.
+    const Y_LABEL_GAP = 20;
+
+    function yLine(v, labelled)
+    {
+        const y = Y(v);
+
+        // Zero inside a signed chart (lean, pitch) is the line everything
+        // is read against, so it's drawn a little stronger than the rest.
+        const isBaseline = v === 0 && yMin < 0 && yMax > 0;
+
+        svg.appendChild(el('line', {
+            x1: padL, y1: y.toFixed(1), x2: W - padR, y2: y.toFixed(1),
+            stroke: isBaseline ? COLOR_MUTED : COLOR_BORDER, 'stroke-width': 1, opacity: isBaseline ? 0.6 : 1
+        }));
+
+        if (!labelled) return;
+
+        const label = el('text', { x: padL - 6, y: (y + 4).toFixed(1), 'text-anchor': 'end', 'font-size': 11, fill: COLOR_MUTED });
+        label.textContent = yFormat(v);
+        svg.appendChild(label);
+    }
+
+    yLine(yMin, true);
+    yLine(yMax, true);
+
+    // The finest round step whose gridlines are still a label apart.
+    const yStep = [1, 2, 5, 10].map(m => m * Math.pow(10, Math.floor(Math.log10((yMax - yMin) / plotH * Y_LABEL_GAP))))
+        .find(step => step / (yMax - yMin) * plotH >= Y_LABEL_GAP);
+
+    for (let k = Math.ceil(yMin / yStep); k * yStep < yMax; k++) {
+        const v = k * yStep;
+        if (v <= yMin) continue;
+
+        yLine(v, Y(v) - Y(yMax) >= Y_LABEL_GAP && Y(yMin) - Y(v) >= Y_LABEL_GAP);
+    }
+
+    // Stretches with no samples (findGaps() in telemetry.js), shaded in the
+    // warning colour under the traces: a line drawn straight across one is
+    // not data. Never thinner than 2px — half a second of a whole run is a
+    // pixel or two wide, and it should still be seen.
+    (opts.gaps || []).forEach(g => {
+        const x1 = Math.max(padL, X(g.at));
+        const x2 = Math.min(W - padR, X(g.at + g.s));
+        if (x2 < padL || x1 > W - padR) return;
+
+        svg.appendChild(el('rect', {
+            x: x1.toFixed(1), y: padT, width: Math.max(2, x2 - x1).toFixed(1), height: plotH,
+            fill: cssVar('--warn'), opacity: 0.35
+        }));
+    });
+
+    // Stretches where the sensor's orientation was lost
+    // (findOrientationLoss() in telemetry.js), on the charts drawn from it:
+    // shaded in the neutral colour, and the trace breaks across them.
+    (opts.lost || []).forEach(g => {
+        const x1 = Math.max(padL, X(g.at));
+        const x2 = Math.min(W - padR, X(g.at + g.s));
+        if (x2 < padL || x1 > W - padR) return;
+
+        svg.appendChild(el('rect', {
+            x: x1.toFixed(1), y: padT, width: Math.max(2, x2 - x1).toFixed(1), height: plotH,
+            fill: COLOR_NEUTRAL, opacity: 0.22
+        }));
+    });
+
+    // A reference trace (`secondary`) goes down first, so the series the
+    // chart is actually about is drawn over it rather than buried under it.
+    series.slice().sort((a, b) => (b.secondary ? 1 : 0) - (a.secondary ? 1 : 0)).forEach(s => {
+        let d = '';
+        let pen = false;   // false: the next point starts a new line (first one, or after a null)
+        s.points.forEach(p => {
+            if (p.y === null) { pen = false; return; }
+            d += (pen ? 'L' : 'M') + X(p.x).toFixed(1) + ',' + Y(p.y).toFixed(1) + ' ';
+            pen = true;
+        });
+
+        svg.appendChild(el('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 1.25, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    });
+
+    const crosshair = el('line', { x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: COLOR_MUTED, 'stroke-width': 1, opacity: 0 });
+    svg.appendChild(crosshair);
+
+    // Marks the main series' point under the crosshair.
+    const dot = el('circle', { r: 3.5, fill: series[0].color, stroke: COLOR_SURFACE, 'stroke-width': 1.5, opacity: 0 });
+    svg.appendChild(dot);
+
+    // Shaded span while a zoom drag is in progress.
+    const brush = el('rect', { x: padL, y: padT, width: 0, height: plotH, fill: COLOR_ACCENT, opacity: 0.18, visibility: 'hidden' });
+    svg.appendChild(brush);
+
+    // Takes all the pointer input. Recreated with every draw, which is the
+    // point: listeners on the <svg> itself would pile up each time a zoom
+    // redraws the chart into it.
+    const overlay = el('rect', { x: padL, y: padT, width: plotW, height: plotH, fill: 'transparent' });
+    svg.appendChild(overlay);
+
+    const pts = series[0].points;
+
+    const labelCell = svg.closest('.telemetry-row').querySelector('.telemetry-label');
+    const readout = labelCell.querySelector('.mini-cursor .mini-value');
+
+    labelCell.querySelectorAll('.mini-sub').forEach(node => node.remove());
+
+    // One line per further series: its colour and name always, its value
+    // while there is a cursor.
+    const subValues = series.slice(1).map(s => {
+        const sub = document.createElement('p');
+        sub.className = 'mini-sub';
+
+        const key = document.createElement('span');
+        key.className = 'key';
+        key.style.background = s.color;
+
+        const value = document.createElement('span');
+        value.className = 'value';
+
+        sub.append(key, s.name.toLowerCase(), value);
+        labelCell.appendChild(sub);
+
+        return value;
+    });
+
+    // Index of the point nearest a time in seconds, in a series' points
+    // (they're in time order).
+    function nearestPoint(x, points = pts)
+    {
+        let lo = 0, hi = points.length - 1;
+
+        while (hi - lo > 1) {
+            const mid = (lo + hi) >> 1;
+            if (points[mid].x < x) lo = mid; else hi = mid;
+        }
+
+        return Math.abs(points[lo].x - x) <= Math.abs(points[hi].x - x) ? lo : hi;
+    }
+
+    function clearHover()
+    {
+        crosshair.setAttribute('opacity', 0);
+        dot.setAttribute('opacity', 0);
+        readout.textContent = '–';
+        subValues.forEach(value => { value.textContent = ''; });
+    }
+
+    clearHover();
+
+    registerLinkedView(svg.id, {
+        onTime(t) {
+            const x = (t - chartT0) / 1000;
+
+            // A moment outside the span on show: nothing here to point at.
+            if (x < xMin || x > xMax || !pts.length) { clearHover(); return; }
+
+            const p = pts[nearestPoint(x)];
+            const cx = X(p.x).toFixed(1);
+
+            crosshair.setAttribute('x1', cx);
+            crosshair.setAttribute('x2', cx);
+            crosshair.setAttribute('opacity', 1);
+
+            dot.setAttribute('cx', cx);
+            dot.setAttribute('cy', p.y === null ? 0 : Y(p.y).toFixed(1));
+            dot.setAttribute('opacity', p.y === null ? 0 : 1);
+
+            readout.textContent = p.y === null ? '–' : readFormat(p.y);
+
+            subValues.forEach((value, i) => {
+                const points = series[i + 1].points;
+                const q = points.length ? points[nearestPoint(p.x, points)] : null;
+                value.textContent = q && q.y !== null ? readFormat(q.y) : (q ? '–' : '');
+            });
+        },
+        onClear: clearHover
+    });
+
+    // Where across the plot (0–1) a pointer event is.
+    function plotFraction(evt)
+    {
+        const rect = svg.getBoundingClientRect();
+        const px = (evt.clientX - rect.left) / rect.width * W;
+
+        return Math.min(1, Math.max(0, (px - padL) / plotW));
+    }
+
+    let dragFrom = null;    // plot fraction where a zoom drag started, while one is on
+
+    function endDrag()
+    {
+        dragFrom = null;
+        brush.setAttribute('visibility', 'hidden');
+    }
+
+    function pointerHandler(evt)
+    {
+        // Manually scrubbing a chart is an explicit "let me look at this
+        // myself" — stop any running playback rather than fighting it for
+        // the shared crosshair.
+        if (playbackPlaying) stopPlayback();
+
+        const frac = plotFraction(evt);
+
+        if (dragFrom !== null) {
+            brush.setAttribute('x', (padL + Math.min(dragFrom, frac) * plotW).toFixed(1));
+            brush.setAttribute('width', (Math.abs(frac - dragFrom) * plotW).toFixed(1));
+            brush.setAttribute('visibility', 'visible');
+        }
+
+        // The pointer's own time rather than this chart's nearest point:
+        // every chart, the axis and the map then each find that moment in
+        // their own data.
+        broadcastTime(chartT0 + (xMin + frac * (xMax - xMin)) * 1000);
+    }
+
+    overlay.addEventListener('pointermove', pointerHandler);
+
+    // Pointer capture keeps the drag going if it wanders off the chart —
+    // also what makes a horizontal finger drag work on a tablet, where
+    // .chart-svg's touch-action leaves only vertical movement to scrolling.
+    overlay.addEventListener('pointerdown', evt => {
+        dragFrom = plotFraction(evt);
+
+        // Capture is a nicety, not a requirement — without it the drag just
+        // ends at the chart's edge — so a refusal mustn't break the zoom.
+        try { overlay.setPointerCapture(evt.pointerId); } catch (e) {}
+
+        pointerHandler(evt);
+    });
+
+    overlay.addEventListener('pointerup', evt => {
+        if (dragFrom === null) return;
+
+        const frac = plotFraction(evt);
+        const from = Math.min(dragFrom, frac), to = Math.max(dragFrom, frac);
+        endDrag();
+
+        if (to - from >= MIN_ZOOM_DRAG)
+            setZoom({ from: xMin + from * (xMax - xMin), to: xMin + to * (xMax - xMin) });
+    });
+
+    overlay.addEventListener('pointercancel', endDrag);
+    overlay.addEventListener('dblclick', () => setZoom(null));
+    overlay.addEventListener('pointerleave', restoreHover);
+}
+
+function drawGpsTrace(svg, rows)
+{
+    svg.innerHTML = '';
+
+    const pts = rows.filter(r => r.lat !== 0 && r.lon !== 0);
+
+    if (pts.length < 2) {
+        // No point reserving the trace's usual chart-sized block when
+        // there's nothing to draw in it — collapse it away entirely
+        // instead of showing an empty box above the note.
+        svg.style.display = 'none';
+        document.getElementById('gpsNote').textContent = 'No GPS fix recorded during this run.';
+        return;
+    }
+
+    svg.style.display = '';
+
+    const W = 300, H = 200, pad = 14;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const lats = pts.map(p => p.lat), lons = pts.map(p => p.lon);
+    const latMin = arrayMin(lats), latMax = arrayMax(lats);
+    const lonMin = arrayMin(lons), lonMax = arrayMax(lons);
+
+    const cosLat = Math.cos(latMin * Math.PI / 180);
+    const latRange = (latMax - latMin) || 0.0001;
+    const lonRange = ((lonMax - lonMin) * cosLat) || 0.0001;
+
+    const scale = Math.min((W - pad * 2) / lonRange, (H - pad * 2) / latRange);
+
+    const midLon = (lonMin + lonMax) / 2;
+    const midLat = (latMin + latMax) / 2;
+
+    const X = lon => W / 2 + (lon - midLon) * cosLat * scale;
+    const Y = lat => H / 2 - (lat - midLat) * scale;
+
+    let d = '';
+    pts.forEach((p, i) => { d += (i === 0 ? 'M' : 'L') + X(p.lon).toFixed(1) + ',' + Y(p.lat).toFixed(1) + ' '; });
+
+    const pathEl = el('path', { d, fill: 'none', stroke: COLOR_NEUTRAL, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+    svg.appendChild(pathEl);
+
+    // Classic SVG "line draw" reveal: hide the whole path behind a dash gap
+    // exactly as long as the path itself, then animate that gap closed.
+    // Needs the path already in the DOM for getTotalLength() to work, and
+    // a frame to pass before changing dashoffset again — otherwise the
+    // browser can coalesce both style writes into one paint and skip the
+    // transition entirely.
+    const pathLength = pathEl.getTotalLength();
+    pathEl.style.strokeDasharray = pathLength;
+    pathEl.style.strokeDashoffset = pathLength;
+    pathEl.style.transition = 'stroke-dashoffset 2.2s ease-out';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        pathEl.style.strokeDashoffset = '0';
+    }));
+
+    svg.appendChild(el('circle', { cx: X(pts[0].lon).toFixed(1), cy: Y(pts[0].lat).toFixed(1), r: 5, fill: COLOR_ACCENT, stroke: COLOR_SURFACE, 'stroke-width': 2 }));
+    svg.appendChild(el('circle', { cx: X(pts[pts.length - 1].lon).toFixed(1), cy: Y(pts[pts.length - 1].lat).toFixed(1), r: 5, fill: COLOR_SURFACE, stroke: COLOR_ACCENT, 'stroke-width': 2 }));
+
+    // Marker that jumps to the current linked-crosshair position. Uses the
+    // full `rows` array (not the filtered `pts`) so its index lines up with
+    // every other chart, which all share the same decimated dataset.
+    // The stretch the time-series charts are zoomed to (see showZoomOnMap):
+    // the route fades back and that stretch is drawn over it. Under the
+    // start/end dots and the marker, which are appended after it.
+    const zoomPath = el('path', { fill: 'none', stroke: COLOR_ACCENT, 'stroke-width': 3.5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', visibility: 'hidden' });
+    pathEl.after(zoomPath);
+
+    showZoomOnMap = range => {
+        pathEl.setAttribute('opacity', range ? 0.35 : 1);
+        zoomPath.setAttribute('visibility', range ? 'visible' : 'hidden');
+        if (!range) return;
+
+        let zoomD = '';
+        routeStretch(pts, chartT0, range).forEach((p, i) => { zoomD += (i === 0 ? 'M' : 'L') + X(p.lon).toFixed(1) + ',' + Y(p.lat).toFixed(1) + ' '; });
+        zoomPath.setAttribute('d', zoomD);
+    };
+
+    showZoomOnMap(zoomRange);
+
+    const marker = el('circle', { r: 6, fill: COLOR_ACCENT, stroke: COLOR_SURFACE, 'stroke-width': 2, opacity: 0 });
+    svg.appendChild(marker);
+
+    registerLinkedView(svg.id, {
+        onTime(t) {
+            const r = rows[nearestChartIndex(rows, t)];
+            if (!r || (r.lat === 0 && r.lon === 0)) {
+                marker.setAttribute('opacity', 0);
+                return;
+            }
+
+            marker.setAttribute('cx', X(r.lon).toFixed(1));
+            marker.setAttribute('cy', Y(r.lat).toFixed(1));
+            marker.setAttribute('opacity', 1);
+        },
+        onClear() {
+            marker.setAttribute('opacity', 0);
+        }
+    });
+}
+
+// Draws the route(s) from empty up to their full length over a fixed wall-
+// clock duration — the map-drawing equivalent of the SVG stroke-dashoffset
+// trick above, just done by growing each polyline's own point list instead
+// (Leaflet polylines don't have a dash-based "reveal" option). Multiple
+// layers (one per technical/transition segment) are revealed as one
+// continuous stroke by tracking a single point budget shared across all of
+// them, in route order, rather than finishing one layer before starting
+// the next.
+function animateRouteReveal(lineLayers, durationMs)
+{
+    const fullPoints = lineLayers.map(layer => layer.getLatLngs());
+    const totalPoints = fullPoints.reduce((sum, pts) => sum + pts.length, 0);
+    if (totalPoints < 2) return;
+
+    lineLayers.forEach(layer => layer.setLatLngs([]));
+
+    const startMs = performance.now();
+
+    function step(now)
+    {
+        const frac = Math.min(1, (now - startMs) / durationMs);
+        let remaining = Math.max(2, Math.round(frac * totalPoints));
+
+        fullPoints.forEach((full, i) => {
+            const take = Math.min(full.length, remaining);
+            lineLayers[i].setLatLngs(full.slice(0, take));
+            remaining = Math.max(0, remaining - full.length);
+        });
+
+        if (frac < 1) requestAnimationFrame(step);
+    }
+
+    requestAnimationFrame(step);
+}
+
+// Real map background via Leaflet + OpenStreetMap — both free, no API key.
+// Only works when the *viewing device* has actual internet access (the
+// ESP32 itself never does, even in AP mode), since map tiles are fetched
+// from OpenStreetMap's servers, not from this device. If Leaflet's script
+// tag failed to load (no internet reaching it either), `L` is undefined
+// and we fall back to the plain SVG route trace, which has no external
+// dependency and always works.
+// Splits the GPS-fixed points into runs of consecutive same-classification
+// points (technical vs transition, per computeActivitySegments()), each
+// run overlapping its neighbor by one point so the drawn lines actually
+// connect instead of leaving a gap at every segment boundary. Matches
+// points to segments by timestamp rather than carrying indices through,
+// since `pts` here has already been filtered down from the full rows.
+function splitPointsBySegment(pts, segments, t0)
+{
+    const technicalAt = (p) => {
+        const relS = (p.t - t0) / 1000;
+        const seg = segments.find(s => relS >= s.startS && relS <= s.endS);
+        return seg ? seg.technical : false;
+    };
+
+    const groups = [];
+    let currentTechnical = null;
+    let currentPoints = [];
+
+    pts.forEach(p => {
+        const technical = technicalAt(p);
+
+        if (currentTechnical === null) {
+            currentTechnical = technical;
+            currentPoints = [p];
+        } else if (technical === currentTechnical) {
+            currentPoints.push(p);
+        } else {
+            groups.push({ technical: currentTechnical, points: currentPoints });
+            currentTechnical = technical;
+            currentPoints = [currentPoints[currentPoints.length - 1], p];
+        }
+    });
+
+    if (currentPoints.length) groups.push({ technical: currentTechnical, points: currentPoints });
+    return groups;
+}
+
+// The part of a route that falls inside a span of the run ({ from, to } in
+// seconds since t0), as points in order. Its two ends are worked out between
+// the route's own points rather than snapped to them: those can be seconds
+// apart on a long ride, and a zoom is often shorter than that.
+function routeStretch(pts, t0, range)
+{
+    const at = t => {
+        let i = 0;
+        while (i < pts.length - 1 && pts[i + 1].t <= t) i++;
+
+        const a = pts[i], b = pts[Math.min(i + 1, pts.length - 1)];
+        const f = b.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t))) : 0;
+
+        return { t, lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
+    };
+
+    const from = t0 + range.from * 1000, to = t0 + range.to * 1000;
+
+    return [at(from), ...pts.filter(p => p.t > from && p.t < to), at(to)];
+}
+
+function tryDrawLeafletMap(rows, segments, t0)
+{
+    if (typeof L === 'undefined') return false;
+
+    const pts = rows.filter(r => r.lat !== 0 && r.lon !== 0);
+    if (pts.length < 2) return false;
+
+    const mapDiv = document.getElementById('gpsMap');
+    mapDiv.style.display = 'block';
+    document.getElementById('gpsTrace').style.display = 'none';
+
+    const latlngs = pts.map(p => [p.lat, p.lon]);
+
+    const map = L.map(mapDiv, { attributionControl: true }).setView(latlngs[0], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Highlight technical sections in amber (same color as the Analysis
+    // tab's segment timeline) instead of introducing a second "transition"
+    // color for the map specifically — the pale surface-alt tone used for
+    // transition in that timeline bar would wash out against photographic
+    // map tiles, so untouched route just stays the normal accent color.
+    const hasSegments = segments && segments.length > 0;
+    const lineLayers = hasSegments
+        ? splitPointsBySegment(pts, segments, t0).map(g =>
+            L.polyline(g.points.map(p => [p.lat, p.lon]), {
+                color: g.technical ? COLOR_TECHNICAL : COLOR_MAP_INK,
+                weight: 3
+            }).addTo(map))
+        : [L.polyline(latlngs, { color: COLOR_MAP_INK, weight: 3 }).addTo(map)];
+
+    if (hasSegments) {
+        document.getElementById('gpsNote').textContent = 'Pink marks technical sections';
+    }
+
+    const routeGroup = L.featureGroup(lineLayers);
+    const fitToRoute = () => map.fitBounds(routeGroup.getBounds(), { padding: [16, 16] });
+    fitToRoute();
+
+    animateRouteReveal(lineLayers, 2200);
+
+    // The stretch the time-series charts are zoomed to (see showZoomOnMap):
+    // the route fades back and that stretch is drawn again over it, thicker
+    // and on a white casing, in the same technical/transition colours. The
+    // casing is what keeps a few metres of trail — a two-second zoom —
+    // findable on a map of the whole ride. White rather than a theme
+    // colour: like the rest of the map's chrome, it sits on the tiles,
+    // which look the same in both themes.
+    const zoomGroup = L.layerGroup().addTo(map);
+    const routeDots = [];           // start, end and the cursor's marker — they stay on top of it
+
+    showZoomOnMap = range => {
+        zoomGroup.clearLayers();
+        lineLayers.forEach(layer => layer.setStyle({ opacity: range ? 0.35 : 1 }));
+        if (!range) return;
+
+        const stretch = routeStretch(pts, t0, range);
+        const stretchLatLngs = stretch.map(p => [p.lat, p.lon]);
+
+        L.polyline(stretchLatLngs, { color: '#fff', weight: 9, opacity: 0.95, interactive: false }).addTo(zoomGroup);
+
+        const groups = hasSegments ? splitPointsBySegment(stretch, segments, t0) : [{ technical: false, points: stretch }];
+        groups.forEach(g => {
+            L.polyline(g.points.map(p => [p.lat, p.lon]), {
+                color: g.technical ? COLOR_TECHNICAL : COLOR_MAP_INK, weight: 5, interactive: false
+            }).addTo(zoomGroup);
+        });
+
+        // Leaflet stacks vector layers in the order they were added, and
+        // these have just been added last.
+        routeDots.forEach(dot => dot.bringToFront());
+
+        // Only the route as a whole is ever fitted to the view, so that the
+        // map stays the picture of where on the ride this is — and only
+        // when the stretch would otherwise be out of sight.
+        if (!map.getBounds().contains(L.latLngBounds(stretchLatLngs))) fitToRoute();
+    };
+
+    showZoomOnMap(zoomRange);
+
+    // Reuses Leaflet's own control chrome (leaflet-bar/leaflet-control,
+    // already styled by the CDN'd leaflet.css) so this matches the
+    // zoom buttons instead of needing its own theme-aware CSS — the map
+    // itself isn't theme-aware either (OSM tiles are what they are), so
+    // white Leaflet-style controls are the expected look here regardless
+    // of the app's dark/light setting.
+    const RecenterControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd() {
+            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            const link = L.DomUtil.create('a', '', container);
+            link.href = '#';
+            link.title = 'Recenter on route';
+            link.setAttribute('role', 'button');
+            // margin:auto on the svg alone only centers it horizontally —
+            // vertical centering needs the anchor itself to be a flex
+            // container, since leaflet-bar a has a fixed height taller
+            // than the 16px icon.
+            link.style.display = 'flex';
+            link.style.alignItems = 'center';
+            link.style.justifyContent = 'center';
+            link.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="5"/></svg>';
+
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.on(link, 'click', (evt) => {
+                L.DomEvent.preventDefault(evt);
+                fitToRoute();
+            });
+
+            return container;
+        }
+    });
+    map.addControl(new RecenterControl());
+
+    const dotStyle = (fill, stroke) => ({ radius: 6, weight: 2, color: stroke, fillColor: fill, fillOpacity: 1 });
+    const startDot = L.circleMarker(latlngs[0], dotStyle(COLOR_ACCENT, COLOR_SURFACE)).addTo(map);
+    const endDot = L.circleMarker(latlngs[latlngs.length - 1], dotStyle(COLOR_SURFACE, COLOR_ACCENT)).addTo(map);
+
+    // Marker that jumps to the current linked-crosshair position, hidden
+    // (zero opacity) until the first hover — same role as the SVG version's
+    // marker circle. Uses the full `rows` array so its index lines up with
+    // every other chart, which all share the same decimated dataset.
+    const hoverMarker = L.circleMarker(latlngs[0], { ...dotStyle(COLOR_ACCENT, COLOR_SURFACE), opacity: 0, fillOpacity: 0 }).addTo(map);
+
+    routeDots.push(startDot, endDot, hoverMarker);
+
+    registerLinkedView('gpsMap', {
+        onTime(t) {
+            const r = rows[nearestChartIndex(rows, t)];
+            if (!r || (r.lat === 0 && r.lon === 0)) {
+                hoverMarker.setStyle({ opacity: 0, fillOpacity: 0 });
+                return;
+            }
+
+            hoverMarker.setLatLng([r.lat, r.lon]);
+            hoverMarker.setStyle({ opacity: 1, fillOpacity: 1 });
+        },
+        onClear() {
+            hoverMarker.setStyle({ opacity: 0, fillOpacity: 0 });
+        }
+    });
+
+    return true;
+}
+
+// Suspension setup (clicks/tokens/psi) is saved into every run's .JSON as
+// a snapshot of Settings at the moment the run ended (see writeRunMeta()
+// in run_service.cpp) — this surfaces that snapshot, since it's otherwise
+// completely invisible on this page today, and a rider's setup often
+// changes between rides.
+function renderSetupInfo(bike, isFullSusp)
+{
+    const info = document.getElementById('setupInfo');
+    if (!bike) {
+        info.style.display = 'none';
+        return;
+    }
+
+    // The same fields the Tuning tab and Compare show (setupFields() in
+    // telemetry.js decides which exist — a dial by its has_* flag, never by
+    // its value), in this strip's shorter wording and without the static sag
+    // or the pre-split click counts.
+    const suspText = (label, s) => {
+        const parts = setupFields(s)
+            .filter(f => SETUP_DIALS.includes(f.key) || f.key === 'tokens' || f.key === 'psi' || f.key === 'lockout')
+            .map(f => f.key === 'tokens' ? `${f.value} tok`
+                : f.key === 'psi' ? `${f.value.toFixed(0)} psi`
+                : f.key === 'lockout' ? 'locked out'
+                : `${f.key.toUpperCase()} ${f.value}`);
+
+        return parts.length ? `${label}: ${parts.join(' · ')}` : '';
+    };
+
+    document.getElementById('setupFront').textContent = suspText('Front', bike.front_suspension);
+    document.getElementById('setupRear').textContent = isFullSusp ? suspText('Rear', bike.rear_suspension) : '';
+
+    const hasAnything = bike.front_suspension || (isFullSusp && bike.rear_suspension);
+    info.style.display = hasAnything ? '' : 'none';
+
+    const hasRearSetup = isFullSusp && !!bike.rear_suspension;
+    document.getElementById('rearLockoutRow').style.display = hasRearSetup ? 'flex' : 'none';
+    document.getElementById('rearLockout').checked = hasRearSetup && bike.rear_suspension.lockout === true;
+
+    loadedBike = bike;
+    loadedFullSusp = isFullSusp;
+    document.getElementById('setupEditRow').style.display = bike.front_suspension ? '' : 'none';
+
+    // A setup corrected after the ride says so, and what it was recorded
+    // with (the setup's "recorded", kept by the device the first time a
+    // field is corrected).
+    const corrections = [];
+    [['Front', bike.front_suspension], ['Rear', hasRearSetup ? bike.rear_suspension : null]].forEach(([label, s]) => {
+        if (!s || !s.recorded) return;
+        Object.keys(s.recorded).forEach(key => {
+            const f = SETUP_EDIT_FIELDS.find(x => x.key === key);
+            corrections.push(`${label} ${f ? f.name : key}: recorded ${s.recorded[key]}, corrected to ${s[key] ?? 'none'}`);
+        });
+    });
+
+    const marker = document.getElementById('setupCorrected');
+    marker.style.display = corrections.length ? '' : 'none';
+    marker.title = corrections.join('\n');
+}
+
+// ── Correcting the recorded setup ──────────────────────────────────────────
+// A run records whatever Settings held when it ended, which is not always
+// what was on the bike — Settings updated only after the ride, say. "Edit
+// setup" corrects that in the run's own .JSON (POST /api/runs/setup), and
+// nothing else: not Settings, not the bike's profile. The device keeps what
+// the run was recorded with, which the line above shows as "Corrected after
+// the ride". The setup history, the tuning context and the browser's kept
+// runs list all follow, from the corrected values.
+
+let loadedBike = null;          // the run's bike/setup as loaded, for the dialog
+let loadedFullSusp = true;
+
+// What can be corrected, in the run .JSON's names, with the matching key in
+// /api/config (for "Use current Settings").
+const SETUP_EDIT_FIELDS = [
+    { key: 'lsc', label: 'LSC', name: 'LSC', config: 'LSC', dial: true },
+    { key: 'hsc', label: 'HSC', name: 'HSC', config: 'HSC', dial: true },
+    { key: 'lsr', label: 'LSR', name: 'LSR', config: 'LSR', dial: true },
+    { key: 'hsr', label: 'HSR', name: 'HSR', config: 'HSR', dial: true },
+    { key: 'volume_tokens', label: 'Tokens', name: 'tokens', config: 'VolumeTokens', max: 255 },
+    { key: 'pressure_psi', label: 'Pressure (psi)', name: 'pressure', config: 'PressurePsi', max: 1000 }
+];
+
+function editRecordedSetup()
+{
+    if (!loadedBike || !loadedBike.front_suspension) return;
+
+    const ends = [{ end: 'front', label: 'Front', setup: loadedBike.front_suspension }];
+    if (loadedFullSusp && loadedBike.rear_suspension) ends.push({ end: 'rear', label: 'Rear', setup: loadedBike.rear_suspension });
+
+    // A dial is offered for the ends that have it (adjusterAvailability());
+    // a row only when at least one end does.
+    const has = (e, f) => !f.dial || adjusterAvailability(e.setup)[f.key];
+    const rows = SETUP_EDIT_FIELDS.filter(f => ends.some(e => has(e, f)));
+
+    const dlg = document.createElement('dialog');
+    dlg.className = 'dialog setup-dialog';
+    dlg.innerHTML = `
+        <h3>Correct this run's setup</h3>
+        <p>What was really on the bike for ${escapeHtml(runTitle || runName)}. Only this run changes — not Settings, not the bike's profile — and what it was recorded with is kept.</p>
+        <div class="setup-edit-grid" style="grid-template-columns: auto 1fr;">
+            ${ends.map(e => `<span class="stat-sub" style="margin:0;">${e.end === 'front' ? 'Fork' : 'Shock'} model</span><input type="text" maxlength="60" autocomplete="off" data-end="${e.end}" data-model value="${escapeHtml(suspensionModel(e.setup))}">`).join('')}
+        </div>
+        <div class="setup-edit-grid" style="grid-template-columns: auto repeat(${ends.length}, 1fr);">
+            <span></span>${ends.map(e => `<span class="stat-label">${e.label}</span>`).join('')}
+            ${rows.map(f => `<span class="stat-sub" style="margin:0;">${f.label}</span>` + ends.map(e => has(e, f)
+                ? `<input type="number" min="0" max="${f.max || 255}" step="1" data-end="${e.end}" data-key="${f.key}" value="${typeof e.setup[f.key] === 'number' ? e.setup[f.key] : ''}">`
+                : '<span class="stat-sub" style="margin:0;">—</span>').join('')).join('')}
+        </div>
+        <p class="stat-sub" id="setupEditStatus" style="margin-top:10px; min-height:1.4em;"></p>
+        <div class="dialog-actions">
+            <button type="button" class="ghost" data-act="settings">Use current Settings</button>
+            <button type="button" class="ghost" data-act="cancel">Cancel</button>
+            <button type="button" data-act="save">Save</button>
+        </div>`;
+
+    const status = dlg.querySelector('#setupEditStatus');
+    const inputs = Array.from(dlg.querySelectorAll('input[data-key]'));
+    const modelInputs = Array.from(dlg.querySelectorAll('input[data-model]'));
+
+    // Fills in what Settings hold now — the usual case being Settings that
+    // were only brought up to date after the ride.
+    async function useSettings()
+    {
+        status.textContent = 'Reading Settings…';
+
+        try {
+            const cfg = await (await fetch('/api/config')).json();
+
+            inputs.forEach(input => {
+                const f = SETUP_EDIT_FIELDS.find(x => x.key === input.dataset.key);
+                const value = cfg[input.dataset.end + f.config];
+                if (typeof value === 'number') input.value = Math.round(value);
+            });
+
+            modelInputs.forEach(input => {
+                const model = cfg[input.dataset.end + 'Model'];
+                if (typeof model === 'string' && model.trim()) input.value = model.trim();
+            });
+
+            status.textContent = 'Filled in from Settings — check, then Save.';
+        } catch (e) {
+            status.textContent = 'Could not read Settings from the device.';
+        }
+    }
+
+    async function save()
+    {
+        const changes = {};
+
+        for (const input of inputs) {
+            const f = SETUP_EDIT_FIELDS.find(x => x.key === input.dataset.key);
+            const setup = ends.find(e => e.end === input.dataset.end).setup;
+            const value = Number(input.value);
+
+            if (input.value === '' || !Number.isInteger(value) || value < 0 || value > (f.max || 255)) {
+                status.textContent = `${input.dataset.end === 'front' ? 'Front' : 'Rear'} ${f.label}: a whole number from 0 to ${f.max || 255}.`;
+                input.focus();
+                return;
+            }
+
+            if (value !== setup[f.key]) (changes[input.dataset.end] = changes[input.dataset.end] || {})[f.key] = value;
+        }
+
+        // An emptied model takes it off the run.
+        for (const input of modelInputs) {
+            const model = input.value.trim();
+            const setup = ends.find(e => e.end === input.dataset.end).setup;
+            if (model !== suspensionModel(setup)) (changes[input.dataset.end] = changes[input.dataset.end] || {}).model = model;
+        }
+
+        if (Object.keys(changes).length === 0) { dlg.close(); return; }
+
+        status.textContent = 'Saving…';
+        dlg.querySelectorAll('button').forEach(b => { b.disabled = true; });
+
+        try {
+            for (const end of Object.keys(changes)) {
+                const r = await fetch('/api/runs/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: runName, end, fields: changes[end] })
+                });
+                if (!r.ok) throw new Error(await r.text());
+            }
+
+            // Like the lockout: nearly everything on the page was worked out
+            // from the setup as it was loaded.
+            location.reload();
+        } catch (e) {
+            status.textContent = 'The device did not accept the correction — check the connection and try again.';
+            dlg.querySelectorAll('button').forEach(b => { b.disabled = false; });
+        }
+    }
+
+    dlg.addEventListener('click', evt => {
+        const act = evt.target.closest('button[data-act]');
+        if (!act) return;
+        if (act.dataset.act === 'cancel') dlg.close();
+        if (act.dataset.act === 'settings') useSettings();
+        if (act.dataset.act === 'save') save();
+    });
+
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.appendChild(dlg);
+    dlg.showModal();
+}
+
+// Marks this run as ridden with the rear shock locked out (its Threshold
+// lever), or takes the mark off. It is a correction to the run, kept in its
+// .JSON, and not a setting: a lever closed for the climb and left that way
+// is only noticed once the run is done. The setup history sets such a run
+// aside (runLockedOut() in telemetry.js), and the Tuning tab stops reading
+// its rear as the open setup's.
+function saveRearLockout()
+{
+    const box = document.getElementById('rearLockout');
+    box.disabled = true;
+
+    fetch('/api/runs/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: runName, end: 'rear', field: 'lockout', value: box.checked })
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('save failed');
+
+        // Nearly everything on the page was worked out from the setup as it
+        // was loaded, so it is loaded again rather than patched up.
+        location.reload();
+    })
+    .catch(() => {
+        box.checked = !box.checked;
+        box.disabled = false;
+        BikeUI.alert({ title: 'Could not save', message: 'The device didn\'t accept the change — check the connection and try again.' });
+    });
+}
+
+// Where this run sits in the bike's setup history (setupHistory() in
+// telemetry.js): { entries, index }, or null when it can't be placed — the
+// list didn't load, or the run is one the history leaves out.
+function setupContextFor(runs, name, bikeName)
+{
+    if (!runs) return null;
+
+    const entries = setupHistory(runs, bikeName);
+    const index = entries.findIndex(e => e.run.name === name);
+
+    return index >= 0 ? { entries, index } : null;
+}
+
+// The box the two notes below sit in, shown when either has something to say.
+function showQualityNotes()
+{
+    const shown = ['missingNote', 'orientationNote'].some(id => document.getElementById(id).style.display !== 'none');
+    document.getElementById('qualityNotes').style.display = shown ? '' : 'none';
+}
+
+// Under the setup, when samples are missing: how much and where, from the
+// gaps in the data itself (findGaps() in telemetry.js) — "0.49 s missing, at
+// 0:00". The list can only say what the run's .JSON counted; this also finds
+// the gaps of runs recorded before anything was counted.
+function renderMissing(gaps)
+{
+    const note = document.getElementById('missingNote');
+
+    if (gaps.length === 0) {
+        note.style.display = 'none';
+        showQualityNotes();
+        return;
+    }
+
+    // To a tenth of a second: gaps at the start of a run are all at "0:00".
+    const at = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+
+    const total = gaps.reduce((sum, g) => sum + g.s, 0);
+    const where = gaps.slice().sort((a, b) => b.s - a.s).slice(0, 3).sort((a, b) => a.at - b.at)
+        .map(g => gaps.length === 1 ? `at ${at(g.at)}` : `${at(g.at)} (${formatShortSeconds(g.s)})`);
+
+    note.textContent = gaps.length === 1
+        ? `${formatShortSeconds(total)} missing, ${where[0]}`
+        : `${formatShortSeconds(total)} missing in ${gaps.length} gaps: ${where.join(', ')}${gaps.length > 3 ? ', …' : ''}`;
+    note.title = 'Samples that never reached the SD card. The charts draw straight across a gap.';
+    note.style.display = '';
+    showQualityNotes();
+}
+
+// Under the setup, when the sensor lost its orientation somewhere in the
+// run (findOrientationLoss() in telemetry.js): for how long, and that lean,
+// pitch and vertical G are not shown there.
+function renderOrientationLoss(spans)
+{
+    const note = document.getElementById('orientationNote');
+
+    if (!spans || spans.length === 0) {
+        note.style.display = 'none';
+        showQualityNotes();
+        return;
+    }
+
+    const total = spans.reduce((sum, g) => sum + g.s, 0);
+
+    note.textContent = `Orientation lost for ${formatShortSeconds(total)}`
+        + (spans.length > 1 ? ` in ${spans.length} stretches` : '')
+        + ' — lean, pitch and vertical G are not shown there';
+    note.title = 'The IMU\'s own idea of which way is up was wrong there: it disagreed with the accelerometer, averaged over a second, by more than '
+        + `${ORIENT_LOST_DEG}°. Its accelerometer tops out at 8g on hard hits, which is the likeliest reason. The grey bands on the charts are those stretches.`;
+    note.style.display = '';
+    showQualityNotes();
+}
+
+// The line under the setup: what was changed for this run, or how long the
+// setup has been the same. Nothing for the first run on record — there is
+// no earlier one to compare it with.
+function renderSetupChange(ctx, lockedOut)
+{
+    const line = document.getElementById('setupChange');
+    line.textContent = lockedOut ? 'Not counted in the setup history' : '';
+
+    if (!ctx || ctx.index === 0) return;
+
+    const { entries, index } = ctx;
+
+    if (entries[index].changes.length > 0) {
+        line.textContent = `Changed since ${entries[index - 1].run.name}: ${entries[index].changes.map(c => setupChangeText(c)).join(' · ')}`;
+        return;
+    }
+
+    let first = index;
+    while (first > 0 && entries[first].changes.length === 0) first--;
+
+    line.textContent = `Same setup for ${index - first + 1} runs, since ${entries[first].run.name}`;
+}
+
+// The name the rider gave this run, if any (RunInfo::title on the device).
+// The RUN number stays what every URL and file is keyed by; this only
+// changes what's shown.
+let runTitle = '';
+
+// Date and bike lines at the top of the stats card, set by load(). A named
+// run gets its RUN number as the first line, since the topbar no longer
+// shows it.
+let runInfoBase = [];
+
+function showRunInfoLines()
+{
+    // One per line (pre-line), still as plain text — the bike name and the
+    // run's title are whatever the rider typed.
+    const bikeInfo = document.getElementById('bikeInfo');
+    bikeInfo.style.whiteSpace = 'pre-line';
+    bikeInfo.textContent = (runTitle ? [runName] : []).concat(runInfoBase).join('\n');
+}
+
+function showRunTitle()
+{
+    document.getElementById('runTitle').textContent = runTitle || runName || 'Run';
+    document.getElementById('runHeading').textContent = runTitle || runName || 'Run';
+    document.title = `${runTitle || runName || 'Run'} — Dialed`;
+}
+
+async function renameRun()
+{
+    if (!runName) return;
+
+    const title = await BikeUI.prompt({
+        title: 'Name this run',
+        message: `Shown in place of ${runName} in the lists and here. Leave it empty to go back to the run number.`,
+        value: runTitle,
+        confirmLabel: 'Save',
+        allowEmpty: true
+    });
+
+    if (title === null || title === runTitle) return;
+
+    fetch('/api/runs/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: runName, title })
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('save failed');
+        runTitle = title;
+        showRunTitle();
+        showRunInfoLines();
+    })
+    .catch(() => BikeUI.alert({ title: 'Could not rename', message: 'The device didn\'t accept the new name — check the connection and try again.' }));
+}
+
+function saveNotes()
+{
+    const btn = document.getElementById('notesSaveBtn');
+    const status = document.getElementById('notesStatus');
+    const notes = document.getElementById('notesText').value;
+
+    btn.disabled = true;
+    status.textContent = 'Saving…';
+
+    fetch('/api/runs/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: runName, notes })
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('save failed');
+        status.textContent = 'Saved';
+        setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+    })
+    .catch(() => { status.textContent = 'Could not save — check connection.'; })
+    .finally(() => { btn.disabled = false; });
+}
+
+// Everything in the sidebar — pure function of the stats object (either
+// the device's precomputed one, or the CSV-derived fallback) plus the bike
+// profile, so it can run the instant the small .JSON arrives without
+// waiting for the (possibly multi-MB) CSV to download and parse.
+function renderStats(stats, bike, isFullSusp, frontMaxMM, rearMaxMM)
+{
+    document.getElementById('statDuration').textContent = formatDuration(stats.durationS);
+    document.getElementById('statDistance').textContent = stats.distanceKm.toFixed(2) + ' km';
+    document.getElementById('statSpeed').textContent = stats.avgSpeed.toFixed(1) + ' / ' + stats.maxSpeed.toFixed(1);
+
+    document.getElementById('travelLabel').textContent = isFullSusp ? 'Peak travel (F / R)' : 'Peak travel (Front)';
+    document.getElementById('rearRow').style.display = isFullSusp ? '' : 'none';
+
+    if (isFullSusp) {
+        document.getElementById('statTravel').textContent = stats.maxFront.toFixed(0) + ' / ' + stats.maxRear.toFixed(0);
+        document.getElementById('statTravelMax').textContent =
+            (bike && typeof bike.front_travel === 'number' && typeof bike.rear_travel === 'number')
+                ? `of ${bike.front_travel.toFixed(0)} / ${bike.rear_travel.toFixed(0)} mm`
+                : 'mm';
+    } else {
+        document.getElementById('statTravel').textContent = stats.maxFront.toFixed(0);
+        document.getElementById('statTravelMax').textContent =
+            (bike && typeof bike.front_travel === 'number')
+                ? `of ${bike.front_travel.toFixed(0)} mm`
+                : 'mm';
+    }
+
+    renderTelemetryMinis(stats, frontMaxMM, rearMaxMM);
+}
+
+// The Avg/Peak figures beside each time-series chart. Apart from the stats
+// above because these follow the zoom: with the charts zoomed in they are
+// for the span on show (computeStats() of just those samples), and go back
+// to the whole run's when the zoom is reset.
+function renderTelemetryMinis(stats, frontMaxMM, rearMaxMM)
+{
+    document.getElementById('frontAvgMini').textContent = frontMaxMM ? toPct(stats.avgFront, frontMaxMM).toFixed(0) + '%' : '--';
+    document.getElementById('frontMaxMini').textContent = frontMaxMM ? toPct(stats.maxFront, frontMaxMM).toFixed(0) + '%' : '--';
+    document.getElementById('rearAvgMini').textContent = rearMaxMM ? toPct(stats.avgRear, rearMaxMM).toFixed(0) + '%' : '--';
+    document.getElementById('rearMaxMini').textContent = rearMaxMM ? toPct(stats.maxRear, rearMaxMM).toFixed(0) + '%' : '--';
+
+    document.getElementById('speedAvgMini').textContent = stats.avgSpeed.toFixed(1);
+    document.getElementById('speedMaxMini').textContent = stats.maxSpeed.toFixed(1);
+    document.getElementById('altMinMini').textContent = stats.minAlt.toFixed(0) + 'm';
+    document.getElementById('altMaxMini').textContent = stats.maxAlt.toFixed(0) + 'm';
+    // null = peak not known yet (first paint of a zeroed run, see statsFromMeta)
+    document.getElementById('leanMaxMini').textContent = stats.maxLean == null ? '--' : stats.maxLean.toFixed(0) + '°';
+    document.getElementById('pitchMaxMini').textContent = stats.maxPitch == null ? '--' : stats.maxPitch.toFixed(0) + '°';
+    document.getElementById('gforceAvgMini').textContent = stats.avgGForce.toFixed(1) + 'G';
+    document.getElementById('gforceMaxMini').textContent = formatPeakG(stats.maxGForce, !!stats.maxGClipped);
+}
+
+// ── Analysis tab: histograms, segments, tuning, notable events ─────────────
+
+// General-purpose histogram for non-negative data with no fixed ceiling
+// (speed, lean angle, G-force) — picks a "nice" bin width for the
+// observed range instead of the fixed-percentage bands used for travel.
+function computeHistogram(values, targetBins)
+{
+    const maxVal = Math.max(1, arrayMax(values));
+    const binWidth = niceStep(maxVal, targetBins) || 1;
+    const numBins = Math.max(1, Math.ceil(maxVal / binWidth));
+
+    const counts = new Array(numBins).fill(0);
+    values.forEach(v => {
+        let idx = Math.floor(v / binWidth);
+        idx = Math.max(0, Math.min(numBins - 1, idx));
+        counts[idx]++;
+    });
+
+    const total = values.length || 1;
+
+    return { binWidth, counts: counts.map(c => c / total * 100) };
+}
+
+// Same delta-velocity math as computeVelocities(), but keeping the
+// position each velocity was measured at instead of discarding it — the
+// "damper map" (see drawScatter()) plots one against the other, which the
+// travel-band histogram and velocity histogram above only ever show
+// separately. Computed from the full-resolution rows (not the decimated
+// chartRows used for the time-series charts) so a brief real velocity
+// spike between two adjacent samples isn't smoothed away — decimate() is
+// applied by the caller to the resulting point *list* afterwards, purely
+// to cap how many SVG circles get drawn.
+function computeDamperMapPoints(rows, key, maxMM)
+{
+    if (!maxMM) return [];
+
+    const points = [];
+
+    for (let i = 1; i < rows.length; i++) {
+        const dtS = (rows[i].t - rows[i - 1].t) / 1000;
+        if (dtS <= 0) continue;
+
+        points.push({
+            pct: (rows[i][key] / maxMM) * 100,
+            vel: (rows[i][key] - rows[i - 1][key]) / dtS
+        });
+    }
+
+    return points;
+}
+
+// Mirror of countBottomOuts, but for the other end of travel — and a %-of-
+// samples measure rather than a debounced event count, since what matters
+// here is how much of the ride dwells near full extension, not how many
+// times it crosses in and out. A low average travel usage reads exactly
+// the same on its own whether the spring is genuinely too firm (never
+// dips into its travel) or the rebound is snapping straight back to the
+// top between hits (uses the travel briefly, then spends most of its time
+// sitting topped out) — generateSuggestions() below crosses this against
+// the compression/rebound speed ratio to tell the two apart.
+const TOPPED_OUT_PCT = 5;
+
+function computeToppedOutPct(values, maxMM, thresholdPct)
+{
+    if (!maxMM || values.length === 0) return 0;
+
+    const toppedCount = values.filter(v => (v / maxMM * 100) < thresholdPct).length;
+    return (toppedCount / values.length) * 100;
+}
+
+// Splits the ride into "technical" vs "transition" stretches using
+// suspension activity (front+rear compression/rebound speed) and G-force
+// deviation from the 1G resting baseline, whichever reads higher at each
+// moment. Both are normalized against THIS ride's own 90th-percentile
+// activity rather than a fixed physical threshold — nobody has real
+// trail data to calibrate an absolute cutoff against yet, but "clearly
+// more active than this ride's own typical moment" holds up regardless
+// of bike, rider, or terrain.
+//
+// Activity alone isn't enough, though: a fast, rough chatter section or a
+// well-built high-speed berm can rattle the suspension and spike G-force
+// just as much as a slow, tight rock garden — physically similar sensor
+// signature, but only one of those actually feels "technical" to an
+// enduro rider. Requiring speed to also be at or below this ride's own
+// median (not a fixed km/h, which means something different on every
+// trail/rider) catches that distinction — high activity at high speed
+// now falls into "transition" instead.
+const SEGMENT_MIN_DURATION_S = 4;
+const SEGMENT_ACTIVITY_THRESHOLD = 0.5;
+const SEGMENT_SPEED_CEILING = 1.0;  // multiple of this ride's median speed
+
+// Hysteresis: a score/speed sitting right at the threshold for several
+// seconds straight would otherwise cross it every sample, producing dozens
+// of alternating, near-zero-length "technical"/"transition" entries right
+// on top of each other instead of one coherent stretch — using a stricter
+// bar to *enter* technical than to *stay* in it (same idea as
+// detectPeakEvents' thresholdHigh/thresholdLow) stops that flapping.
+const SEGMENT_ACTIVITY_EXIT = SEGMENT_ACTIVITY_THRESHOLD * 0.7;
+const SEGMENT_SPEED_EXIT = SEGMENT_SPEED_CEILING * 1.15;
+
+function computeActivitySegments(rows)
+{
+    if (rows.length < 3) return [];
+
+    const totalS = (rows[rows.length - 1].t - rows[0].t) / 1000 || 1;
+    const sampleRateHz = rows.length / totalS;
+    const smoothWindow = Math.max(1, Math.round(sampleRateHz));  // ~1s of samples
+
+    const smooth = (arr) => arr.map((_, i) => {
+        const lo = Math.max(0, i - smoothWindow + 1);
+        return average(arr.slice(lo, i + 1));
+    });
+
+    const suspActivity = new Array(rows.length).fill(0);
+    const gDeviation = new Array(rows.length).fill(0);
+
+    for (let i = 1; i < rows.length; i++) {
+        const dtS = (rows[i].t - rows[i - 1].t) / 1000;
+
+        if (dtS > 0) {
+            const fv = Math.abs(rows[i].front - rows[i - 1].front) / dtS;
+            const rv = Math.abs(rows[i].rear - rows[i - 1].rear) / dtS;
+            suspActivity[i] = fv + rv;
+        }
+
+        const g = Math.sqrt(rows[i].ax ** 2 + rows[i].ay ** 2 + rows[i].az ** 2) / G_TO_MS2;
+        gDeviation[i] = Math.abs(g - 1);
+    }
+
+    const suspP90 = percentile(suspActivity.filter(v => v > 0), 90) || 1;
+    const gP90 = percentile(gDeviation.filter(v => v > 0), 90) || 1;
+
+    const rawScore = suspActivity.map((v, i) => Math.max(v / suspP90, gDeviation[i] / gP90));
+    const smoothed = smooth(rawScore);
+
+    const speedMedian = percentile(rows.map(r => r.speed).filter(v => v > 0), 50) || 1;
+    const smoothedSpeed = smooth(rows.map(r => r.speed));
+
+    // Stateful walk rather than an independent per-sample check, so
+    // "technical" only flips once its own hysteresis band is actually
+    // crossed, not on every sample that happens to sit near a single
+    // shared threshold.
+    let active = [];
+    let isTechnical = false;
+
+    for (let i = 0; i < rows.length; i++) {
+        const activityHigh = isTechnical ? SEGMENT_ACTIVITY_EXIT : SEGMENT_ACTIVITY_THRESHOLD;
+        const speedHigh = isTechnical ? SEGMENT_SPEED_EXIT : SEGMENT_SPEED_CEILING;
+
+        isTechnical = smoothed[i] > activityHigh && smoothedSpeed[i] <= speedMedian * speedHigh;
+        active.push(isTechnical);
+    }
+
+    // Binary classification means flipping a too-short run to the other
+    // type IS merging it with its neighbors — both of a segment's
+    // immediate neighbors are, by construction, already the opposite
+    // type. Done one merge at a time, recomputing segments after each —
+    // flipping every short segment in the same pass (based on stale
+    // boundaries) could turn an alternating run of short segments into an
+    // equally alternating run with the labels swapped, oscillating
+    // forever instead of converging, which is exactly what produced
+    // dozens of near-zero-length entries in a real ride's data.
+    for (let iter = 0; iter < rows.length; iter++) {
+        const segs = toSegments(active, rows);
+        if (segs.length <= 1) break;
+
+        let shortest = null;
+        for (const seg of segs) {
+            if (seg.durationS < SEGMENT_MIN_DURATION_S && (!shortest || seg.durationS < shortest.durationS)) {
+                shortest = seg;
+            }
+        }
+        if (!shortest) break;
+
+        for (let k = shortest.startIdx; k <= shortest.endIdx; k++) active[k] = !shortest.technical;
+    }
+
+    return toSegments(active, rows);
+}
+
+function toSegments(active, rows)
+{
+    const segments = [];
+    let start = 0;
+
+    for (let i = 1; i <= active.length; i++) {
+        if (i === active.length || active[i] !== active[start]) {
+            segments.push({
+                startIdx: start,
+                endIdx: i - 1,
+                technical: active[start],
+                startS: (rows[start].t - rows[0].t) / 1000,
+                endS: (rows[i - 1].t - rows[0].t) / 1000,
+                durationS: (rows[i - 1].t - rows[start].t) / 1000
+            });
+            start = i;
+        }
+    }
+
+    return segments;
+}
+
+function computeSegmentStats(rows, seg, frontMaxMM, rearMaxMM)
+{
+    const slice = rows.slice(seg.startIdx, seg.endIdx + 1);
+
+    const frontAvg = average(slice.map(r => r.front));
+    const rearAvg = average(slice.map(r => r.rear));
+    const speedAvg = average(slice.map(r => r.speed));
+    // The peak, and whether the reading it came from hit the accelerometer's
+    // ceiling (then it is a floor — see accelClipped() in telemetry.js).
+    let peakG = 0, peakClipped = false;
+    for (const r of slice) {
+        const g = Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2;
+        if (g > peakG) { peakG = g; peakClipped = accelClipped(r); }
+    }
+
+    return {
+        frontAvgPct: frontMaxMM ? frontAvg / frontMaxMM * 100 : null,
+        rearAvgPct: rearMaxMM ? rearAvg / rearMaxMM * 100 : null,
+        speedAvg,
+        peakG,
+        peakClipped,
+        frontBO: countBottomOuts(slice, 'front', frontMaxMM, 95, 85).length,
+        rearBO: countBottomOuts(slice, 'rear', rearMaxMM, 95, 85).length
+    };
+}
+
+// Same debounce idea as countBottomOuts, but tracks the actual peak value
+// reached during each event (not just the crossing point) — a "3.1G
+// impact" is a more useful label than always repeating the fixed
+// threshold. mergeGapS extends an event instead of closing it as soon as
+// the value dips under thresholdLow, as long as it comes back up within
+// that gap — a single hard hit on rough terrain often wobbles above and
+// below thresholdLow several times in under half a second, and without
+// this that reads as many separate "impacts" instead of the one it
+// actually was.
+function detectPeakEvents(rows, valueFn, thresholdHigh, thresholdLow, mergeGapS)
+{
+    let armed = true;
+    let current = null;
+    let lastActiveMs = null;
+    const events = [];
+
+    for (const r of rows) {
+        const v = valueFn(r);
+
+        if (armed) {
+            if (v >= thresholdHigh) {
+                armed = false;
+                current = { t: r.t, peak: v };
+                lastActiveMs = r.t;
+            }
+            continue;
+        }
+
+        if (v > current.peak) { current.peak = v; current.t = r.t; }
+
+        if (v >= thresholdLow) {
+            lastActiveMs = r.t;
+        } else if ((r.t - lastActiveMs) / 1000 > mergeGapS) {
+            events.push(current);
+            current = null;
+            armed = true;
+        }
+    }
+
+    if (current) events.push(current);
+    return events;
+}
+
+// Airtime via the classic "freefall" accelerometer signature: while truly
+// airborne, gravity isn't being resisted by anything (no wheels/suspension
+// pushing back), so the accelerometer's total magnitude — which reads
+// ~1G at rest and higher under any real load — drops toward 0G instead.
+// A short minimum duration filters out momentary dips from vibration/
+// noise that aren't a real jump.
+const AIR_G_THRESHOLD = 0.3;
+const AIR_MIN_DURATION_S = 0.1;
+
+function detectAirtimeEvents(rows, gThreshold, minDurationS)
+{
+    const events = [];
+    let startT = null;
+
+    const gAt = r => Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2;
+
+    for (const r of rows) {
+        const airborne = gAt(r) < gThreshold;
+
+        if (airborne && startT === null) {
+            startT = r.t;
+        } else if (!airborne && startT !== null) {
+            const durationS = (r.t - startT) / 1000;
+            if (durationS >= minDurationS) events.push({ startT, durationS });
+            startT = null;
+        }
+    }
+
+    if (startT !== null) {
+        const durationS = (rows[rows.length - 1].t - startT) / 1000;
+        if (durationS >= minDurationS) events.push({ startT, durationS });
+    }
+
+    return events;
+}
+
+// ── Harsh transmission ─────────────────────────────────────────────────────
+// A hit the suspension failed to absorb: a hard *vertical* kick (verticalG())
+// arriving while that end's travel barely moves, so the energy went through
+// the frame into the rider instead of into the damper. This is the signal
+// docs/dashboard.md's design notes deliberately left for later — it needed a
+// vertical axis that could be trusted, which Zero IMU now provides.
+//
+// Detected per side because the action differs: harsh at the front points at
+// fork LSC/pressure, harsh at the rear at the shock's.
+//
+// The G side is ride-relative, same reasoning as impactEvents — a fixed
+// number either drowns a rough trail in entries or never fires on a smooth
+// one. The travel side is deliberately NOT ride-relative: "the suspension
+// hardly moved" is an absolute claim about the damper, and it shouldn't drift
+// with how rough the rest of the ride happened to be.
+const HARSH_G_PERCENTILE = 98;
+// Gravity is already removed from vertG, so this sits below the 2.5G floor
+// impactEvents uses on combined magnitude — 1.5G of *extra* vertical push is
+// roughly that same hit once the 1G baseline is taken out.
+const HARSH_G_FLOOR = 1.5;
+// 15pp, not the 10pp first guessed — calibrated against the 2026-09-28 field
+// runs, using RUN0045 as a natural experiment: it rode the same track as
+// RUN0044/RUN0046 with the rear shock on Threshold, so its rear should
+// transmit more and its front should be unchanged. Travel ranges around the
+// vertical peaks, by cut:
+//   <=10pp  front 1/3/1/0   rear 2/3/4/1    (weak, and right at the data's edge
+//                                            — RUN0046's front min is 10.6pp,
+//                                            so a cut there flips to zero)
+//   <=15pp  front 3/3/3/5   rear 4/4/10/4   (front flat, RUN0045's rear 2.5x)
+//   <=20pp  front 8/4/6/5   rear 6/7/13/9   (front starts drifting too)
+// 15pp is where the end that changed stands out most while the end that
+// didn't stays flat. RUN0045's whole rear distribution shifts with it (p25
+// 14.1pp vs 22-27pp on the other three), which is the real tell.
+// Caveat: that is one run with one known change — good evidence, not proof.
+const HARSH_TRAVEL_PP = 15;
+const HARSH_WINDOW_MS = 120;
+const HARSH_MERGE_GAP_S = 0.3;
+
+function detectHarshEvents(rows, key, maxMM, gHigh, gLow)
+{
+    if (!(maxMM > 0)) return [];
+
+    const peaks = detectPeakEvents(
+        rows.map(r => ({ t: r.t, v: r.vertG })),
+        r => r.v, gHigh, gLow, HARSH_MERGE_GAP_S
+    );
+
+    const harsh = [];
+
+    for (const ev of peaks) {
+        let lo = Infinity, hi = -Infinity;
+
+        for (const r of rows) {
+            if (Math.abs(r.t - ev.t) > HARSH_WINDOW_MS) continue;
+            const pct = r[key] / maxMM * 100;
+            if (pct < lo) lo = pct;
+            if (pct > hi) hi = pct;
+        }
+
+        if (!(hi >= lo)) continue;   // nothing logged in the window
+
+        const usedPp = hi - lo;
+        if (usedPp <= HARSH_TRAVEL_PP) harsh.push({ t: ev.t, peak: ev.peak, usedPp });
+    }
+
+    return harsh;
+}
+
+// GPS altitude is noisy — a light moving average plus a minimum
+// per-step threshold keeps that jitter from accumulating into inflated
+// gain/loss totals. Only fixed (lat/lon != 0) rows count, so a run that
+// starts indoors without a fix doesn't register a fake jump the moment
+// GPS locks on.
+// Older runs whose .JSON has no precomputed "stats" fall back to this.
+// The CSV logs at whatever rate the sampling loop runs (hundreds of Hz) —
+// far faster than GPS altitude actually updates — so smoothing/threshold-
+// testing every raw row covers only a few milliseconds per "window", not
+// the several seconds the 0.5m threshold assumes. That diluted a real
+// ~80m descent (RUN0017) down to ~12m: almost every consecutive row's
+// altitude was near-identical, so nearly every step fell under the noise
+// threshold and got discarded. Bucketing to one altitude sample per ~1s of
+// wall-clock time first (taking the last fix seen in that second) makes
+// the window's timespan — and therefore the threshold — actually
+// meaningful, regardless of log rate. Mirrored on the device side in
+// run_service.cpp's RunStatsAccumulator for newer runs that do have
+// precomputed stats.
+function computeElevation(rows)
+{
+    const fixed = rows.filter(r => r.lat !== 0 && r.lon !== 0);
+    if (fixed.length < 2) return { gain: 0, loss: 0 };
+
+    const BUCKET_MS = 1000;
+    const t0 = fixed[0].t;
+    const buckets = [];
+    let bucketIndex = -1;
+
+    fixed.forEach(r => {
+        const idx = Math.floor((r.t - t0) / BUCKET_MS);
+        if (idx !== bucketIndex) {
+            buckets.push(r.alt);
+            bucketIndex = idx;
+        } else {
+            buckets[buckets.length - 1] = r.alt;
+        }
+    });
+
+    const SMOOTH_WINDOW = 5;
+    const smoothed = buckets.map((_, i) => {
+        const lo = Math.max(0, i - SMOOTH_WINDOW + 1);
+        const slice = buckets.slice(lo, i + 1);
+        return average(slice);
+    });
+
+    const MIN_STEP_M = 0.5;
+    let gain = 0, loss = 0;
+
+    for (let i = 1; i < smoothed.length; i++) {
+        const d = smoothed[i] - smoothed[i - 1];
+        if (Math.abs(d) < MIN_STEP_M) continue;
+
+        if (d > 0) gain += d; else loss += -d;
+    }
+
+    return { gain, loss };
+}
+
+// Which adjuster label(s) to mention in a suggestion, given this side's
+// declared adjuster availability (see adjusterAvailability() below) — so a
+// suggestion never tells the rider to click a dial their fork/shock
+// doesn't have (e.g. a RockShox Domain's fixed-shim HSC, or a RockShox
+// Super Deluxe Select+ with no compression adjustment at all). Returns
+// null when neither half of the pair exists.
+function compressionAdjusterLabel(available) {
+    if (available.lsc && available.hsc) return 'LSC/HSC';
+    if (available.hsc) return 'HSC';
+    if (available.lsc) return 'LSC';
+    return null;
+}
+
+function reboundAdjusterLabel(available) {
+    if (available.lsr && available.hsr) return 'HSR/LSR';
+    if (available.hsr) return 'HSR';
+    if (available.lsr) return 'LSR';
+    return null;
+}
+
+// Rule-of-thumb suspension diagnosis, the same logic a rider would apply
+// by hand from these same signals — just automated. Deliberately hedged
+// ("consider", "may indicate") since a single ride's data can't account
+// for rider weight/preference/terrain the way a human tuner would; treat
+// these as a place to start, not a verdict.
+//
+// Three explicit phases (see docs/dashboard.md's tuning-engine design notes):
+// evidence gathering (collectSuggestionEvidence), diagnosis (diagnose*),
+// and text generation (describeDiagnosis) — replacing what used to be a
+// chain of independent if-blocks that each looked at one metric and fired
+// its own suggestion with no idea what the others were saying. That let a
+// ride with low average travel *and* fast rebound get told to both add
+// pressure (from the avgPct check) and slow the rebound (from the
+// separate ratio check) — two suggestions that don't so much disagree as
+// talk past each other, when only one is actually the story: RUN0017 had
+// exactly this shape. Diagnosing once, with every signal already in
+// hand, is what lets the low-travel branches below tell "genuinely too
+// firm" apart from "rebound snapping back to full extension between
+// hits" before recommending anything.
+
+// Phase 1 — every signal a diagnosis could use, computed once and named,
+// with no decisions made yet.
+function collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, hardImpactCount, maxImpactG, maxImpactClipped) {
+    const boRate = totalMinutes > 0 ? boCount / totalMinutes : 0;
+
+    const compVels = vels.filter(v => v > 0);
+    const reboundVels = vels.filter(v => v < 0).map(v => -v);
+    let reboundRatio = null;
+
+    if (compVels.length > 10 && reboundVels.length > 10) {
+        const compP90 = percentile(compVels, 90);
+        const reboundP90 = percentile(reboundVels, 90);
+        reboundRatio = compP90 > 0 ? reboundP90 / compP90 : 1;
+    }
+
+    // Dwelling near full extension for a large chunk of the ride AND
+    // snapping back noticeably faster than it compresses is the
+    // rebound-too-fast signature — on its own, either signal is too weak
+    // to act on (some topped-out time is normal on smooth stretches; a
+    // faster rebound than compression is common even when set up well).
+    const reboundTooFast = reboundRatio !== null && reboundRatio > 1.3 && toppedOutPct > 30;
+
+    return {
+        avgPct, toppedOutPct, boCount, boRate, totalMinutes,
+        reboundRatio, reboundTooFast,
+        staticSagPct,
+        sagDiff: staticSagPct > 0 ? avgPct - staticSagPct : null,
+        // Notable Events' own hard-impact detection (load()), reused
+        // rather than recomputed — see docs/dashboard.md, refinement 2. Only
+        // ever used to corroborate a bottoming-out diagnosis's severity
+        // below, never to invent a diagnosis on its own: a hard-hitting
+        // but well-controlled ride can rack up plenty of these with zero
+        // bottom-outs, which is exactly the "no problem" case.
+        hardImpactCount, maxImpactG,
+        // The hardest impact hit the accelerometer's ceiling: maxImpactG is
+        // a floor, not a measurement.
+        maxImpactClipped: !!maxImpactClipped
+    };
+}
+
+// Maps how far a metric sits outside its "fine" range into a 1-3
+// severity tier — mildAt/majorAt are the distance past the boundary
+// where a suggestion should step up its wording/click count (see
+// clicksLabel() below). Hand-tuned starting points, not a scientifically
+// calibrated scale — same "place to start" hedge as everything else here.
+function severityTier(distance, mildAt, majorAt) {
+    if (distance <= mildAt) return 1;
+    if (distance <= majorAt) return 2;
+    return 3;
+}
+
+// Turns a tier into the click-count phrase most of the diagnoses below
+// share — "1 click" is the old fixed behavior every branch used to have
+// regardless of how far off the metric actually was; tier 2/3 now only
+// kick in when the deviation actually warrants a bigger ask.
+function clicksLabel(tier) {
+    const n = tier >= 3 ? '2-3' : tier === 2 ? '1-2' : '1';
+    return `${n} click${n === '1' ? '' : 's'}`;
+}
+
+function psiLabel(tier) {
+    return tier >= 3 ? '+10-15%' : tier === 2 ? '+5-10%' : '+5%';
+}
+
+// Same tiers as psiLabel(), worded as a flat psi bump instead of a
+// percentage — the "high travel usage" diagnosis talks in absolute psi
+// (matching a rider just adding a fixed pump amount) rather than a %
+// change off their current pressure.
+function psiFlatLabel(tier) {
+    return tier >= 3 ? '+10-15psi' : tier === 2 ? '+5-10psi' : '+5psi';
+}
+
+// Phase 2 — the single decision tree, walked once with all of Phase 1's
+// evidence already in hand. Returns one diagnosis (or null) describing
+// WHAT's going on — not yet how to word it, that's describeDiagnosis()'s
+// job below.
+function diagnosePrimary(ev) {
+    if (ev.boRate > 2) {
+        let severity = severityTier(ev.boRate - 2, 1, 3);
+        // Hard-hit bottom-outs (corroborated by Notable Events' own
+        // impact detection) read as more urgent than a soft, gentle full
+        // compression that just happens to cross the 95%-travel line —
+        // either a single very hard peak, or several moderately hard
+        // ones, counts as corroboration.
+        if (ev.maxImpactG >= 5 || ev.hardImpactCount >= 5) severity = Math.min(3, severity + 1);
+        return { type: 'bottoming-hard', severity };
+    }
+
+    if (ev.boCount >= 1) return { type: 'bottoming-occasional', severity: 1 };
+
+    if (ev.staticSagPct > 0) {
+        const diff = ev.sagDiff;
+
+        if (diff > 10) return { type: 'sag-too-high', severity: severityTier(diff - 10, 5, 15) };
+
+        if (diff < -10) {
+            if (ev.reboundTooFast)
+                return { type: 'rebound-too-fast', severity: severityTier(ev.reboundRatio - 1.3, 0.3, 0.7) };
+
+            return { type: 'sag-too-low', severity: severityTier(-diff - 10, 5, 15) };
+        }
+
+        return { type: 'sag-balanced', severity: 0 };
+    }
+
+    if (ev.avgPct > 0 && ev.avgPct < 20) {
+        if (ev.reboundTooFast)
+            return { type: 'rebound-too-fast', severity: severityTier(ev.reboundRatio - 1.3, 0.3, 0.7) };
+
+        return { type: 'too-firm', severity: severityTier(20 - ev.avgPct, 5, 12) };
+    }
+
+    if (ev.avgPct > 40) return { type: 'high-usage', severity: severityTier(ev.avgPct - 40, 5, 15) };
+
+    if (ev.avgPct > 0) return { type: 'balanced', severity: 0 };
+
+    return null;
+}
+
+// Independent of diagnosePrimary() above — a ride can have perfectly
+// balanced average travel usage and still have its rebound noticeably
+// out of step with compression, which is worth flagging on its own.
+// generateSuggestions() skips calling this when the primary diagnosis
+// already covers rebound (type 'rebound-too-fast'), so the same
+// fast-rebound signature never gets described twice.
+function diagnoseReboundBalance(ev) {
+    if (ev.reboundRatio === null) return null;
+
+    if (ev.reboundRatio > 1.3)
+        return { type: 'rebound-ratio-fast', severity: severityTier(ev.reboundRatio - 1.3, 0.3, 0.7) };
+
+    if (ev.reboundRatio < 0.6)
+        return { type: 'rebound-ratio-slow', severity: severityTier(0.6 - ev.reboundRatio, 0.2, 0.4) };
+
+    return { type: 'rebound-ratio-ok', severity: 0 };
+}
+
+// Phase 3 — turns one diagnosis into the {tag, ok, text} shape
+// renderTuningSide() renders: filtered by which adjusters this side
+// actually has (compLabel/reboundLabel — see adjusterAvailability()) and
+// worded according to severity (see clicksLabel()/psiLabel()).
+function describeDiagnosis(d, ev, compLabel, reboundLabel, bothReboundSplit) {
+    switch (d.type) {
+        case 'bottoming-hard': {
+            const impactNote = ev.maxImpactG < 4 ? ''
+                : ev.maxImpactClipped ? ` (impacts of at least ${ev.maxImpactG.toFixed(1)}G this ride — past what the sensor reads)`
+                : ` (impacts up to ${ev.maxImpactG.toFixed(1)}G this ride)`;
+            const psi = psiLabel(d.severity);
+            return compLabel
+                ? { tag: `Pressure/${compLabel}`, ok: false, text: `Bottomed out ${ev.boCount}x this ride (~${ev.boRate.toFixed(1)}/min)${impactNote} — consider more air pressure (${psi}), more volume tokens, or more ${compLabel} (high-speed compression) to better resist bottoming out.` }
+                : { tag: 'Pressure', ok: false, text: `Bottomed out ${ev.boCount}x this ride (~${ev.boRate.toFixed(1)}/min)${impactNote} — consider more air pressure (${psi}) or more volume tokens to better resist bottoming out (this side has no compression adjuster).` };
+        }
+
+        case 'bottoming-occasional':
+            return compLabel
+                ? { tag: compLabel, ok: false, text: `Bottomed out ${ev.boCount}x — occasional can be normal on hard hits, but if it felt harsh consider +1 click of ${compLabel}.` }
+                : { tag: 'Pressure', ok: false, text: `Bottomed out ${ev.boCount}x — occasional can be normal on hard hits, but if it felt harsh consider more air pressure or +1 volume token (this side has no compression adjuster).` };
+
+        case 'sag-too-high':
+            return compLabel
+                ? { tag: `Pressure/${compLabel}`, ok: false, text: `Average travel used (${ev.avgPct.toFixed(0)}%) well above the configured static sag (${ev.staticSagPct.toFixed(0)}%) — consider more air pressure or +${clicksLabel(d.severity)} of ${compLabel}.` }
+                : { tag: 'Pressure', ok: false, text: `Average travel used (${ev.avgPct.toFixed(0)}%) well above the configured static sag (${ev.staticSagPct.toFixed(0)}%) — consider more air pressure (this side has no compression adjuster).` };
+
+        case 'sag-too-low':
+            return compLabel
+                ? { tag: `Pressure/${compLabel}`, ok: false, text: `Average travel used (${ev.avgPct.toFixed(0)}%) well below the configured static sag (${ev.staticSagPct.toFixed(0)}%) — may be too firm for this terrain. Consider less pressure or -${clicksLabel(d.severity)} of ${compLabel}.` }
+                : { tag: 'Pressure', ok: false, text: `Average travel used (${ev.avgPct.toFixed(0)}%) well below the configured static sag (${ev.staticSagPct.toFixed(0)}%) — may be too firm for this terrain. Consider less air pressure (this side has no compression adjuster).` };
+
+        case 'sag-balanced':
+            return { tag: 'OK', ok: true, text: `Average travel used (${ev.avgPct.toFixed(0)}%) close to the configured static sag (${ev.staticSagPct.toFixed(0)}%) — balanced setup for this ride.` };
+
+        case 'too-firm':
+            return compLabel
+                ? { tag: `Pressure/${compLabel}`, ok: false, text: `Low average travel used (${ev.avgPct.toFixed(0)}%) with no bottom-outs — may be too firm. Consider reducing pressure or removing ${clicksLabel(d.severity)} of ${compLabel} for more traction/comfort.` }
+                : { tag: 'Pressure', ok: false, text: `Low average travel used (${ev.avgPct.toFixed(0)}%) with no bottom-outs — may be too firm. Consider reducing air pressure for more traction/comfort (this side has no compression adjuster).` };
+
+        case 'high-usage':
+            return { tag: 'Pressure', ok: false, text: `High travel usage (${ev.avgPct.toFixed(0)}%) without bottoming out — running close to the limit. If you feel the end of the travel coming up often, consider ${psiFlatLabel(d.severity)} or +1 volume token.` };
+
+        case 'balanced':
+            return { tag: 'OK', ok: true, text: `Balanced travel usage (${ev.avgPct.toFixed(0)}%) with no bottom-outs — pressure/compression setup looks appropriate for this ride.` };
+
+        case 'rebound-too-fast': {
+            const lead = ev.staticSagPct > 0
+                ? `Average travel used (${ev.avgPct.toFixed(0)}%) well below the configured static sag (${ev.staticSagPct.toFixed(0)}%), but`
+                : `Low average travel used (${ev.avgPct.toFixed(0)}%) with no bottom-outs, but`;
+            return {
+                tag: reboundLabel || 'Rebound', ok: false,
+                text: `${lead} spends ${ev.toppedOutPct.toFixed(0)}% of the time near the top of the travel with rebound much faster than compression — not necessarily too firm: the suspension may be returning too fast instead of settling. Consider +${clicksLabel(d.severity)} of ${reboundLabel || 'rebound'} before touching pressure${compLabel ? '/' + compLabel : ''}.`
+            };
+        }
+
+        case 'rebound-ratio-fast':
+            return { tag: reboundLabel || 'Rebound', ok: false, text: `Rebound speed much faster than compression speed (ratio ${ev.reboundRatio.toFixed(1)}x) — the suspension may be returning too fast. Consider +${clicksLabel(d.severity)} of ${reboundLabel || 'rebound'}${bothReboundSplit ? ' (HSR for hard hits, LSR for general riding)' : ''}.` };
+
+        case 'rebound-ratio-slow':
+            return { tag: reboundLabel || 'Rebound', ok: false, text: `Rebound speed much slower than compression speed (ratio ${ev.reboundRatio.toFixed(1)}x) — may be "packing down" between consecutive impacts. Consider -${clicksLabel(d.severity)} of ${reboundLabel || 'rebound'}.` };
+
+        case 'rebound-ratio-ok':
+            return { tag: 'OK', ok: true, text: `Balance between compression and rebound speed looks reasonable (ratio ${ev.reboundRatio.toFixed(1)}x).` };
+
+        default:
+            return null;
+    }
+}
+
+function generateSuggestions(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, available, hardImpactCount, maxImpactG, maxImpactClipped)
+{
+    const ev = collectSuggestionEvidence(avgPct, toppedOutPct, boCount, totalMinutes, vels, staticSagPct, hardImpactCount, maxImpactG, maxImpactClipped);
+    const compLabel = compressionAdjusterLabel(available);
+    const reboundLabel = reboundAdjusterLabel(available);
+    const bothReboundSplit = available.lsr && available.hsr;
+
+    const suggestions = [];
+
+    // Each suggestion keeps the type of the diagnosis behind it, which is
+    // what addSetupContext() goes by.
+    const primary = diagnosePrimary(ev);
+    if (primary) {
+        const desc = describeDiagnosis(primary, ev, compLabel, reboundLabel, bothReboundSplit);
+        if (desc) suggestions.push(Object.assign(desc, { type: primary.type }));
+    }
+
+    // Skipped when the primary diagnosis already covers rebound — telling
+    // the rider about the same fast-rebound signature twice, once as the
+    // main story and again as an independent secondary note, would just
+    // be noise.
+    if (!primary || primary.type !== 'rebound-too-fast') {
+        const reboundBalance = diagnoseReboundBalance(ev);
+        if (reboundBalance) {
+            const desc = describeDiagnosis(reboundBalance, ev, compLabel, reboundLabel, bothReboundSplit);
+            if (desc) suggestions.push(Object.assign(desc, { type: reboundBalance.type }));
+        }
+    }
+
+    return suggestions;
+}
+
+// Phase 4 — what the setup history has to say about each suggestion, added
+// as a line under it. The three phases above only ever see this one run, so
+// on their own they would say the same thing ride after ride with no idea
+// whether the rider had just acted on it.
+//
+// It states what changed and when, and stops there. It does not say whether
+// a change went the way a suggestion asked: a click count is only a number
+// here (counted from open on one dial, from closed on another), so "up" is
+// not a direction it can read. Nor does it know what the previous run's
+// suggestions were — that would take loading that run's telemetry too.
+
+// The part of the setup each diagnosis is about.
+const DIAGNOSIS_SETUP = {
+    'bottoming-hard': ['spring', 'compression'],
+    'bottoming-occasional': ['spring', 'compression'],
+    'sag-too-high': ['spring', 'compression'],
+    'sag-too-low': ['spring', 'compression'],
+    'sag-balanced': ['spring', 'compression'],
+    'too-firm': ['spring', 'compression'],
+    'high-usage': ['spring'],
+    'balanced': ['spring', 'compression'],
+    'rebound-too-fast': ['rebound'],
+    'rebound-ratio-fast': ['rebound'],
+    'rebound-ratio-slow': ['rebound'],
+    'rebound-ratio-ok': ['rebound']
+};
+
+// The setup fields (setupFields() keys) in each of those parts, the
+// pre-split click counts of old runs included.
+const SETUP_PARTS = {
+    spring: ['psi', 'tokens'],
+    compression: ['lsc', 'hsc', 'comp'],
+    rebound: ['lsr', 'hsr', 'rebound']
+};
+
+function addSetupContext(suggestions, ctx, end, available, staticSagPct)
+{
+    if (!ctx) return;
+
+    const { entries, index } = ctx;
+
+    suggestions.forEach(s => {
+        const parts = DIAGNOSIS_SETUP[s.type];
+        if (!parts) return;
+
+        const keys = parts.flatMap(p => SETUP_PARTS[p]);
+        const last = lastSetupChange(entries, index, end, keys);
+
+        if (last) {
+            const what = last.changes.map(c => setupChangeText(c, false)).join(', ');
+
+            if (last.runsSince === 0) {
+                s.context = s.ok
+                    ? `First run since ${what}.`
+                    : `First run since ${what} — this is what the data says with that change already made.`;
+            } else if (!s.ok) {
+                s.context = `Last changed ${last.runsSince} run${last.runsSince === 1 ? '' : 's'} before this one, at ${last.run.name}: ${what}.`;
+            }
+
+            return;
+        }
+
+        // Nothing to add to "all fine", or to the only run there is.
+        if (s.ok || index === 0) return;
+
+        const names = keys
+            .filter(k => k === 'psi' || k === 'tokens' || available[k])
+            .map(k => k === 'psi' ? 'pressure' : k === 'tokens' ? 'tokens' : k.toUpperCase());
+
+        if (names.length === 0) return;
+
+        s.context = `No change to ${names.slice(0, -1).join(', ')}${names.length > 1 ? ' or ' : ''}${names[names.length - 1]} in the ${index + 1} runs on record for this bike.`;
+    });
+
+    // A static sag older than the spring it is supposed to describe: every
+    // comparison above that uses it is against the wrong figure.
+    const staleSince = entries[index].sagStale[end];
+
+    if (staleSince && staticSagPct > 0) {
+        suggestions.push({
+            tag: 'Static sag', ok: false,
+            text: `The static sag on record (${staticSagPct.toFixed(0)}%) did not change when pressure or tokens did, at ${staleSince} — it was most likely captured on the previous spring setup. Recapture it in Settings → Sensors before reading anything above that compares against it.`
+        });
+    }
+}
+
+function renderTuningSide(containerId, sideName, color, setupSnapshot, suggestions)
+{
+    const container = document.getElementById(containerId);
+    // The model is whatever the rider typed in Settings.
+    const setup = [suspensionModel(setupSnapshot), formatSetup(setupSnapshot)].filter(Boolean).map(escapeHtml).join(' · ');
+
+    let html = `<div class="tuning-side-header">
+        <span class="event-dot" style="background:${color};"></span>
+        <strong>${sideName}</strong>`;
+
+    if (setup) html += `<span class="stat-sub" style="margin:0;">${setup}</span>`;
+    html += `</div>`;
+
+    if (suggestions.length === 0) {
+        html += `<p class="stat-sub" style="margin:0;">Not enough data to suggest anything for this side.</p>`;
+    } else {
+        html += `<div class="suggestion-list">` + suggestions.map(s =>
+            `<div class="suggestion-item"><span class="suggestion-tag${s.ok ? ' ok' : ''}">${s.tag}</span><span>${s.text}`
+            + (s.context ? `<span class="stat-sub" style="display:block;">${s.context}</span>` : '') + `</span></div>`
+        ).join('') + `</div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+// Whole-ride front/rear imbalance — distinct from the Notable Events
+// "imbalance" spikes (load()'s balanceEvents, computed alongside
+// impactEvents above), which flag isolated moments (a nose-heavy jump
+// landing, a hard one-wheel brake) that are often intentional/momentary
+// and not something to tune around. This instead asks whether one end
+// sits deeper than the other as a matter of course, using the ride's
+// median gap rather than its mean — a handful of hard braking/landing
+// moments can skew a mean without the bike actually running unbalanced
+// most of the time, but they barely move a median computed across the
+// whole ride.
+const CONSISTENT_IMBALANCE_THRESHOLD_PP = 10;
+
+function detectConsistentImbalance(rows, frontMaxMM, rearMaxMM, isFullSusp) {
+    if (!isFullSusp || !frontMaxMM || !rearMaxMM) return null;
+
+    const diffs = rows.map(r => (r.front / frontMaxMM * 100) - (r.rear / rearMaxMM * 100));
+    const medianDiff = percentile(diffs, 50);
+
+    if (Math.abs(medianDiff) < CONSISTENT_IMBALANCE_THRESHOLD_PP) return null;
+
+    return { frontDeeper: medianDiff > 0, gapPp: Math.abs(medianDiff) };
+}
+
+function renderImbalanceSuggestion(imbalance) {
+    const container = document.getElementById('tuningImbalance');
+
+    if (!imbalance) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+
+    const deeper = imbalance.frontDeeper ? 'Front' : 'Rear';
+    const shallower = imbalance.frontDeeper ? 'rear' : 'front';
+
+    container.style.display = '';
+    container.innerHTML = `<div class="suggestion-item"><span class="suggestion-tag">Balance</span>` +
+        `<span>${deeper} consistently used ~${imbalance.gapPp.toFixed(0)}pp more of its travel than the ${shallower} throughout this ride (not just isolated moments — see Notable Events for those) — worth comparing relative pressure/sag between the two ends before adjusting either side's clicks individually.</span></div>`;
+}
+
+// The setup line next to each end in the Tuning tab: every field the run's
+// snapshot has, written out in full. Which fields those are — dials by
+// their has_* flags, the pre-split click counts for runs old enough to have
+// only those — is setupFields()'s call (telemetry.js), not this page's.
+// The fork's or shock's model from the run's setup snapshot, '' when the
+// run has none (recorded before 2026-10-28, or never entered).
+function suspensionModel(setup)
+{
+    return setup && typeof setup.model === 'string' ? setup.model.trim() : '';
+}
+
+function formatSetup(setup)
+{
+    if (!setup) return '';
+
+    const parts = setupFields(setup).map(setupFieldText);
+
+    return parts.length ? parts.join(' · ') : 'Setup not recorded in Settings';
+}
+
+// ── Copy for AI ────────────────────────────────────────────────────────────
+// The run as a prompt to paste into a chat with a language model, for a
+// second opinion: what this page has worked out — the figures behind the
+// suggestions and the suggestions themselves, segments, events, the setup and
+// its history, the rider's notes — and how each was measured, so the model
+// can read it as a tuner would and disagree with the rules where the data
+// says so. Not the telemetry itself: megabytes, and the model would only redo
+// this page's work less carefully. Copied, not sent: the device has no
+// internet, and an API key has nowhere safe to live on plain-HTTP pages.
+
+let aiContext = null;           // set by load() once everything is computed
+const AI_MAX_SEGMENTS = 30;
+const AI_MAX_EVENTS = 40;
+const AI_MAX_HISTORY = 10;      // runs of the setup history, ending at this one
+
+function aiPrompt(c)
+{
+    const meta = c.meta || {};
+    const bike = c.bike || {};
+    const L = [];
+    const fixed = (v, d = 0) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--';
+    const pctOf = (mm, maxMM) => maxMM ? `${fixed(mm / maxMM * 100)}%` : '--';
+    const orList = list => list.length > 1 ? `${list.slice(0, -1).join(', ')} or ${list[list.length - 1]}` : list.join('');
+
+    // "2026-10-10 18:35", local time: a day-month order a model can't misread.
+    const when = epoch => {
+        const d = new Date(epoch * 1000);
+        const two = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+    };
+
+    // Which dials an end has, from the has_* flags; old runs have none.
+    const adjusters = setup => {
+        if (!setup || typeof setup.has_lsc !== 'boolean') return 'not recorded';
+        const avail = adjusterAvailability(setup);
+        const has = SETUP_DIALS.filter(k => avail[k]).map(k => k.toUpperCase());
+        const lacks = SETUP_DIALS.filter(k => !avail[k]).map(k => k.toUpperCase());
+        return (has.length ? has.join(', ') : 'none') + (lacks.length ? ` (no ${orList(lacks)})` : '');
+    };
+
+    const stroke = c.rear && c.rear.maxMM;
+    const wheel = bike.rear_wheel_travel_mm;
+
+    L.push('# Suspension tuning: a second opinion on one ride', '');
+    L.push('I ride a mountain bike with a DIY data logger on it. Below is what its dashboard worked out from one ride, including its own rule-based tuning suggestions. Please read it as an experienced suspension tuner would:', '');
+    L.push('1. What does the data say about the fork and the shock, each on its own and against each other? Point to the figures you are going by.');
+    L.push('2. Where do you agree or disagree with the dashboard\'s suggestions, and why?');
+    L.push('3. What is the one change you would make first, and by how much? Then: what should I look for in the next ride\'s figures to tell whether it worked?');
+    // The models are only asked for when the run doesn't name them.
+    const frontModel = suspensionModel(c.front.setup);
+    const rearModel = c.isFullSusp ? suspensionModel(c.rear.setup) : '';
+    const missingModels = [!frontModel && 'fork', c.isFullSusp && !rearModel && 'shock'].filter(Boolean);
+    L.push(`4. What can't this data tell you? Ask me for whatever you would need — how the bike felt, the trail, my weight${missingModels.length ? `, the ${missingModels.join(' and ')} model${missingModels.length > 1 ? 's' : ''} and revision${missingModels.length > 1 ? 's' : ''}` : ''}.`, '');
+    L.push('It is one ride; the setup history further down shows what was ridden before it.', '');
+
+    L.push('## How the data was measured', '');
+    L.push(`- **Travel**: a linear potentiometer on the fork and one on the shock, ${fixed(c.rowsPerS)} samples a second on this ride. Front figures are fork travel.` +
+        (c.isFullSusp ? ` Rear figures are **shock stroke**, not wheel travel (${fixed(stroke)}mm of stroke${wheel > 0 ? `, ${fixed(wheel)}mm at the wheel` : ''}).` : ''));
+    L.push('- **Travel used** is a % of that end\'s full travel. "Average travel used" is the mean over the whole ride, stops included (dynamic sag). Static sag was measured with me sitting still on the bike, before the ride.');
+    L.push('- **Bottom-out**: crossing 95% of travel, counted again only once it has dropped below 85%. **Topped out**: the share of samples under 5% of travel.');
+    L.push('- **Shaft speed**: from consecutive samples, unfiltered; positive is compression. The rebound/compression ratio is the 90th percentile of rebound speed over the 90th percentile of compression speed.');
+    L.push('- **G-force**: the accelerometer of an IMU fixed inside the frame triangle, total magnitude (1G at rest). It reads up to ±8g per axis, so a figure with "≥" hit that ceiling and is a lower bound.');
+    L.push('- **Segments**: "technical" where suspension and G activity are high for this ride while the speed is at or below the ride\'s median; the rest is "transition". Relative to the ride, not fixed thresholds.');
+    L.push('- **Harsh hits** (experimental): a vertical acceleration spike (gravity removed) in the top 2% of the ride while that end moved 15% of its travel or less. Not yet checked against a ride I remember as harsh, and the dashboard\'s suggestions don\'t use them.');
+    L.push('- **Click counts** are as I count them on each dial; which end of its range a dial is counted from isn\'t recorded.', '');
+
+    L.push('## The ride', '');
+    L.push(`- ${meta.name || runName}${meta.title ? ` "${meta.title}"` : ''}${meta.start_utc > 0 ? `, ${when(meta.start_utc)}` : ''}`);
+    L.push(`- Duration ${formatDuration(c.totalS)} (${formatDuration(c.movingS)} moving), ${fixed(c.stats.distanceKm, 2)} km, speed ${fixed(c.stats.avgSpeed, 1)} km/h average, ${fixed(c.stats.maxSpeed, 1)} km/h max`);
+    L.push(`- Elevation +${fixed(c.elevGain)} / -${fixed(c.elevLoss)} m (${fixed(c.stats.minAlt)}–${fixed(c.stats.maxAlt)} m)`);
+    L.push(`- Jumps (≥${AIR_MIN_DURATION_S}s airborne): ${c.jumps}${c.jumps ? `, ${fixed(c.airS, 1)}s in the air in all` : ''}`);
+    L.push(`- G-force: ${fixed(c.stats.avgGForce, 1)}G average, peak ${formatPeakG(c.stats.maxGForce, c.stats.maxGClipped)}; ${c.impacts} hard impact${c.impacts === 1 ? '' : 's'} above ${fixed(c.impactHigh, 1)}G (the top 2% of this ride, 2.5G at least)`);
+    if (c.imuBasis) L.push(`- Lean up to ${fixed(c.stats.maxLean)}°, pitch up to ${fixed(c.stats.maxPitch)}°`);
+    const notes = document.getElementById('notesText').value.trim();
+    L.push(`- My notes: ${notes ? `"${notes.replace(/\s*\n\s*/g, ' / ')}"` : 'none'}`, '');
+
+    L.push('## Bike and setup for this ride', '');
+    const bikeBits = [bike.name, bike.wheel_size ? `${bike.wheel_size}" wheels` : '', c.isFullSusp ? 'full suspension' : 'hardtail'].filter(Boolean);
+    L.push(`- Bike: ${bikeBits.join(', ')}`);
+    L.push(`- Fork: ${frontModel ? `${frontModel}, ` : ''}${fixed(c.front.maxMM)}mm travel. Setup: ${formatSetup(c.front.setup) || 'not recorded'}. Adjusters: ${adjusters(c.front.setup)}.`);
+    if (c.isFullSusp) {
+        const leverage = stroke && wheel > 0 ? ` (average leverage ratio ~${fixed(wheel / stroke, 1)}:1)` : '';
+        L.push(`- Shock: ${rearModel ? `${rearModel}, ` : ''}${fixed(stroke)}mm stroke${wheel > 0 ? `, ${fixed(wheel)}mm wheel travel` : ''}${leverage}. Setup: ${formatSetup(c.rear.setup) || 'not recorded'}. Adjusters: ${adjusters(c.rear.setup)}.`);
+        if (c.rear.setup && c.rear.setup.lockout === true)
+            L.push('- **The shock was ridden locked out** (lever closed) on this ride, so its figures are of the locked shock.');
+    }
+    [['Fork', c.front.setup], ['Shock', c.rear && c.rear.setup]].forEach(([label, s]) => {
+        if (s && s.recorded)
+            Object.keys(s.recorded).forEach(key => L.push(`- ${label} ${key} corrected after the ride: recorded ${s.recorded[key]}, really ${s[key] ?? 'none'}`));
+    });
+    L.push('');
+
+    L.push('## Suspension figures', '');
+    const ends = c.isFullSusp ? [c.front, c.rear] : [c.front];
+    const row = (label, fn) => L.push(`| ${label} | ${ends.map(fn).join(' | ')} |`);
+    const speeds = list => list ? list.map(v => fixed(v)).join(' / ') + ' mm/s' : '--';
+    L.push(`| | Fork |${c.isFullSusp ? ' Shock |' : ''}`, `|---|---|${c.isFullSusp ? '---|' : ''}`);
+    row('Average travel used (dynamic sag)', e => `${fixed(e.avgPct)}% (${fixed(e.avgMM)}mm)`);
+    row('Static sag', e => e.staticSag > 0 ? `${fixed(e.staticSag)}%` : 'not measured');
+    row('Deepest point', e => `${pctOf(e.peakMM, e.maxMM)} (${fixed(e.peakMM, 1)}mm)`);
+    row('Bottom-outs', e => `${e.boCount} (${fixed(c.totalS > 0 ? e.boCount / (c.totalS / 60) : 0, 1)}/min)`);
+    row('Time topped out (<5%)', e => `${fixed(e.toppedOutPct)}%`);
+    row('Compression speed p50 / p90 / p99', e => speeds(e.comp));
+    row('Rebound speed p50 / p90 / p99', e => speeds(e.rebound));
+    row('Fastest compression / rebound', e => `${fixed(e.compMax)} / ${fixed(e.reboundMax)} mm/s`);
+    row('Rebound/compression ratio (p90)', e => e.comp && e.rebound && e.comp[1] > 0 ? `${fixed(e.rebound[1] / e.comp[1], 2)}x` : '--');
+    row('Harsh hits (experimental)', e => String(e.harshCount));
+    L.push('');
+    L.push('Share of samples in each tenth of travel (0–10% first):');
+    ends.forEach((e, i) => L.push(`- ${i ? 'Shock' : 'Fork'}: ${e.hist.map(v => fixed(v)).join(' · ')}`));
+    if (c.medianGapPp !== null)
+        L.push('', `Front/rear balance: over the whole ride the fork sat a median ${fixed(Math.abs(c.medianGapPp))} points of travel ${c.medianGapPp >= 0 ? 'deeper' : 'shallower'} than the shock (each as % of its own travel).`);
+    L.push('');
+
+    L.push('## Trail segments', '');
+    if (c.segments.length === 0) L.push('No technical stretches detected.');
+    c.segments.slice(0, AI_MAX_SEGMENTS).forEach(({ seg, stats }) => {
+        const bits = [`${fixed(stats.speedAvg)} km/h`];
+        if (stats.frontAvgPct !== null) bits.push(`fork ${fixed(stats.frontAvgPct)}%`);
+        if (c.isFullSusp && stats.rearAvgPct !== null) bits.push(`shock ${fixed(stats.rearAvgPct)}%`);
+        const bo = stats.frontBO + (c.isFullSusp ? stats.rearBO : 0);
+        if (bo) bits.push(`${bo} bottom-out${bo > 1 ? 's' : ''}`);
+        bits.push(`peak ${formatPeakG(stats.peakG, stats.peakClipped)}`);
+        L.push(`- ${formatClock(seg.startS)}–${formatClock(seg.endS)} ${seg.technical ? 'technical' : 'transition'}: ${bits.join(', ')}`);
+    });
+    if (c.segments.length > AI_MAX_SEGMENTS) L.push(`- … and ${c.segments.length - AI_MAX_SEGMENTS} more`);
+    L.push('');
+
+    L.push('## Notable events', '');
+    L.push('Bottom-outs (with the peak G nearby), harsh hits and jumps.', '');
+    if (c.events.length === 0) L.push('None.');
+    c.events.slice(0, AI_MAX_EVENTS).forEach(e => L.push(`- ${formatChartTime(e.s)} ${e.label}`));
+    if (c.events.length > AI_MAX_EVENTS) L.push(`- … and ${c.events.length - AI_MAX_EVENTS} more`);
+    if (c.balance.count > 0)
+        L.push('', `Also ${c.balance.count} moments where one end sat at least ${fixed(c.balance.thresholdPp)} points of travel deeper than the other (the top 5% of this ride's gap): the fork deeper ${c.balance.frontDeeper} times, the shock ${c.balance.count - c.balance.frontDeeper}. Often a landing, a manual or hard braking rather than the setup.`);
+    L.push('');
+
+    L.push('## The dashboard\'s own suggestions', '');
+    L.push('Rule-based, from this ride alone, with what the setup history says under each.', '');
+    const suggestionLines = (label, list) => {
+        L.push(`${label}:`);
+        if (!list || list.length === 0) L.push('- nothing to suggest');
+        (list || []).forEach(s => L.push(`- [${s.ok ? 'OK' : s.tag}] ${s.text}${s.context ? ` (${s.context})` : ''}`));
+    };
+    suggestionLines('Fork', c.front.suggestions);
+    if (c.isFullSusp) suggestionLines('Shock', c.rear.suggestions);
+    if (c.imbalanceText) L.push(`Balance: ${c.imbalanceText}`);
+    L.push('');
+
+    const ctx = c.setupContext;
+    if (ctx && ctx.entries.length > 1) {
+        L.push('## Setup history of this bike', '');
+        L.push('The runs on record, oldest first, each with what changed from the one before (runs ridden locked out are left out).', '');
+        const first = Math.max(0, ctx.index - AI_MAX_HISTORY + 1);
+        ctx.entries.slice(first, ctx.index + 1).forEach((entry, i) => {
+            const r = entry.run;
+            const bits = [];
+            if (r.start_utc > 0) bits.push(when(r.start_utc).slice(0, 10));
+            if (typeof r.duration_s === 'number') bits.push(formatDuration(r.duration_s));
+            if (typeof r.distance_km === 'number') bits.push(`${fixed(r.distance_km, 2)} km`);
+            if (typeof r.max_speed_kmh === 'number') bits.push(`max ${fixed(r.max_speed_kmh)} km/h`);
+            if (typeof r.max_front_mm === 'number') bits.push(`fork deepest ${pctOf(r.max_front_mm, r.front_travel)}`);
+            if (c.isFullSusp && typeof r.max_rear_mm === 'number') bits.push(`shock deepest ${pctOf(r.max_rear_mm, r.rear_travel)}`);
+
+            const setup = i === 0
+                ? `setup: fork ${[suspensionModel(r.front_suspension), formatSetup(r.front_suspension)].filter(Boolean).join(', ')}${c.isFullSusp ? `; shock ${[suspensionModel(r.rear_suspension), formatSetup(r.rear_suspension)].filter(Boolean).join(', ')}` : ''}`
+                : entry.changes.length ? `changed: ${entry.changes.map(ch => setupChangeText(ch)).join(', ')}` : 'no setup change';
+
+            const here = entry === ctx.entries[ctx.index] ? ' — **this ride**' : '';
+            L.push(`- ${r.name}${r.title ? ` "${r.title}"` : ''}${here} (${bits.join(', ')}); ${setup}${r.notes ? `. Notes: "${r.notes.replace(/\s*\n\s*/g, ' / ')}"` : ''}`);
+        });
+        const later = ctx.entries.length - 1 - ctx.index;
+        if (later > 0) L.push(`- (${later} later run${later > 1 ? 's' : ''} on record, not shown)`);
+        const stale = ctx.entries[ctx.index].sagStale;
+        ['front', 'rear'].forEach(end => {
+            if (stale[end]) L.push(`- The ${end === 'front' ? 'fork' : 'shock'}'s static sag has not been measured again since its pressure or tokens changed, at ${stale[end]}.`);
+        });
+        L.push('');
+    }
+
+    L.push('## Data quality', '');
+    const quality = [];
+    const gapS = c.gaps.reduce((sum, g) => sum + g.s, 0);
+    if (c.gaps.length) quality.push(`${formatShortSeconds(gapS)} of samples missing, in ${c.gaps.length} gap${c.gaps.length > 1 ? 's' : ''}`);
+    const lostS = c.orientationLost.reduce((sum, g) => sum + g.s, 0);
+    if (c.orientationLost.length) quality.push(`the IMU lost its orientation for ${formatShortSeconds(lostS)}, where lean, pitch and vertical G are missing`);
+    if (c.clippedSamples) quality.push(`the accelerometer was at its ±8g ceiling in ${c.clippedSamples} samples`);
+    if (!c.imuBasis) quality.push('the IMU had no rest reference for this ride, so lean, pitch and vertical G are the sensor\'s, not the bike\'s');
+    L.push(quality.length ? quality.map(q => `- ${q[0].toUpperCase()}${q.slice(1)}`).join('\n') : '- Nothing missing or out of range.');
+    if (meta.firmware) L.push(`- Recorded with logger firmware ${meta.firmware}`);
+
+    return L.join('\n') + '\n';
+}
+
+// navigator.clipboard is only there on HTTPS pages, and these are plain HTTP
+// from the device, so the old way first: a selected textarea and "copy",
+// which still works from a click. If even that fails, the prompt is saved as
+// a file instead.
+async function copyForAi()
+{
+    if (!aiContext) return;
+
+    const text = aiPrompt(aiContext);
+
+    if (window.isSecureContext && navigator.clipboard) {
+        try {
+            await navigator.clipboard.writeText(text);
+            BikeUI.toast('Copied — paste it into a chat with an AI model.');
+            return;
+        } catch (e) { /* the fallback below */ }
+    }
+
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed; top:0; left:0; width:1px; height:1px; opacity:0;';
+    document.body.appendChild(area);
+    area.select();
+    area.setSelectionRange(0, text.length);
+
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch (e) { copied = false; }
+    area.remove();
+
+    if (copied) {
+        BikeUI.toast('Copied — paste it into a chat with an AI model.');
+        return;
+    }
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
+    link.download = `${runName}-for-AI.md`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    BikeUI.toast('Couldn\'t reach the clipboard, so it was saved as a file instead.');
+}
+
+function drawHistogram(svg, tooltip, values, opts)
+{
+    svg.innerHTML = '';
+
+    const W = 300, H = opts.height || 110;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const padL = 28, padR = 8, padT = 10, padB = 22;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const maxVal = Math.max(1, arrayMax(values));
+    const yStep = niceStep(maxVal, 4);
+    const yMax = Math.ceil(maxVal / yStep) * yStep || yStep;
+
+    const Y = v => padT + plotH - (v / yMax) * plotH;
+    const n = values.length;
+    const barW = plotW / n;
+
+    for (let v = 0; v <= yMax + 0.0001; v += yStep) {
+        const y = Y(v);
+        svg.appendChild(el('line', { x1: padL, y1: y.toFixed(1), x2: W - padR, y2: y.toFixed(1), stroke: COLOR_BORDER, 'stroke-width': 0.5 }));
+
+        const label = el('text', { x: padL - 5, y: (y + 3).toFixed(1), 'text-anchor': 'end', 'font-size': 4, fill: COLOR_MUTED });
+        label.textContent = v.toFixed(0) + '%';
+        svg.appendChild(label);
+    }
+
+    // A stronger line at a meaningful reference point in the data — the
+    // zero-velocity boundary for the velocity charts, unused (opts.zeroIndex
+    // undefined) elsewhere.
+    if (opts.zeroIndex !== undefined) {
+        const zx = padL + opts.zeroIndex * barW;
+        svg.appendChild(el('line', { x1: zx.toFixed(1), y1: padT, x2: zx.toFixed(1), y2: padT + plotH, stroke: COLOR_MUTED, 'stroke-width': 0.5, 'stroke-dasharray': '2,2' }));
+    }
+
+    const bars = [];
+
+    values.forEach((v, i) => {
+        const x = padL + i * barW;
+        const y = Y(v);
+        const h = (padT + plotH) - y;
+
+        const rect = el('rect', {
+            x: (x + barW * 0.08).toFixed(1), y: y.toFixed(1),
+            width: (barW * 0.84).toFixed(1), height: Math.max(0, h).toFixed(1),
+            fill: opts.color, rx: 1, opacity: 0.9
+        });
+        svg.appendChild(rect);
+        bars.push(rect);
+    });
+
+    opts.xLabels.forEach(({ frac, text }) => {
+        const label = el('text', {
+            x: (padL + frac * plotW).toFixed(1), y: H - 6,
+            'text-anchor': frac < 0.15 ? 'start' : frac > 0.85 ? 'end' : 'middle',
+            'font-size': 4, fill: COLOR_MUTED
+        });
+        label.textContent = text;
+        svg.appendChild(label);
+    });
+
+    function pointerHandler(evt)
+    {
+        const rect = svg.getBoundingClientRect();
+        const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+        const px = (clientX - rect.left) / rect.width * W;
+
+        let idx = Math.floor((px - padL) / barW);
+        idx = Math.max(0, Math.min(n - 1, idx));
+
+        bars.forEach((b, i) => b.setAttribute('opacity', i === idx ? 1 : 0.55));
+
+        tooltip.innerHTML = `<div class="label">${opts.binLabel(idx)}</div><div class="row"><span class="value">${values[idx].toFixed(1)}%</span> <span class="label">of samples</span></div>`;
+        tooltip.classList.add('visible');
+
+        const tw = tooltip.offsetWidth || 80;
+        let left = (px / W) * rect.width - tw / 2;
+        left = Math.max(0, Math.min(rect.width - tw, left));
+        tooltip.style.left = left + 'px';
+    }
+
+    function clearHover()
+    {
+        bars.forEach(b => b.setAttribute('opacity', 0.9));
+        tooltip.classList.remove('visible');
+    }
+
+    svg.addEventListener('pointermove', pointerHandler);
+    svg.addEventListener('pointerdown', pointerHandler);
+    svg.addEventListener('pointerleave', clearHover);
+}
+
+// "Damper map" / "dynamic balance" scatter — compression/rebound speed
+// (Y) against position in the travel (X), one dot per sample. Commercial
+// telemetry systems (BYB, Motion Instruments) use this to show how the
+// suspension actually *moves* through its stroke, a dimension the
+// travel-band histogram and velocity histogram above only ever show
+// separately (one's blind to speed, the other's blind to position).
+// Semi-transparent dots rather than a binned heatmap: a heavily-visited
+// zone should read as denser, not clip to one flat color the moment it's
+// visited more than the color scale's max — a UX note from an actual
+// damper-map user (Vital MTB forum), not just a stylistic pick.
+function drawScatter(svg, tooltip, points, opts)
+{
+    svg.innerHTML = '';
+
+    const W = 300, H = opts.height || 170;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const padL = 28, padR = 8, padT = 10, padB = 20;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const maxAbsVel = Math.max(1, arrayMax(points.map(p => Math.abs(p.vel))));
+    const yStep = niceStep(maxAbsVel, 4);
+    const yMax = Math.ceil(maxAbsVel / yStep) * yStep || yStep;
+
+    const X = pct => padL + (pct / 100) * plotW;
+    const Y = vel => padT + plotH / 2 - (vel / yMax) * (plotH / 2);
+
+    for (let v = -yMax; v <= yMax + 0.0001; v += yStep) {
+        const y = Y(v);
+        svg.appendChild(el('line', {
+            x1: padL, y1: y.toFixed(1), x2: W - padR, y2: y.toFixed(1),
+            stroke: COLOR_BORDER, 'stroke-width': Math.abs(v) < 0.0001 ? 1 : 0.5
+        }));
+
+        const label = el('text', { x: padL - 5, y: (y + 3).toFixed(1), 'text-anchor': 'end', 'font-size': 4, fill: COLOR_MUTED });
+        label.textContent = v.toFixed(0);
+        svg.appendChild(label);
+    }
+
+    [0, 50, 100].forEach(pct => {
+        const x = X(pct);
+        svg.appendChild(el('line', {
+            x1: x.toFixed(1), y1: padT, x2: x.toFixed(1), y2: padT + plotH,
+            stroke: COLOR_BORDER, 'stroke-width': 0.5, 'stroke-dasharray': pct === 50 ? '2,2' : 'none'
+        }));
+
+        const label = el('text', {
+            x: x.toFixed(1), y: H - 6,
+            'text-anchor': pct === 0 ? 'start' : pct === 100 ? 'end' : 'middle',
+            'font-size': 4, fill: COLOR_MUTED
+        });
+        label.textContent = pct + '%';
+        svg.appendChild(label);
+    });
+
+    const topLabel = el('text', { x: W - padR, y: padT + 4, 'text-anchor': 'end', 'font-size': 4, fill: COLOR_MUTED });
+    topLabel.textContent = 'compression ↑ mm/s';
+    svg.appendChild(topLabel);
+
+    const bottomLabel = el('text', { x: W - padR, y: padT + plotH - 1, 'text-anchor': 'end', 'font-size': 4, fill: COLOR_MUTED });
+    bottomLabel.textContent = 'rebound ↓ mm/s';
+    svg.appendChild(bottomLabel);
+
+    points.forEach(p => {
+        svg.appendChild(el('circle', {
+            cx: X(p.pct).toFixed(1), cy: Y(p.vel).toFixed(1), r: 1.1,
+            fill: opts.color, opacity: 0.16
+        }));
+    });
+
+    // A precise per-point tooltip would need a nearest-neighbor search over
+    // thousands of dots on every pointer move — instead, this just reads
+    // back the axis values under the cursor, which is what a scatter's
+    // tooltip is actually for (finding where a point roughly sits, not
+    // which exact sample it was).
+    function pointerHandler(evt)
+    {
+        const rect = svg.getBoundingClientRect();
+        const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+        const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+        const px = (clientX - rect.left) / rect.width * W;
+        const py = (clientY - rect.top) / rect.height * H;
+
+        const pct = Math.min(100, Math.max(0, ((px - padL) / plotW) * 100));
+        const vel = Math.min(yMax, Math.max(-yMax, -((py - padT - plotH / 2) / (plotH / 2)) * yMax));
+
+        tooltip.innerHTML = `<div class="row"><span class="value">${pct.toFixed(0)}%</span> <span class="label">travel</span></div>`
+            + `<div class="row"><span class="value">${vel.toFixed(0)} mm/s</span> <span class="label">${vel >= 0 ? 'compression' : 'rebound'}</span></div>`;
+        tooltip.classList.add('visible');
+
+        const tw = tooltip.offsetWidth || 90;
+        let left = (px / W) * rect.width - tw / 2;
+        left = Math.max(0, Math.min(rect.width - tw, left));
+        tooltip.style.left = left + 'px';
+    }
+
+    function clearHover() { tooltip.classList.remove('visible'); }
+
+    svg.addEventListener('pointermove', pointerHandler);
+    svg.addEventListener('pointerdown', pointerHandler);
+    svg.addEventListener('pointerleave', clearHover);
+}
+
+// onPick(index) is called when a block is clicked.
+function drawSegmentTimeline(svg, tooltip, segments, totalS, onPick)
+{
+    svg.innerHTML = '';
+
+    const W = 300, H = 36;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    const padL = 2, padR = 2, padT = 4, padB = 4;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+
+    const X = s => padL + (s / totalS) * plotW;
+
+    const blocks = segments.map(seg => {
+        const x = X(seg.startS);
+        const w = Math.max(1, X(seg.endS) - x);
+
+        const rect = el('rect', {
+            x: x.toFixed(1), y: padT, width: w.toFixed(1), height: plotH,
+            fill: seg.technical ? COLOR_TECHNICAL : COLOR_TRANSITION,
+            stroke: COLOR_SURFACE, 'stroke-width': 0.5
+        });
+        svg.appendChild(rect);
+        return rect;
+    });
+
+    // The part of the run the time-series charts are zoomed to, framed here:
+    // this strip is the one picture of the whole run that stays on screen,
+    // so it's where "which part am I looking at" can be answered.
+    const zoomFrame = el('rect', {
+        y: 1, height: H - 2, rx: 1.5, fill: 'none',
+        stroke: COLOR_ACCENT, 'stroke-width': 1.2, visibility: 'hidden', 'pointer-events': 'none'
+    });
+    svg.appendChild(zoomFrame);
+
+    showZoomOnTimeline = range => {
+        if (!range) { zoomFrame.setAttribute('visibility', 'hidden'); return; }
+
+        const x = X(Math.max(0, range.from));
+        zoomFrame.setAttribute('x', x.toFixed(1));
+        zoomFrame.setAttribute('width', Math.max(2, X(Math.min(totalS, range.to)) - x).toFixed(1));
+        zoomFrame.setAttribute('visibility', 'visible');
+    };
+
+    showZoomOnTimeline(zoomRange);
+
+    // Index of the segment under a pointer event, or -1.
+    function segmentAt(evt)
+    {
+        const rect = svg.getBoundingClientRect();
+        const px = (evt.clientX - rect.left) / rect.width * W;
+
+        return segments.findIndex(seg => px >= X(seg.startS) && px <= X(seg.endS));
+    }
+
+    function pointerHandler(evt)
+    {
+        const rect = svg.getBoundingClientRect();
+        const px = (evt.clientX - rect.left) / rect.width * W;
+
+        const idx = segmentAt(evt);
+        if (idx < 0) return;
+
+        blocks.forEach((b, i) => b.setAttribute('opacity', i === idx ? 1 : 0.6));
+
+        const seg = segments[idx];
+        tooltip.innerHTML = `<div class="label">${seg.technical ? 'Technical' : 'Transition'}</div>`
+            + `<div class="row"><span class="value">${formatClock(seg.startS)}–${formatClock(seg.endS)}</span></div>`;
+        tooltip.classList.add('visible');
+
+        const tw = tooltip.offsetWidth || 90;
+        let left = (px / W) * rect.width - tw / 2;
+        left = Math.max(0, Math.min(rect.width - tw, left));
+        tooltip.style.left = left + 'px';
+    }
+
+    function clearHover()
+    {
+        blocks.forEach(b => b.setAttribute('opacity', 1));
+        tooltip.classList.remove('visible');
+    }
+
+    svg.addEventListener('pointermove', pointerHandler);
+    svg.addEventListener('pointerdown', pointerHandler);
+    svg.addEventListener('pointerleave', clearHover);
+
+    svg.style.cursor = 'pointer';
+    svg.addEventListener('click', evt => {
+        const idx = segmentAt(evt);
+        if (idx >= 0) onPick(idx);
+    });
+}
+
+function renderSegments(rows, segments, frontMaxMM, rearMaxMM, isFullSusp)
+{
+    const totalS = (rows[rows.length - 1].t - rows[0].t) / 1000 || 1;
+
+    const list = document.getElementById('segmentsList');
+    list.innerHTML = '';
+
+    const rowEls = [];
+
+    // A block on the timeline is its row in the list by another name:
+    // clicking one selects the other, and brings it into view in the list.
+    drawSegmentTimeline(
+        document.getElementById('segmentsChart'), document.getElementById('segmentsTooltip'),
+        segments, totalS,
+        idx => {
+            const row = rowEls[idx];
+
+            row.click();
+            list.scrollTo({ top: row.offsetTop - list.offsetTop - (list.clientHeight - row.offsetHeight) / 2, behavior: 'smooth' });
+        }
+    );
+
+    segments.forEach(seg => {
+        const stats = computeSegmentStats(rows, seg, frontMaxMM, rearMaxMM);
+
+        const row = document.createElement('div');
+        row.className = 'segment-row';
+
+        const badge = document.createElement('span');
+        badge.className = 'badge ' + (seg.technical ? 'highlight' : 'neutral');
+        badge.innerHTML = `<span class="dot"></span>${seg.technical ? 'Technical' : 'Transition'}`;
+
+        const value = document.createElement('span');
+        value.className = 'value';
+        value.textContent = `${formatClock(seg.startS)}–${formatClock(seg.endS)}`;
+
+        const detailParts = [`${stats.speedAvg.toFixed(0)} km/h avg`];
+        if (stats.frontAvgPct !== null) detailParts.push(`Front ${stats.frontAvgPct.toFixed(0)}%`);
+        if (isFullSusp && stats.rearAvgPct !== null) detailParts.push(`Rear ${stats.rearAvgPct.toFixed(0)}%`);
+        const boCount = stats.frontBO + (isFullSusp ? stats.rearBO : 0);
+        if (boCount > 0) detailParts.push(`${boCount} bottom-out${boCount > 1 ? 's' : ''}`);
+        detailParts.push(`peak ${formatPeakG(stats.peakG, stats.peakClipped)}`);
+
+        const detail = document.createElement('span');
+        detail.className = 'detail';
+        detail.textContent = detailParts.join(' · ');
+
+        row.appendChild(badge);
+        row.appendChild(value);
+        row.appendChild(detail);
+
+        // Hovering a segment moves the shared crosshair/map marker to its
+        // start — the whole reason this list moved onto the same page as
+        // the map instead of living on its own, mapless page. Clicking it
+        // zooms the charts to the segment (at least a second of it, so a
+        // very short one still gives the charts something to draw).
+        bindLocateRow(row, rows[seg.startIdx].t, { from: seg.startS, to: Math.max(seg.endS, seg.startS + 1) });
+
+        rowEls.push(row);
+        list.appendChild(row);
+    });
+}
+
+// How much of the run a click on an event zooms the charts to, either side
+// of it: enough to see the lead-up to a hit and how the bike settled after.
+const EVENT_ZOOM_S = 2;
+
+function renderEvents(entries, t0, totalS)
+{
+    const list = document.getElementById('eventList');
+    list.innerHTML = '';
+
+    entries.sort((a, b) => a.t - b.t);
+
+    if (entries.length === 0) {
+        const row = document.createElement('div');
+        row.className = 'event-row';
+        row.textContent = 'No notable events detected — clean run.';
+        list.appendChild(row);
+        return;
+    }
+
+    entries.forEach(e => {
+        const row = document.createElement('div');
+        row.className = 'event-row';
+
+        const dot = document.createElement('span');
+        dot.className = 'event-dot';
+        dot.style.background = e.color;
+
+        const value = document.createElement('span');
+        value.className = 'value';
+        value.textContent = formatClock((e.t - t0) / 1000);
+
+        row.appendChild(dot);
+        row.appendChild(value);
+        row.appendChild(document.createTextNode(e.label));
+
+        // Same locate behavior as segment rows above.
+        const s = (e.t - t0) / 1000;
+        bindLocateRow(row, e.t, { from: Math.max(0, s - EVENT_ZOOM_S), to: Math.min(totalS, s + EVENT_ZOOM_S) });
+
+        list.appendChild(row);
+    });
+}
+
+async function load()
+{
+    if (!runName) return;
+
+    try {
+        // Fire both requests up front, but don't block on the CSV — it can
+        // be several MB, while the .JSON is a few hundred bytes. Painting
+        // the stat cards as soon as the .JSON resolves (using its
+        // precomputed "stats", when present) means the rider sees numbers
+        // immediately instead of waiting for the whole CSV to download and
+        // get parsed just to compute the same handful of values.
+        const csvPromise = fetch(`/api/runs/telemetry?name=${encodeURIComponent(runName)}`);
+        const metaPromise = fetch(`/api/runs/download?file=${encodeURIComponent(runName)}.JSON`);
+
+        // Every run's setup, for the setup history. The page is complete
+        // without it, so a failure here costs only the lines it would add.
+        const runsPromise = fetchAllRuns().catch(() => null);
+
+        const metaRes = await metaPromise;
+        const meta = metaRes.ok ? await metaRes.json().catch(() => null) : null;
+        const bike = meta && meta.bike ? meta.bike : null;
+
+        const isFullSusp = !bike || bike.full_suspension !== false;
+
+        const bikeName = bike && bike.name ? bike.name : '';
+        const suspLabel = isFullSusp ? 'Full Suspension' : 'Hardtail';
+        runTitle = (meta && typeof meta.title === 'string') ? meta.title : '';
+        showRunTitle();
+
+        // The wheels ride on the bike's line rather than one of their own.
+        const bikeBits = [bikeName, suspLabel];
+        if (bike && bike.wheel_size) bikeBits.push(`${bike.wheel_size}" wheels`);
+        if (!isFullSusp && bike && typeof bike.rear_wheel_travel_mm === 'number' && bike.rear_wheel_travel_mm > 0)
+            bikeBits.push(`${bike.rear_wheel_travel_mm.toFixed(0)}mm rear wheel travel`);
+        runInfoBase = [bikeBits.filter(Boolean).join(' · ')];
+
+        // Absent on runs recorded before the device could tell the time.
+        if (meta && meta.start_utc > 0)
+            runInfoBase.unshift(formatRunDate(meta.start_utc));
+
+        showRunInfoLines();
+
+        renderSetupInfo(bike, isFullSusp);
+
+        const setupContextPromise = runsPromise.then(runs => setupContextFor(runs, runName, bikeName)).catch(() => null);
+        setupContextPromise.then(ctx => renderSetupChange(ctx, !!bike && runLockedOut(bike)));
+
+        document.getElementById('notesText').value = (meta && typeof meta.notes === 'string') ? meta.notes : '';
+
+        // Absent on runs recorded before the firmware carried a version.
+        if (meta && meta.firmware) {
+            const fw = document.getElementById('runFirmware');
+            fw.textContent = `Recorded with firmware ${[meta.firmware, meta.firmware_build].filter(Boolean).join(' · ')}`;
+            fw.style.display = '';
+        }
+
+        document.getElementById('rearAvgSagBlock').style.display = isFullSusp ? '' : 'none';
+        document.getElementById('rearBottomOutsBlock').style.display = isFullSusp ? '' : 'none';
+        document.getElementById('travelLegendRear').style.display = isFullSusp ? '' : 'none';
+        document.getElementById('rearVelRow').style.display = isFullSusp ? '' : 'none';
+        document.getElementById('rearDamperMapBlock').style.display = isFullSusp ? '' : 'none';
+        document.getElementById('tuningRear').style.display = isFullSusp ? '' : 'none';
+
+        const frontMaxMM = (bike && typeof bike.front_travel === 'number' && bike.front_travel > 0) ? bike.front_travel : 0;
+        const rearMaxMM = (bike && typeof bike.rear_travel === 'number' && bike.rear_travel > 0) ? bike.rear_travel : 0;
+
+        // The IMU rest reference this run was recorded with (Settings → Zero
+        // IMU). Without it lean/pitch can only be the raw sensor angles,
+        // which aren't the bike's — the note on the page says so instead of
+        // presenting them as fact.
+        const imuBasis = meta ? bikeBasis(meta.imu_up) : null;
+        document.getElementById('imuNote').style.display = imuBasis ? 'none' : '';
+
+        // Older/recovered runs never got a "stats" object written — fall
+        // back to computing it from the CSV below, same as always.
+        let stats = meta && meta.stats ? statsFromMeta(meta.stats, meta.duration_s || 0, !!imuBasis) : null;
+
+        if (stats) {
+            renderStats(stats, bike, isFullSusp, frontMaxMM, rearMaxMM);
+            document.body.classList.remove('is-loading');
+        }
+
+        const csvRes = await csvPromise;
+        if (!csvRes.ok) throw new Error('download failed');
+
+        // The telemetry is megabytes over a slow link — say how far along
+        // it is where the charts are about to appear, rather than leaving
+        // grey placeholders with no sign of whether anything is happening.
+        const megabytes = bytes => (bytes / 1048576).toFixed(1);
+        const telemetry = await readWithProgress(csvRes, (loaded, total) => {
+            document.getElementById('zoomText').textContent = total
+                ? `Loading run data… ${Math.round(loaded / total * 100)}% (${megabytes(loaded)} of ${megabytes(total)} MB)`
+                : `Loading run data… ${megabytes(loaded)} MB`;
+        });
+
+        const rows = parseCompactTelemetry(telemetry, imuBasis);
+        if (rows.length === 0) throw new Error('empty run');
+
+        // Shown under the setup, and shaded on every time chart.
+        const runGaps = findGaps(rows);
+        renderMissing(runGaps);
+        renderOrientationLoss(rows.orientationLost);
+
+        if (!stats) {
+            stats = computeStats(rows);
+            renderStats(stats, bike, isFullSusp, frontMaxMM, rearMaxMM);
+        } else {
+            // The .JSON's lean/pitch peaks are too coarse to show as-is
+            // (see statsFromMeta) — the decoded rows have 0.01rad
+            // resolution, so use those and refresh the two stat tiles.
+            stats.maxLean = arrayMax(rows.filter(r => r.roll !== null).map(r => Math.abs(r.roll)));
+            stats.maxPitch = arrayMax(rows.filter(r => r.pitch !== null).map(r => Math.abs(r.pitch)));
+            stats.maxGClipped = computeStats(rows).maxGClipped;
+            renderStats(stats, bike, isFullSusp, frontMaxMM, rearMaxMM);
+        }
+
+        linkedViews = [];
+
+        const chartRows = decimate(rows, 400);
+        playbackRows = chartRows;
+        document.getElementById('playBtn').disabled = false;
+        const t0 = rows[0].t;
+        const STACK_H = 56;
+        const totalS = (rows[rows.length - 1].t - t0) / 1000;
+        const totalMinutes = totalS / 60;
+
+        // ── Overview tab: time-series charts + map ──────────────────────
+
+        chartT0 = t0;
+
+        // The time-series charts as one unit, so a zoom can redraw all of
+        // them for a span of the run (see setZoom()). Each series is cut
+        // down from the full-resolution rows of that span on its own (see
+        // minMaxPoints()) — not taken from the whole-run `chartRows` above,
+        // which the map and playback keep using. Called through
+        // drawTimeStack(), which chooses `height`.
+        const drawTimeCharts = (range, height) => {
+            const inRange = range
+                ? rows.filter(r => { const s = (r.t - t0) / 1000; return s >= range.from && s <= range.to; })
+                : rows;
+            const source = inRange.length >= 2 ? inRange : rows;
+            const plotTogether = values => minMaxPoints(source, t0, values, CHART_BUCKETS);
+            const plot = value => plotTogether([value])[0];
+            const [gTotal, gVertical] = plotTogether([
+                r => Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2,
+                r => r.vertG
+            ]);
+
+            // One span and one set of ticks for the axis and every chart.
+            const from = range ? range.from : 0;
+            const to = range ? range.to : totalS;
+            const axisWidth = document.getElementById('timeAxis').getBoundingClientRect().width;
+            const ticks = timeTicks(from, to, axisWidth - TIME_PAD_L - TIME_PAD_R);
+            const shared = { from, to, ticks: ticks.values, height, gaps: runGaps };
+
+            drawTimeAxis(from, to, ticks);
+
+            // The figures beside the charts are for what the charts show.
+            renderTelemetryMinis(range ? computeStats(source) : stats, frontMaxMM, rearMaxMM);
+
+            // Travel always runs to 100%: how far from the end of the stroke
+            // a hit got is the point of the chart, and it keeps front and
+            // rear — and one run and the next — on the same scale.
+            drawLineChart(
+                document.getElementById('frontChart'),
+                [
+                    { name: 'Front', color: COLOR_FRONT, points: plot(r => toPct(r.front, frontMaxMM)) }
+                ],
+                { ...shared, yFormat: v => v.toFixed(0) + '%', yMax: 100 }
+            );
+
+            if (isFullSusp) {
+                drawLineChart(
+                    document.getElementById('rearChart'),
+                    [
+                        { name: 'Rear', color: COLOR_REAR, points: plot(r => toPct(r.rear, rearMaxMM)) }
+                    ],
+                    { ...shared, yFormat: v => v.toFixed(0) + '%', yMax: 100 }
+                );
+            }
+
+            // Read out to the tenth and without the unit, like the Avg/Max
+            // beside it.
+            drawLineChart(
+                document.getElementById('speedChart'),
+                [
+                    { name: 'Speed', color: COLOR_SPEED, points: plot(r => r.speed) }
+                ],
+                { ...shared, yFormat: v => v.toFixed(0) + 'km/h', readFormat: v => v.toFixed(1), minSpan: 10 }
+            );
+
+            drawLineChart(
+                document.getElementById('leanChart'),
+                [
+                    { name: 'Lean', color: COLOR_LEAN, points: plot(r => r.roll) }
+                ],
+                { ...shared, yFormat: v => v.toFixed(0) + '°', minSpan: 10, lost: rows.orientationLost }
+            );
+
+            drawLineChart(
+                document.getElementById('pitchChart'),
+                [
+                    { name: 'Pitch', color: COLOR_PITCH, points: plot(r => r.pitch) }
+                ],
+                { ...shared, yFormat: v => v.toFixed(0) + '°', minSpan: 10, lost: rows.orientationLost }
+            );
+
+            drawLineChart(
+                document.getElementById('gforceChart'),
+                [
+                    { name: 'G-Force', color: COLOR_GFORCE, points: gTotal },
+                    // Vertical component with gravity removed (verticalG()), so it
+                    // sits around 0 when the bike is just rolling along and the
+                    // combined trace above sits around 1. Shown next to it rather
+                    // than instead of it: the combined magnitude is what every
+                    // event label and the Tuning tab still use, and seeing both
+                    // makes it obvious when a big reading was a vertical hit
+                    // versus a hard corner.
+                    { name: 'Vertical', color: COLOR_NEUTRAL, points: gVertical, secondary: true }
+                ],
+                { ...shared, yFormat: v => v.toFixed(1) + 'G', minSpan: 2, lost: rows.orientationLost }
+            );
+
+            drawLineChart(
+                document.getElementById('altChart'),
+                [
+                    { name: 'Altitude', color: COLOR_ALT, points: plot(r => r.alt) }
+                ],
+                { ...shared, yFormat: v => v.toFixed(0) + 'm', includeZero: false, minSpan: 10 }
+            );
+        };
+
+        redrawTimeCharts = drawTimeCharts;
+        zoomRange = null;
+        pinnedTime = null;
+        updateZoomBar();
+        drawTimeStack();
+
+        // Computed here (before the map draw below, not down with the rest
+        // of the Analysis tab's stuff) so the route on the map can be
+        // colored by segment too — the map is always visible regardless of
+        // tab, so it doesn't need to wait for the Analysis tab's own
+        // section of load() to run.
+        const segments = computeActivitySegments(rows);
+
+        if (!tryDrawLeafletMap(chartRows, segments, t0)) {
+            drawGpsTrace(document.getElementById('gpsTrace'), chartRows);
+        }
+
+        // Lives next to the map now (not the Analysis tab) — always
+        // visible regardless of tab, same reasoning as the map itself,
+        // and the map's route is already colored by these same segments.
+        if (segments.length > 0) {
+            const technicalCount = segments.filter(s => s.technical).length;
+            document.getElementById('segmentsNote').textContent =
+                `${technicalCount} technical, ${segments.length - technicalCount} transition — auto-detected from suspension + G-force activity at below-median speed, relative to this ride's own baseline`;
+            renderSegments(rows, segments, frontMaxMM, rearMaxMM, isFullSusp);
+        } else {
+            document.getElementById('segmentsNote').textContent = 'No technical sections detected in this ride';
+            document.getElementById('segmentsChart').innerHTML = '';
+            document.getElementById('segmentsList').innerHTML = '';
+        }
+
+        // ── Analysis tab: ride summary, tuning, distributions, notable
+        //    events ──────────────────────────────────────────────────────
+
+        // Moving time / elevation are simple fixed-threshold running
+        // accumulations (not ride-relative like segment/jump/bottom-out
+        // detection below), so the device already computed them once
+        // during the run — see run_service.cpp. Fall back to deriving
+        // them from the CSV for older runs that never got a "stats" block.
+        const precomputed = meta && meta.stats;
+
+        let movingS;
+        if (precomputed && typeof precomputed.moving_s === 'number') {
+            movingS = precomputed.moving_s;
+        } else {
+            const MOVING_SPEED_KMH = 2;
+            const movingCount = rows.filter(r => r.speed > MOVING_SPEED_KMH).length;
+            movingS = totalS * (movingCount / rows.length);
+        }
+
+        let elevGain, elevLoss;
+        if (precomputed && typeof precomputed.elev_gain_m === 'number' && typeof precomputed.elev_loss_m === 'number') {
+            elevGain = precomputed.elev_gain_m;
+            elevLoss = precomputed.elev_loss_m;
+        } else {
+            const elev = computeElevation(rows);
+            elevGain = elev.gain;
+            elevLoss = elev.loss;
+        }
+
+        // Ride Summary used to be its own card on this tab — folded into
+        // the sidebar's Duration/Distance/Jumps blocks instead (as a
+        // compact sub-line each) so this info is visible regardless of
+        // which tab is active, without growing the sidebar card by much.
+        document.getElementById('statMovingTime').textContent = `${formatDuration(movingS)} moving`;
+        document.getElementById('statElevation').textContent = `+${elevGain.toFixed(0)} / -${elevLoss.toFixed(0)} m`;
+
+        const airEvents = detectAirtimeEvents(rows, AIR_G_THRESHOLD, AIR_MIN_DURATION_S);
+        const totalAirS = airEvents.reduce((sum, e) => sum + e.durationS, 0);
+
+        document.getElementById('statJumps').textContent = airEvents.length;
+        document.getElementById('statAirTime').textContent = airEvents.length ? `${totalAirS.toFixed(1)}s air time` : '≥0.1s airborne';
+
+        // Suspension summary
+        const frontVals = rows.map(r => r.front);
+        const rearVals = rows.map(r => r.rear);
+
+        const frontAvg = average(frontVals);
+        const rearAvg = average(rearVals);
+
+        // Static sag (captured once, sitting still — see Settings →
+        // Suspension Calibration → Capture Sag) pulled up here so the
+        // Dynamic Sag stat can show it alongside for comparison, not just
+        // reference it deep inside a Tuning Suggestions sentence.
+        const frontSetup = bike && bike.front_suspension ? bike.front_suspension : null;
+        const frontStaticSag = frontSetup && typeof frontSetup.sag_pct === 'number' ? frontSetup.sag_pct : 0;
+        const rearSetup = bike && bike.rear_suspension ? bike.rear_suspension : null;
+        const rearStaticSag = rearSetup && typeof rearSetup.sag_pct === 'number' ? rearSetup.sag_pct : 0;
+
+        const sagSubText = (avgMM, staticPct) =>
+            staticPct > 0 ? `${avgMM.toFixed(0)}mm avg · static ${staticPct.toFixed(0)}%` : `${avgMM.toFixed(0)}mm avg`;
+
+        document.getElementById('frontAvgSag').textContent = frontMaxMM ? (frontAvg / frontMaxMM * 100).toFixed(0) + '%' : '--';
+        document.getElementById('frontAvgSagMM').textContent = sagSubText(frontAvg, frontStaticSag);
+        document.getElementById('rearAvgSag').textContent = rearMaxMM ? (rearAvg / rearMaxMM * 100).toFixed(0) + '%' : '--';
+        document.getElementById('rearAvgSagMM').textContent = sagSubText(rearAvg, rearStaticSag);
+
+        const BOTTOM_OUT_PCT = 95, BOTTOM_OUT_RESET_PCT = 85;
+        const frontBOTimes = countBottomOuts(rows, 'front', frontMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT);
+        const rearBOTimes = isFullSusp ? countBottomOuts(rows, 'rear', rearMaxMM, BOTTOM_OUT_PCT, BOTTOM_OUT_RESET_PCT) : [];
+
+        document.getElementById('frontBottomOuts').textContent = frontBOTimes.length;
+        document.getElementById('rearBottomOuts').textContent = rearBOTimes.length;
+
+        // Hard impacts and front/rear imbalance — computed here (ahead of
+        // Damper Map/histograms below, which don't need them yet) so
+        // generateSuggestions() can use them as evidence alongside
+        // avgPct/toppedOutPct/bottom-outs, instead of the Tuning tab and
+        // the Notable Events list each recomputing the same underlying
+        // signal independently. gVals/gHist still get used again further
+        // down for the G-force histogram — that part hasn't moved.
+        const gVals = rows.map(r => Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2);
+
+        // Ride-relative rather than a fixed number: on a genuinely rough
+        // trail, routine chatter alone regularly clears any fixed G value
+        // low enough to still catch anything on a smooth ride — a fixed
+        // 2.5G threshold turned into hundreds of "hard impact" entries on
+        // one chattery run. Comparing against this ride's own G-force
+        // distribution means only what's actually exceptional *for this
+        // ride* gets called out, while IMPACT_G_FLOOR still keeps a calm
+        // ride from flagging its own mild bumps as "hard".
+        const IMPACT_G_PERCENTILE = 98;
+        const IMPACT_G_FLOOR = 2.5;
+        const IMPACT_MERGE_GAP_S = 0.4;
+
+        const impactHigh = Math.max(IMPACT_G_FLOOR, percentile(gVals, IMPACT_G_PERCENTILE));
+        const impactLow = impactHigh * 0.7;
+
+        const impactEvents = detectPeakEvents(
+            rows.map(r => ({ t: r.t, g: Math.sqrt(r.ax ** 2 + r.ay ** 2 + r.az ** 2) / G_TO_MS2 })),
+            r => r.g, impactHigh, impactLow, IMPACT_MERGE_GAP_S
+        );
+        const maxImpact = impactEvents.length ? impactEvents.reduce((a, b) => b.peak > a.peak ? b : a) : null;
+        const maxImpactG = maxImpact ? maxImpact.peak : 0;
+        const maxImpactRow = maxImpact ? rows.find(r => r.t === maxImpact.t) : null;
+        const maxImpactClipped = !!maxImpactRow && accelClipped(maxImpactRow);
+
+        // Harsh transmission (see detectHarshEvents) — hard vertical hits
+        // that barely moved the suspension. Deliberately kept out of
+        // generateSuggestions() for now: the thresholds above are a first
+        // estimate and haven't been checked against a ride the rider
+        // remembers as harsh, so they shouldn't be driving tuning advice yet.
+        const harshHigh = Math.max(HARSH_G_FLOOR, percentile(rows.filter(r => r.vertG !== null).map(r => r.vertG), HARSH_G_PERCENTILE));
+        const harshLow = harshHigh * 0.7;
+
+        const frontHarsh = detectHarshEvents(rows, 'front', frontMaxMM, harshHigh, harshLow);
+        const rearHarsh = isFullSusp ? detectHarshEvents(rows, 'rear', rearMaxMM, harshHigh, harshLow) : [];
+
+        // Front/rear balance: a big gap between how much travel each end is
+        // using isn't inherently wrong — landing a jump nose-heavy, or a
+        // manual, legitimately loads one end far more than the other for a
+        // moment. This just flags where that gap was unusually large *for
+        // this ride* (not a fixed number, same reasoning as hard impacts
+        // above) so the rider can judge for themselves whether it matches
+        // something they remember doing or looks like a genuine mismatch.
+        // Separate from — and a much narrower signal than —
+        // detectConsistentImbalance() below, which looks at the ride's
+        // typical gap throughout rather than isolated spikes.
+        const BALANCE_PERCENTILE = 95;
+        const BALANCE_FLOOR_PCT = 25;
+        const BALANCE_MERGE_GAP_S = 0.3;
+
+        let balanceEvents = [];
+        let balanceHigh = 0;
+
+        if (isFullSusp && frontMaxMM > 0 && rearMaxMM > 0) {
+            const balanceRows = rows.map(r => {
+                const diff = (r.front / frontMaxMM * 100) - (r.rear / rearMaxMM * 100);
+                return { t: r.t, diff, absDiff: Math.abs(diff) };
+            });
+
+            balanceHigh = Math.max(BALANCE_FLOOR_PCT, percentile(balanceRows.map(r => r.absDiff), BALANCE_PERCENTILE));
+            const balanceLow = balanceHigh * 0.7;
+
+            balanceEvents = detectPeakEvents(balanceRows, r => r.absDiff, balanceHigh, balanceLow, BALANCE_MERGE_GAP_S)
+                .map(ev => {
+                    const row = balanceRows.find(r => r.t === ev.t);
+                    const frontDeeper = !row || row.diff > 0;
+                    return {
+                        t: ev.t,
+                        label: `${frontDeeper ? 'Front' : 'Rear'} deeper by ${ev.peak.toFixed(0)}pp`,
+                        color: frontDeeper ? COLOR_FRONT : COLOR_REAR
+                    };
+                });
+        }
+
+        // Damper map — capped point count (see computeDamperMapPoints()'s
+        // comment): decimate() is applied to the computed pct/vel pairs,
+        // not to `rows` itself, so the velocity each point shows is still
+        // real consecutive-sample speed, never smoothed by skipping rows
+        // before the delta is taken.
+        const DAMPER_MAP_MAX_POINTS = 2500;
+        drawScatter(
+            document.getElementById('frontDamperMapChart'), document.getElementById('frontDamperMapTooltip'),
+            decimate(computeDamperMapPoints(rows, 'front', frontMaxMM), DAMPER_MAP_MAX_POINTS),
+            { color: COLOR_FRONT }
+        );
+        if (isFullSusp) {
+            drawScatter(
+                document.getElementById('rearDamperMapChart'), document.getElementById('rearDamperMapTooltip'),
+                decimate(computeDamperMapPoints(rows, 'rear', rearMaxMM), DAMPER_MAP_MAX_POINTS),
+                { color: COLOR_REAR }
+            );
+        }
+
+        // Travel distribution — front and rear together, one grouped-bar
+        // chart instead of two separate half-width ones.
+        const HIST_BINS = 10;
+        const frontHist = computeTravelHistogram(frontVals, frontMaxMM, HIST_BINS);
+        const rearHist = isFullSusp ? computeTravelHistogram(rearVals, rearMaxMM, HIST_BINS) : [];
+        drawGroupedHistogram(
+            document.getElementById('travelHistChart'), document.getElementById('travelHistTooltip'),
+            frontHist, rearHist,
+            {
+                colorA: COLOR_FRONT, colorB: COLOR_REAR, height: STACK_H,
+                xLabels: [{ frac: 0, text: '0%' }, { frac: 0.5, text: '50%' }, { frac: 1, text: '100%' }],
+                binLabel: i => `${i * (100 / HIST_BINS)}-${(i + 1) * (100 / HIST_BINS)}%`
+            }
+        );
+
+        // Velocity distribution
+        const VEL_BINS = 20;
+        const frontVels = computeVelocities(rows, 'front');
+        const frontVelHist = computeVelocityHistogram(frontVels, VEL_BINS);
+        document.getElementById('frontVelPeakMini').textContent = arrayMax(frontVels.map(Math.abs)).toFixed(0) + ' mm/s';
+        drawHistogram(
+            document.getElementById('frontVelChart'), document.getElementById('frontVelTooltip'),
+            frontVelHist.counts,
+            {
+                color: COLOR_FRONT, height: STACK_H,
+                zeroIndex: -frontVelHist.start / frontVelHist.binWidth,
+                xLabels: [
+                    { frac: 0, text: frontVelHist.start.toFixed(0) },
+                    { frac: 0.5, text: '0' },
+                    { frac: 1, text: (-frontVelHist.start).toFixed(0) + ' mm/s' }
+                ],
+                binLabel: i => (frontVelHist.start + i * frontVelHist.binWidth).toFixed(0) + ' mm/s'
+            }
+        );
+
+        // Asked for when the page started loading; long since answered.
+        const setupContext = await setupContextPromise;
+
+        const frontToppedOutPct = computeToppedOutPct(frontVals, frontMaxMM, TOPPED_OUT_PCT);
+        const frontSuggestions = generateSuggestions(frontMaxMM ? (frontAvg / frontMaxMM * 100) : 0, frontToppedOutPct, frontBOTimes.length, totalMinutes, frontVels, frontStaticSag, adjusterAvailability(frontSetup), impactEvents.length, maxImpactG, maxImpactClipped);
+        addSetupContext(frontSuggestions, setupContext, 'front', adjusterAvailability(frontSetup), frontStaticSag);
+        renderTuningSide('tuningFront', 'Front', COLOR_FRONT, frontSetup, frontSuggestions);
+
+        // Kept past the block for "Copy for AI" (aiContext below).
+        let rearVels = [], rearToppedOutPct = 0, rearSuggestionsShown = [];
+
+        if (isFullSusp) {
+            rearVels = computeVelocities(rows, 'rear');
+            const rearVelHist = computeVelocityHistogram(rearVels, VEL_BINS);
+            document.getElementById('rearVelPeakMini').textContent = arrayMax(rearVels.map(Math.abs)).toFixed(0) + ' mm/s';
+            drawHistogram(
+                document.getElementById('rearVelChart'), document.getElementById('rearVelTooltip'),
+                rearVelHist.counts,
+                {
+                    color: COLOR_REAR, height: STACK_H,
+                    zeroIndex: -rearVelHist.start / rearVelHist.binWidth,
+                    xLabels: [
+                        { frac: 0, text: rearVelHist.start.toFixed(0) },
+                        { frac: 0.5, text: '0' },
+                        { frac: 1, text: (-rearVelHist.start).toFixed(0) + ' mm/s' }
+                    ],
+                    binLabel: i => (rearVelHist.start + i * rearVelHist.binWidth).toFixed(0) + ' mm/s'
+                }
+            );
+
+            rearToppedOutPct = computeToppedOutPct(rearVals, rearMaxMM, TOPPED_OUT_PCT);
+            const rearSuggestions = generateSuggestions(rearMaxMM ? (rearAvg / rearMaxMM * 100) : 0, rearToppedOutPct, rearBOTimes.length, totalMinutes, rearVels, rearStaticSag, adjusterAvailability(rearSetup), impactEvents.length, maxImpactG, maxImpactClipped);
+            addSetupContext(rearSuggestions, setupContext, 'rear', adjusterAvailability(rearSetup), rearStaticSag);
+
+            // Said first: everything under it describes the shock with its
+            // lever closed, which is not the setup there is to tune.
+            if (rearSetup && rearSetup.lockout === true) {
+                rearSuggestions.unshift({
+                    tag: 'Lockout', ok: false,
+                    text: 'This run was ridden with the rear shock locked out, so the rear figures here are of the locked shock, not of the setup as it is ridden open. Tune the rear from another run.'
+                });
+            }
+            renderTuningSide('tuningRear', 'Rear', COLOR_REAR, rearSetup, rearSuggestions);
+            rearSuggestionsShown = rearSuggestions;
+        }
+
+        renderImbalanceSuggestion(detectConsistentImbalance(rows, frontMaxMM, rearMaxMM, isFullSusp));
+
+        // Speed distribution
+        const speedVals = rows.map(r => r.speed);
+        const speedHist = computeHistogram(speedVals, 8);
+        document.getElementById('speedAvgMiniHist').textContent = average(speedVals).toFixed(1) + ' km/h';
+        document.getElementById('speedMaxMiniHist').textContent = arrayMax(speedVals).toFixed(1) + ' km/h';
+        drawHistogram(
+            document.getElementById('speedHistChart'), document.getElementById('speedHistTooltip'),
+            speedHist.counts,
+            {
+                color: COLOR_SPEED, height: STACK_H,
+                xLabels: [{ frac: 0, text: '0' }, { frac: 1, text: (speedHist.binWidth * speedHist.counts.length).toFixed(0) + ' km/h' }],
+                binLabel: i => `${(i * speedHist.binWidth).toFixed(0)}-${((i + 1) * speedHist.binWidth).toFixed(0)} km/h`
+            }
+        );
+
+        // Lean angle distribution
+        const leanVals = rows.filter(r => r.roll !== null).map(r => Math.abs(r.roll));
+        const leanHist = computeHistogram(leanVals, 8);
+        document.getElementById('leanAvgMini').textContent = average(leanVals).toFixed(0) + '°';
+        document.getElementById('leanMaxMiniHist').textContent = arrayMax(leanVals).toFixed(0) + '°';
+        drawHistogram(
+            document.getElementById('leanHistChart'), document.getElementById('leanHistTooltip'),
+            leanHist.counts,
+            {
+                color: COLOR_LEAN, height: STACK_H,
+                xLabels: [{ frac: 0, text: '0°' }, { frac: 1, text: (leanHist.binWidth * leanHist.counts.length).toFixed(0) + '°' }],
+                binLabel: i => `${(i * leanHist.binWidth).toFixed(0)}-${((i + 1) * leanHist.binWidth).toFixed(0)}°`
+            }
+        );
+
+        // G-force distribution — gVals/impactEvents/balanceEvents
+        // themselves were computed earlier now (see the comment by
+        // frontBOTimes/rearBOTimes above), so generateSuggestions() can
+        // use them too; this just draws the histogram.
+        const gHist = computeHistogram(gVals, 8);
+        document.getElementById('gforceAvgMiniHist').textContent = average(gVals).toFixed(1) + 'G';
+        document.getElementById('gforceMaxMiniHist').textContent = formatPeakG(arrayMax(gVals), computeStats(rows).maxGClipped);
+        drawHistogram(
+            document.getElementById('gforceHistChart'), document.getElementById('gforceHistTooltip'),
+            gHist.counts,
+            {
+                color: COLOR_GFORCE, height: STACK_H,
+                xLabels: [{ frac: 0, text: '0G' }, { frac: 1, text: (gHist.binWidth * gHist.counts.length).toFixed(0) + 'G' }],
+                binLabel: i => `${(i * gHist.binWidth).toFixed(1)}-${((i + 1) * gHist.binWidth).toFixed(1)}G`
+            }
+        );
+
+        // "Hard impact" used to be its own standalone entry here
+        // (impactEvents.map(...) below) — dropped since a bare "Hard
+        // impact (3.1G)" row with no adjuster/side attached carried no
+        // clear action on its own and mostly read as noise. The peak G
+        // near each bottom-out/landing below (peakGNear()) keeps that
+        // information visible on events that already do have a clear
+        // meaning, instead of losing it outright. impactEvents/maxImpactG
+        // themselves are unchanged and still feed generateSuggestions()'s
+        // bottoming-out severity (see collectSuggestionEvidence()).
+        document.getElementById('eventsNote').textContent =
+            `Suspension bottom-outs (≥95% travel) and jumps (≥0.1s airborne), each with the peak G nearby` +
+            (isFullSusp && frontMaxMM > 0 && rearMaxMM > 0
+                ? `, and front/rear imbalance (≥${balanceHigh.toFixed(0)}pp gap — top ${100 - BALANCE_PERCENTILE}% of this ride)`
+                : '') +
+            `. "Harsh" marks a vertical hit of ≥${harshHigh.toFixed(1)}G that moved that end ≤${HARSH_TRAVEL_PP}pp of its travel — the impact went through the bike rather than into the damper.`;
+
+        const eventEntries = [
+            ...frontBOTimes.map(t => ({ t, label: `Front bottom-out (${peakGNearText(rows, gVals, t)})`, color: COLOR_FRONT })),
+            ...rearBOTimes.map(t => ({ t, label: `Rear bottom-out (${peakGNearText(rows, gVals, t)})`, color: COLOR_REAR })),
+            ...frontHarsh.map(ev => ({ t: ev.t, label: `Harsh front (${ev.peak.toFixed(1)}G vertical, only ${ev.usedPp.toFixed(0)}pp travel)`, color: COLOR_FRONT })),
+            ...rearHarsh.map(ev => ({ t: ev.t, label: `Harsh rear (${ev.peak.toFixed(1)}G vertical, only ${ev.usedPp.toFixed(0)}pp travel)`, color: COLOR_REAR })),
+            ...airEvents.map(ev => {
+                const landingT = ev.startT + ev.durationS * 1000;
+                return { t: ev.startT, label: `Jump (${ev.durationS.toFixed(2)}s air, ${peakGNearText(rows, gVals, landingT)} landing)`, color: COLOR_SPEED };
+            }),
+            ...balanceEvents
+        ];
+        renderEvents(eventEntries, t0, totalS);
+
+        // What "Copy for AI" puts into its prompt (aiPrompt()): this page's
+        // own figures, kept as computed here rather than worked out again.
+        const endFigures = (maxMM, vals, vels, boTimes, toppedOutPct, staticSag, setup, suggestions, harsh, hist) => {
+            const comp = vels.filter(v => v > 0);
+            const rebound = vels.filter(v => v < 0).map(v => -v);
+            const speeds = list => list.length > 10 ? [50, 90, 99].map(p => percentile(list, p)) : null;
+            const avg = average(vals);
+
+            return {
+                maxMM, setup, suggestions, staticSag, toppedOutPct, hist,
+                avgMM: avg, avgPct: maxMM ? avg / maxMM * 100 : null,
+                peakMM: arrayMax(vals), boCount: boTimes.length,
+                comp: speeds(comp), rebound: speeds(rebound),
+                compMax: comp.length ? arrayMax(comp) : 0, reboundMax: rebound.length ? arrayMax(rebound) : 0,
+                harshCount: harsh.length
+            };
+        };
+
+        aiContext = {
+            meta, bike, isFullSusp, totalS, movingS, elevGain, elevLoss,
+            stats, imuBasis: !!imuBasis,
+            rowsPerS: rows.length / (totalS || 1),
+            jumps: airEvents.length, airS: totalAirS,
+            impacts: impactEvents.length, impactHigh, maxImpactG, maxImpactClipped,
+            clippedSamples: rows.filter(accelClipped).length,
+            front: endFigures(frontMaxMM, frontVals, frontVels, frontBOTimes, frontToppedOutPct, frontStaticSag, frontSetup, frontSuggestions, frontHarsh, frontHist),
+            rear: isFullSusp
+                ? endFigures(rearMaxMM, rearVals, rearVels, rearBOTimes, rearToppedOutPct, rearStaticSag, rearSetup, rearSuggestionsShown, rearHarsh, rearHist)
+                : null,
+            medianGapPp: isFullSusp && frontMaxMM && rearMaxMM
+                ? percentile(rows.map(r => (r.front / frontMaxMM * 100) - (r.rear / rearMaxMM * 100)), 50)
+                : null,
+            imbalanceText: (document.querySelector('#tuningImbalance .suggestion-item > span:last-child') || {}).textContent || '',
+            segments: segments.map(seg => ({ seg, stats: computeSegmentStats(rows, seg, frontMaxMM, rearMaxMM) })),
+            events: eventEntries.filter(e => !balanceEvents.includes(e)).map(e => ({ s: (e.t - t0) / 1000, label: e.label })),
+            balance: {
+                count: balanceEvents.length, thresholdPp: balanceHigh,
+                frontDeeper: balanceEvents.filter(e => e.label.startsWith('Front')).length
+            },
+            gaps: runGaps, orientationLost: rows.orientationLost || [],
+            setupContext
+        };
+        document.getElementById('copyAiBtn').disabled = false;
+    } catch (e) {
+        console.error('run.html load() failed:', e);
+        const el = document.getElementById('loadError');
+        el.textContent = 'Could not load run data. ' + (e && e.message ? '(' + e.message + ')' : '');
+        el.style.display = 'block';
+        document.getElementById('zoomText').textContent = '';
+    } finally {
+        document.body.classList.remove('is-loading');
+    }
+}
+
+initTimeStack();
+load();
+

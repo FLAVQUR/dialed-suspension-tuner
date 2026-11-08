@@ -139,7 +139,7 @@ Max can't be captured until that end's declared travel is set in the Bike tab. Z
 
 ## IMU orientation — lean, pitch and vertical G
 
-**Units**: `pitch`/`roll` come in **radians** from the BNO08x library, and the firmware, the `.CSV`, the `.CSVB` and the run `.JSON` all carry radians (`max_lean_deg`/`max_pitch_deg` are misleadingly named). The dashboard converts at the two points where raw values enter it (`parseCompactTelemetry()` in `telemetry.js` and `statsFromMeta()` in `run.html`, via `RAD_TO_DEG`). Logged precision is 0.01 rad (≈0.57°). `ax/ay/az` are **raw body-frame**, not gravity-compensated.
+**Units**: `pitch`/`roll` come in **radians** from the BNO08x library, and the firmware, the `.CSV`, the `.CSVB` and the run `.JSON` all carry radians (`max_lean_deg`/`max_pitch_deg` are misleadingly named). The dashboard converts at the two points where raw values enter it (`parseCompactTelemetry()` in `telemetry.js` and `statsFromMeta()` in `run.js`, via `RAD_TO_DEG`). Logged precision is 0.01 rad (≈0.57°). `ax/ay/az` are **raw body-frame**, not gravity-compensated.
 
 **Mounting**: IMU axes are x forward, y left, z up. On the bike the master sits inside the frame triangle with its **x axis ≈64° above horizontal** (rest pitch −64.2° in every test; pure pitch, rigid and repeatable). Rest roll is not a mount constant — it varied −2° to −14° with how straight the bike was held.
 

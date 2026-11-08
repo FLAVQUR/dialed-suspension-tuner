@@ -29,7 +29,7 @@ The web pages the device serves (`web/`): shared UI, the run page, the tuning su
 
 ### Files and scripts
 
-**Shared files**: `style.css` and `common.js` on all six pages, and `telemetry.js` on the three that open a run's data (`run.html`, `compare.html`, `trends.html`). Each web file is served by its own `serveWebFile()` route (see the note at the top). LittleFS holds only these web files (settings are in NVS, runs and bike profiles on the SD). **The files go into the filesystem image gzipped** (2026-10-07): `web/` stays plain, `tools/gzip_web_files.py` (a `pre:` extra script in `platformio.ini`) stages a `.gz` copy of it under `.pio/build/esp32dev/data_gz` whenever `buildfs`/`uploadfs` runs, and `serveWebFile()` streams `x.gz` with `Content-Encoding: gzip` when asked for `x` (a plain `x` is still served if that is what is there). 415KB → 120KB in total; what the run page downloads went from 263KB to 78KB. Firmware at 84.5% of its app partition.
+**Shared files**: `style.css` and `common.js` on all six pages, and `telemetry.js` on the three that open a run's data (`run.html`, `compare.html`, `trends.html`). The run page's own script is a file too, `run.js` (2026-11-08; until then it was inline, 4,000 lines of a 220 KB page); the other pages keep theirs inline. Each web file is served by its own `serveWebFile()` route (see the note at the top). LittleFS holds only these web files (settings are in NVS, runs and bike profiles on the SD). **The files go into the filesystem image gzipped** (2026-10-07): `web/` stays plain, `tools/gzip_web_files.py` (a `pre:` extra script in `platformio.ini`) stages a `.gz` copy of it under `.pio/build/esp32dev/data_gz` whenever `buildfs`/`uploadfs` runs, and `serveWebFile()` streams `x.gz` with `Content-Encoding: gzip` when asked for `x` (a plain `x` is still served if that is what is there). 415KB → 120KB in total; what the run page downloads went from 263KB to 78KB. Firmware at 84.5% of its app partition.
 
 **The icons** (2026-11-07): every page's `<head>` links `favicon.ico` (16/32/48, for browsers without SVG favicons), `favicon.svg` and `apple-touch-icon.png` (iOS home screen), about 7KB together. They are the logo's colour version on its Ink tile, made in [`brand/`](../brand/README.md) and copied into `web/` by `brand/export_all.sh`; change them there, not in `web/`. The `.png` and `.ico` go into the image as they are, and `serveWebFile()` opens them directly: asking LittleFS for a `.gz` that isn't there logs an error on every request. The three are sent with `Cache-Control: max-age=604800`, so the browser doesn't ask this one-request-at-a-time server again on every page; a changed icon can take up to a week to show in a browser that has the old one. No web manifest and no 192/512px icons: they only serve "install as app", which browsers offer on HTTPS only (see [decisions.md](decisions.md#dashboard)).
 
@@ -163,7 +163,7 @@ The web pages the device serves (`web/`): shared UI, the run page, the tuning su
 
 </details>
 
-## Tuning Suggestions engine (`generateSuggestions()` in `run.html`)
+## Tuning Suggestions engine (`generateSuggestions()` in `run.js`)
 
 ```mermaid
 flowchart LR
@@ -203,7 +203,7 @@ flowchart LR
 
 ### Copy for AI (2026-10-28)
 
-A **Copy for AI** button at the top of the Tuning Suggestions card puts the run on the clipboard as a Markdown prompt, to paste into a chat with a language model (`aiPrompt()`, `copyForAi()` in `run.html`). It is enabled once `load()` has worked everything out, and `load()` keeps what the prompt needs in `aiContext`, as it computed it — nothing is worked out a second time for the prompt.
+A **Copy for AI** button at the top of the Tuning Suggestions card puts the run on the clipboard as a Markdown prompt, to paste into a chat with a language model (`aiPrompt()`, `copyForAi()` in `run.js`). It is enabled once `load()` has worked everything out, and `load()` keeps what the prompt needs in `aiContext`, as it computed it — nothing is worked out a second time for the prompt.
 
 What the prompt holds, in this order:
 - **What to answer**: what the data says about each end and the two together, where the dashboard's suggestions are right or wrong, the one change to make first and what to look for in the next ride, and what the data can't tell (ask for the feel, the trail, the rider's weight, the fork and shock models and revisions).

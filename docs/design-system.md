@@ -76,7 +76,7 @@ The theme is a device setting (`theme` in `/api/config`), applied by `applyTheme
 - **Text never takes a series colour.** Values, labels and legends stay in `--text` / `--text-muted`; a coloured mark beside them carries the identity (`<span style="color:var(--series-front)">●</span> Front`, or a badge's `.dot`). In the light theme the rear orange as text was 3.1:1, and the pink "Technical" badge about 3:1 (fixed 2026-11-07).
 - **The diverging pair** (2026-11-07) is blue against red, the dataviz skill's own: CVD ΔE 19–22 in both themes. The green/red it replaced was ΔE 7.4 for deuteranopia on the dark card, and no green against red passes. Its blue is the fork's; that is safe only because Compare never draws the fork in its series colour, so don't put the two on one page. It is **always on a solid line**: as translucent fills the two hues fall under the normal-vision floor (ΔE < 8 at 25–35% opacity), so a fill under the line is only a tint. **Its midpoint is a grey** ("about even"): `--text-muted` on the chart, `--map-even` on the map (2026-11-07). Run B's pink there was ΔE 7.8 from the red even in normal vision.
 - **A new hue is a palette change**, not a local decision. Validate it with the dataviz palette validator in both themes before using it.
-- Page scripts read the tokens once at load (`cssVar()` → `COLOR_FRONT` etc. in `run.html`, `COLOR_BORDER` etc. in `telemetry.js`). Never hard-code a hex in a script.
+- Page scripts read the tokens once at load (`cssVar()` → `COLOR_FRONT` etc. in `run.js`, `COLOR_BORDER` etc. in `telemetry.js`). Never hard-code a hex in a script.
 
 ### The background
 

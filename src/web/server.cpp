@@ -1458,6 +1458,7 @@ bool serverInit() {
     serveWebFile("/style.css", "/style.css", "text/css");
     serveWebFile("/common.js", "/common.js", "application/javascript");
     serveWebFile("/telemetry.js", "/telemetry.js", "application/javascript");
+    serveWebFile("/run.js", "/run.js", "application/javascript");
     serveWebFile("/version.json", "/version.json", "application/json");
 
     // The logo's icons (brand/export/web, copied into data/ by brand/export_all.sh)
