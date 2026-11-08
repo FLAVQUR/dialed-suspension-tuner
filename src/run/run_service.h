@@ -75,14 +75,14 @@ namespace RunService
 
     // What one of those runs' .JSON says about it. A file read off the card
     // each time: callers ask for a page of runs, never the whole card (see
-    // handleApiRuns() in server.cpp).
+    // handleApiRuns() in api_runs.cpp).
     RunInfo info(const String& name);
 
     // Ensures a compact binary companion file exists for this run's CSV
-    // (see writeCompactCsv() in run_service.cpp for the format and why it
+    // (see writeCompactCsv() in run_compact.cpp for the format and why it
     // exists), generating it now if this run predates the feature.
     // Returns false only if the run's .CSV itself doesn't exist. Called by
-    // the /api/runs/telemetry download handler in server.cpp before
+    // the /api/runs/telemetry download handler in api_runs.cpp before
     // serving it — the only other caller is stop() itself, right after a
     // fresh recording finishes.
     bool ensureCompactCsv(const String& name);

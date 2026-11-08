@@ -200,7 +200,7 @@ void wifiSetMode(WifiMode newMode) {
             // actually transferring data, which is most of why a multi-MB
             // run CSV download over the home network was still crawling
             // even after chunk size and Nagle's algorithm were fixed in
-            // server.cpp/zip_writer.cpp. AP mode already disables this
+            // server.cpp (now api_runs.cpp)/zip_writer.cpp. AP mode already disables this
             // (below) — STA mode never did.
             WiFi.setSleep(false);
 

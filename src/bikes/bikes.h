@@ -24,7 +24,7 @@
 // activating it again brought the old values back. The name is part of
 // this: on a bike that has a profile, a new name renames the profile
 // instead of leaving it behind under the old one (see the config handler in
-// server.cpp).
+// api_config.cpp).
 namespace BikeProfiles
 {
     std::vector<String> list();

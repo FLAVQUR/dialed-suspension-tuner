@@ -285,7 +285,7 @@ void handleApiRunDownload() {
 }
 
 // Serves a run's compact binary telemetry (see writeCompactCsv() in
-// run_service.cpp for the format and why it exists) instead of the raw
+// run_compact.cpp for the format and why it exists) instead of the raw
 // .CSV — run.html/compare.html/trends.html's own charts only ever needed
 // 12 of the .CSV's 17 columns anyway, and re-encoding those as scaled
 // fixed-point integers instead of ASCII decimal text cuts what actually

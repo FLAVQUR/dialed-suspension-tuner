@@ -141,7 +141,7 @@ function verticalG(pitchRad, rollRad, ax, ay, az)
 }
 
 // Decodes the compact binary telemetry format written by RunService's
-// writeCompactCsv() (run_service.cpp) and served from /api/runs/telemetry
+// writeCompactCsv() (run_compact.cpp) and served from /api/runs/telemetry
 // — see that function's comment for the exact byte layout. Replaced the
 // old text-CSV fetch+parseCSV(): a run.html download-speed investigation
 // found the real bottleneck was WiFi upload throughput itself (an ESP32

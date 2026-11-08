@@ -53,7 +53,7 @@ void appendStr(std::vector<uint8_t>& buf, const String& s) {
 constexpr uint16_t DOS_DATE = 0x21;
 constexpr uint16_t DOS_TIME = 0;
 
-// See handleApiRunDownload() in server.cpp for why this is 16KB (not the
+// See handleApiRunDownload() in api_runs.cpp for why this is 16KB (not the
 // original, much smaller size) and why the read buffers below are
 // `static` rather than stack-local — same fix, same reasoning, applied
 // here too since this handler shares the identical read-chunk/sendContent
@@ -63,7 +63,7 @@ constexpr size_t CHUNK_SIZE = 16384;
 
 // Shared by both passes below (CRC pass, then send pass) — they never run
 // concurrently, and a separate 16KB array for each was part of what
-// overflowed the ESP32's DRAM budget once server.cpp also grew its own
+// overflowed the ESP32's DRAM budget once server.cpp (now api_runs.cpp) also grew its own
 // 16KB buffers (see the shared downloadBuf there for the same fix).
 static uint8_t chunkBuf[CHUNK_SIZE];
 

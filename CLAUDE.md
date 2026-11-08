@@ -47,7 +47,7 @@ node --test "tests/*.test.mjs"   # the dashboard's maths, against three real run
 - **Secrets**: the OTA password is in `src/config/secrets.h` and `platformio.local.ini`, neither in git. Never print, copy or commit them.
 - **Git**: commit only when asked, straight on `main` (the repository's practice), ending the message with the `Co-Authored-By` trailer. Push only when asked.
 - **Pushing from an agent's shell**: git there cannot ask for credentials. The first `fetch` was run by hand in a terminal, which stored the GitHub login in Windows Credential Manager; everything since goes through without a prompt. If pushes start failing with "Cannot prompt", that stored login is gone and the same step is needed again.
-- **Never start an open-ended run from a test**: with WiFi off while recording, only the device's button can stop it. Use `POST /api/run/timed` (`seconds=N`, 1–120), then delete that run — only that one, by the name the call returned. Don't leave piles of bench runs on the card.
+- **Never start an open-ended run from a test**: with WiFi off while recording, only the device's button can stop it. Use `POST /api/run/timed` (`seconds=N`, 1–120), then delete that run — only that one, by the name the call returned. Don't leave piles of bench runs on the card. `tools/bench/timed_run_check.py` does all of this and checks the run on the way.
 - **A new file in `web/` needs its own route** in `serverInit()`, i.e. a firmware build.
 - **Page scripts must not declare a top-level `const`/`let` with a name `common.js` or `telemetry.js` already uses** — that is a SyntaxError and the whole page script stops.
 - **Checking pages headless**: Chrome (`--headless=new --screenshot … --window-size=…`, its own `--user-data-dir` in the scratchpad). Edge's headless stopped producing output after an update. `--window-size=W` lays the page out about 16px narrower first, so a page measured at exactly 1024px is first drawn in the narrow layout; screenshot at 1040 for a 1024px viewport. See [docs/troubleshooting.md](docs/troubleshooting.md#how-to-test-and-work-on-the-device).
@@ -82,10 +82,13 @@ src/gps/gps.cpp          — NMEA decoding (bounded non-blocking read, values ca
 src/system/clock.cpp     — wall-clock time from GPS / NTP / browser, most trusted source wins
 src/connectivity/network.cpp — STA/AP state machine; starts NTP when the home network connects
 src/logger/logger.cpp    — one row per suspension sample, stamped with the time it was due
-src/run/run_service.cpp  — recording (incl. timed runs), SD writer task (detect/retry/reopen/replay), the spill
-                           buffer behind the queue (radio off), row formatting,
-                           run .JSON (stats, start_utc, title, notes), compact .CSVB,
-                           orphaned-run recovery
+src/run/run_service.cpp  — the recorder: start/stop (incl. timed runs), the live stats, the SD writer task
+                           (detect/retry/reopen/replay), the spill buffer behind the queue (radio off),
+                           row formatting, writing the run's .JSON (stats, start_utc, battery_v)
+src/run/run_files.cpp    — the runs on the card: listing (rootFileNames()), reading and editing a finished
+                           run's .JSON (notes, title, setup, bottom-outs), deleting, orphaned-run recovery
+src/run/run_compact.cpp  — the .CSVB, written from the .CSV after a run (writeCompactCsv())
+src/run/run_files.h      — internal to src/run/: the run's file paths and the functions the files share
 src/storage/storage.cpp  — SD init (SD_SPI_HZ), open/flush/close wrappers
 lib/SD/                  — the framework's SD library 2.0.0 with the write-status fix (sdWriteStatusOk()
                            in src/sd_diskio.cpp) and log lines on its silent failure paths
@@ -94,9 +97,13 @@ src/bikes/bikes.cpp      — bike profiles (/bikes/*.json on the SD): save/activ
                            syncActive(), which keeps the active one equal to the live settings
 src/web/dialed_web_server.h — WebServer subclass: beginResponse()/streamWebFile(), the framework's
                            send() without its "content length is zero" warning
-src/web/server.cpp       — one serveWebFile() route per web file (gzip; pages carry a theme cookie); /api/status, /api/time,
-                           /api/config, /api/runs/*, /api/run/timed, /api/bikes/*,
-                           /api/suspension/*, /api/imu*, /api/wifi/*, /api/debug/loop
+src/web/server.cpp       — the route table (serverInit()), one serveWebFile() route per web file (gzip;
+                           pages carry a theme cookie); api.h declares the handlers for it
+src/web/api_device.cpp   — /api/status, /api/time, /api/wifi/*, /api/run/toggle, /api/run/timed,
+                           /api/debug/*, /api/system
+src/web/api_config.cpp   — /api/config (the live settings)
+src/web/api_runs.cpp     — /api/runs/*: the list, downloads, the ZIP, notes/title/setup/bottom-outs, delete
+src/web/api_bike.cpp     — /api/suspension/*, /api/bikes/*, /api/imu*
 .github/workflows/build.yml — CI: firmware + filesystem image from a clean checkout, example secrets;
                            the README's build badge
 tools/version_stamp.py   — build step: git describe + build time → include/version_stamp.h
@@ -106,6 +113,8 @@ tools/gzip_web_files.py  — build step: gzips web/ into the filesystem image (b
 tools/upload_both.py     — makes "upload" send the dashboard after the firmware
 tools/palette_swatches.py — draws docs/media/palette-dark.svg and palette-light.svg from style.css's
                            tokens (shown in design-system.md); run again after any colour change
+tools/bench/timed_run_check.py — after a change to src/run/: records a timed run, checks it end to end
+                           (list, .JSON, .CSVB, .CSV, editing a note), deletes it
 tools/bench/battery_drain.py — battery-life test: timed runs on a riding-day cadence until the battery
                            gives out; logs the voltage and checks and deletes each run
 enclosure/               — the enclosure's 3D models (the STL is local only, *.stl ignored until there is a

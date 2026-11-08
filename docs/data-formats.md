@@ -29,7 +29,7 @@ The IMU and GPS columns repeat their latest cached value between their own updat
 
 ### `.CSVB`, what the dashboard downloads
 
-Written once, right after the run ends, from the `.CSV`: 12 of its 17 columns as scaled integers, about a quarter of the size. The CSV stays as it is, so a card pulled out of the device still opens in a spreadsheet. Little-endian. An 8-byte header (magic `RBC1` + `uint32` row count), then 30-byte rows (`CompactRow` in `run_service.cpp`):
+Written once, right after the run ends, from the `.CSV`: 12 of its 17 columns as scaled integers, about a quarter of the size. The CSV stays as it is, so a card pulled out of the device still opens in a spreadsheet. Little-endian. An 8-byte header (magic `RBC1` + `uint32` row count), then 30-byte rows (`CompactRow` in `run_compact.cpp`):
 
 | Offset | Type | Field | Scale |
 |---|---|---|---|
